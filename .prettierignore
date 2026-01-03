@@ -1,0 +1,33 @@
+# Ignore artifacts:
+build
+coverage
+node_modules
+next-env.d.ts
+public
+dist
+
+# Ignore all HTML files:
+*.html
+
+# Ignore all JavaScript files:
+*.js
+*.jsx
+
+# Ignore all CSS files:
+*.css
+
+# Ignore all TypeScript build files:
+*.d.ts
+*.tsbuildinfo
+
+# Ignore Next.js specific folders:
+.next
+out
+
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+bun.lockb
+
+*.md
+Dockerfile*

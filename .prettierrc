@@ -1,0 +1,14 @@
+{
+	"plugins": [],
+	"semi": false,
+	"trailingComma": "es5",
+	"singleQuote": false,
+	"printWidth": 180,
+	"useTabs": true,
+	"tabWidth": 4,
+	"jsxSingleQuote": false,
+	"bracketSpacing": true,
+	"embeddedLanguageFormatting": "auto",
+	"arrowParens": "always",
+	"endOfLine": "auto"
+}
