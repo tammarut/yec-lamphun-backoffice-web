@@ -1,0 +1,21 @@
+# Git and version control
+.git
+.gitignore
+
+# Node dependencies
+node_modules
+
+# Build output
+.next
+out
+
+# Local environment variables
+.env
+.env.local
+.env.production
+
+# Docker and editor files
+Dockerfile
+.dockerignore
+README.md
+*.log
