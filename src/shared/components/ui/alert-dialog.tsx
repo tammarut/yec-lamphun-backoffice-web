@@ -1,10 +1,10 @@
 "use client"
 
-import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
+import * as React from "react"
 
-import { cn } from "src/lib/utils"
-import { Button } from "src/components/ui/button"
+import { Button } from "src/shared/components/ui/button"
+import { cn } from "src/shared/lib/utils/utils"
 
 function AlertDialog({ ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
 	return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />

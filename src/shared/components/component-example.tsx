@@ -34,7 +34,7 @@ import {
 	UserIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Example, ExampleWrapper } from "src/components/example"
+import { Example, ExampleWrapper } from "src/shared/components/example"
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -46,11 +46,11 @@ import {
 	AlertDialogMedia,
 	AlertDialogTitle,
 	AlertDialogTrigger,
-} from "src/components/ui/alert-dialog"
-import { Badge } from "src/components/ui/badge"
-import { Button } from "src/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "src/components/ui/card"
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "src/components/ui/combobox"
+} from "src/shared/components/ui/alert-dialog"
+import { Badge } from "src/shared/components/ui/badge"
+import { Button } from "src/shared/components/ui/button"
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "src/shared/components/ui/card"
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "src/shared/components/ui/combobox"
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -67,11 +67,11 @@ import {
 	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
-} from "src/components/ui/dropdown-menu"
-import { Field, FieldGroup, FieldLabel } from "src/components/ui/field"
-import { Input } from "src/components/ui/input"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "src/components/ui/select"
-import { Textarea } from "src/components/ui/textarea"
+} from "src/shared/components/ui/dropdown-menu"
+import { Field, FieldGroup, FieldLabel } from "src/shared/components/ui/field"
+import { Input } from "src/shared/components/ui/input"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "src/shared/components/ui/select"
+import { Textarea } from "src/shared/components/ui/textarea"
 
 export function ComponentExample() {
 	return (
@@ -232,7 +232,7 @@ function FormExample() {
 									<DropdownMenuLabel>View</DropdownMenuLabel>
 									<DropdownMenuCheckboxItem
 										checked={notifications.email}
-										onCheckedChange={(checked) =>
+										onCheckedChange={(checked: boolean) =>
 											setNotifications({
 												...notifications,
 												email: checked === true,
@@ -244,7 +244,7 @@ function FormExample() {
 									</DropdownMenuCheckboxItem>
 									<DropdownMenuCheckboxItem
 										checked={notifications.sms}
-										onCheckedChange={(checked) =>
+										onCheckedChange={(checked: boolean) =>
 											setNotifications({
 												...notifications,
 												sms: checked === true,
@@ -322,7 +322,7 @@ function FormExample() {
 																	<DropdownMenuLabel>Notification Types</DropdownMenuLabel>
 																	<DropdownMenuCheckboxItem
 																		checked={notifications.push}
-																		onCheckedChange={(checked) =>
+																		onCheckedChange={(checked: boolean) =>
 																			setNotifications({
 																				...notifications,
 																				push: checked === true,
@@ -334,7 +334,7 @@ function FormExample() {
 																	</DropdownMenuCheckboxItem>
 																	<DropdownMenuCheckboxItem
 																		checked={notifications.email}
-																		onCheckedChange={(checked) =>
+																		onCheckedChange={(checked: boolean) =>
 																			setNotifications({
 																				...notifications,
 																				email: checked === true,
@@ -415,7 +415,7 @@ function FormExample() {
 									<ComboboxContent>
 										<ComboboxEmpty>No frameworks found.</ComboboxEmpty>
 										<ComboboxList>
-											{(item) => (
+											{(item: string) => (
 												<ComboboxItem key={item} value={item}>
 													{item}
 												</ComboboxItem>
