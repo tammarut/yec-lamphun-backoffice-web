@@ -18,6 +18,11 @@
 	},
 	"files.trimTrailingWhitespace": true,
 	"typescript.tsdk": "node_modules/typescript/lib",
+	"typescript.preferences.importModuleSpecifier": "relative",
+	"typescript.updateImportsOnFileMove.enabled": "always",
+	"files.associations": {
+		"*.css": "tailwindcss"
+	},
 	"prettier.prettierPath": "./node_modules/prettier",
 	"search.exclude": {
 		"**/node_modules": true,
