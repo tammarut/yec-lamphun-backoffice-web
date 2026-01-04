@@ -14,12 +14,20 @@ const securityHeaders = [
 	{
 		key: "Content-Security-Policy",
 		value: isProduction
-			? "default-src 'self'; script-src 'self' 'unsafe-inline' *.your-cdn.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: *.your-cdn.com; font-src 'self'; connect-src 'self' *.your-api.com; frame-src none; object-src 'none';"
-			: "default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' http://localhost:*",
+			? "default-src 'self'; script-src 'self' 'unsafe-inline' *.your-cdn.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: *.your-cdn.com images.unsplash.com; font-src 'self'; connect-src 'self' *.your-api.com; frame-src none; object-src 'none';"
+			: "default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: images.unsplash.com; font-src 'self'; connect-src 'self' http://localhost:*",
 	},
 ]
 
 const nextConfig: NextConfig = {
+	images: {
+		remotePatterns: [
+			{
+				protocol: "https",
+				hostname: "images.unsplash.com",
+			},
+		],
+	},
 	output: isProduction ? "standalone" : undefined,
 	reactStrictMode: true,
 	poweredByHeader: false,
