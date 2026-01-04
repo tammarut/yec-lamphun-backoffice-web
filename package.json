@@ -9,8 +9,18 @@
 		"lint": "eslint",
 		"lint:fix": "eslint --fix --ext .ts,.tsx .",
 		"prettier:format": "prettier --write 'src/**/*.{js,jsx,ts,tsx}'",
+		"prepare:husky": "husky",
 		"test": "vitest --run",
 		"test:watch": "vitest"
+	},
+	"lint-staged": {
+		"*.{ts,tsx,js,jsx}": [
+			"prettier --write",
+			"eslint --fix"
+		],
+		"*.{json,css,md}": [
+			"prettier --write"
+		]
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.0.0",
@@ -43,7 +53,9 @@
 		"eslint-config-next": "16.1.1",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-prettier": "^5.5.4",
+		"husky": "^9.1.7",
 		"jsdom": "^27.4.0",
+		"lint-staged": "^16.2.7",
 		"prettier": "^3.7.4",
 		"prettier-plugin-tailwindcss": "^0.7.2",
 		"tailwindcss": "^4",
