@@ -1,8 +1,8 @@
 {
 	"compilerOptions": {
 		// Environment setup & latest features
-		"target": "ES2017",
-		"module": "esnext",
+		"target": "esnext",
+		"module": "preserve",
 		"moduleResolution": "bundler",
 		"jsx": "react-jsx",
 		// Include the DOM types
