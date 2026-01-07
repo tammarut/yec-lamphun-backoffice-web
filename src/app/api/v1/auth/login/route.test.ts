@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server"
-import { beforeEach, describe, expect, test } from "vitest"
+import { describe, expect, test, vi } from "vitest"
 import { POST } from "./route"
 
-// Mock process.env
-const originalEnv = process.env
+// Mock the env configuration
+vi.mock("src/shared/config/env", () => ({
+	env: {
+		ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6",
+	},
+}))
 
 describe("POST /api/v1/auth/login", () => {
-	beforeEach(() => {
-		process.env = { ...originalEnv, ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6" }
-	})
-
 	test("should return 204 and set cookie on successful login", async () => {
 		const body = JSON.stringify({
 			username: "admin",
@@ -23,8 +23,6 @@ describe("POST /api/v1/auth/login", () => {
 		const res = await POST(req)
 		expect(res.status).toBe(204)
 
-		// Check for Set-Cookie header or use cookies helper if available on response object in test env
-		// NextRequest/Response in test environment might behave slightly differently but let's check headers first
 		const setCookie = res.headers.get("set-cookie")
 		expect(setCookie).toBeDefined()
 		expect(setCookie).toContain("session_id=")

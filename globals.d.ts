@@ -1,11 +1,10 @@
+import type { EnvConfig } from "src/shared/config/env"
+
 declare global {
-    namespace NodeJS {
-        interface ProcessEnv extends Env {
-            NODE_ENV: "local" | "test" | "production"
-            ADMIN_PASSWORD: string
-        }
-    }
+	namespace NodeJS {
+		// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+		interface ProcessEnv extends EnvConfig {}
+	}
 }
 
 export { }
-export type IEnv = Env

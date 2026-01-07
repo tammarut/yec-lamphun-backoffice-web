@@ -4,6 +4,7 @@ import { ulid } from "ulid"
 import { safeParse } from "valibot"
 
 import { LoginRequestSchema } from "src/modules/auth/validators"
+import { envConfig } from "src/shared/config/env"
 import { sessionCache } from "src/shared/lib/session-store"
 
 export async function POST(request: NextRequest) {
@@ -20,9 +21,9 @@ export async function POST(request: NextRequest) {
 	}
 
 	const { username, password } = validateReqBodyResult.output
-	const adminPassword = process.env["ADMIN_PASSWORD"]
+	const adminPassword = envConfig.ADMIN_PASSWORD
 
-	if (username !== "admin" || !adminPassword || password !== adminPassword) {
+	if (username !== "admin" || password !== adminPassword) {
 		return NextResponse.json({ error_message: "Invalid credentials" }, { status: 401 })
 	}
 
@@ -35,10 +36,10 @@ export async function POST(request: NextRequest) {
 	// Set-Cookie
 	response.cookies.set("session_id", sessionId, {
 		httpOnly: true,
-		secure: process.env.NODE_ENV === "production",
+		secure: envConfig.NODE_ENV === "production",
 		sameSite: "lax",
 		path: "/",
-		maxAge: 86400,
+		maxAge: 60 * 60 * 24, // 1 day
 	})
 
 	response.headers.set("Cache-Control", "no-store")
