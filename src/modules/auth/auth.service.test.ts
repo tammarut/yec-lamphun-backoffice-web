@@ -1,7 +1,7 @@
 import { describe, expect, test, vi, beforeEach } from "vitest"
 import { AuthService } from "./auth.service"
 import { InvalidCredentialsError } from "./errors"
-import type { EnvConfig } from "src/shared/config/env"
+import type { EnvConfig } from "src/env"
 import type { ISessionStore } from "./interfaces"
 
 describe("AuthService", () => {

@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "neverthrow"
-import type { EnvConfig } from "src/shared/config/env"
+import type { EnvConfig } from "src/env"
 import type { ISessionStore } from "./interfaces"
 import type { SessionData } from "./types"
 import { InvalidCredentialsError } from "./errors"
