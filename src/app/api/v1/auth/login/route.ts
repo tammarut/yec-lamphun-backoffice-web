@@ -1,11 +1,12 @@
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
-import { ulid } from "ulid"
 import { safeParse } from "valibot"
 
-import { LoginRequestSchema } from "src/modules/auth/validators"
+import { AuthService, LoginRequestSchema } from "src/modules/auth"
 import { envConfig } from "src/shared/config/env"
-import { sessionCache } from "src/shared/lib/session-store"
+import { sessionCache } from "src/shared/lib/session-cache"
+
+const authService = new AuthService(envConfig, sessionCache)
 
 export async function POST(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
@@ -21,20 +22,18 @@ export async function POST(request: NextRequest) {
 	}
 
 	const { username, password } = validateReqBodyResult.output
-	const adminPassword = envConfig.ADMIN_PASSWORD
 
-	if (username !== "admin" || password !== adminPassword) {
-		return NextResponse.json({ error_message: "Invalid credentials" }, { status: 401 })
+	// Use auth service for business logic
+	const loginResult = authService.login(username, password)
+
+	if (loginResult.isErr()) {
+		return NextResponse.json({ error_message: loginResult.error.message }, { status: 401 })
 	}
-
-	// Create Session
-	const sessionId = ulid()
-	sessionCache.set(sessionId, { username })
 
 	const response = new NextResponse(null, { status: 204 })
 
 	// Set-Cookie
-	response.cookies.set("session_id", sessionId, {
+	response.cookies.set("session_id", loginResult.value, {
 		httpOnly: true,
 		secure: envConfig.NODE_ENV === "production",
 		sameSite: "lax",
