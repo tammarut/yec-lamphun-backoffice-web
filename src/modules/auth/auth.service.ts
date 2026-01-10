@@ -2,7 +2,7 @@ import { err, ok, type Result } from "neverthrow"
 import type { EnvConfig } from "src/shared/config/env"
 import type { ISessionStore } from "./interfaces"
 import type { SessionData } from "./types"
-import { AuthErrors } from "./errors"
+import { InvalidCredentialsError } from "./errors"
 
 export class AuthService {
 	constructor(
@@ -21,7 +21,7 @@ export class AuthService {
 
 		// Verify credentials
 		if (username !== "admin" || password !== adminPassword) {
-			return err(AuthErrors.INVALID_CREDENTIALS)
+			return err(new InvalidCredentialsError())
 		}
 
 		// Create session

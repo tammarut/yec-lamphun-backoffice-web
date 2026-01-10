@@ -21,10 +21,3 @@ export class InvalidCredentialsError extends AuthError {
 		this.name = "InvalidCredentialsError"
 	}
 }
-
-/**
- * Authentication error constants
- */
-export const AuthErrors = {
-	INVALID_CREDENTIALS: new InvalidCredentialsError(),
-} as const
