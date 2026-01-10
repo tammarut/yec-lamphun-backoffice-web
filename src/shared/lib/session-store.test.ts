@@ -6,15 +6,39 @@ describe("SessionStore", () => {
 	let sessionStore: SessionStore
 
 	beforeEach(() => {
-		sessionStore = new SessionStore()
+		sessionStore = new SessionStore(86400) // 1 day TTL
 	})
 
-	describe("set and get", () => {
-		test("should store and retrieve session data", () => {
-			const sessionId = "test-session-123"
+	describe("createSession", () => {
+		test("should create session and return sessionId", () => {
 			const sessionData: SessionData = { username: "admin" }
 
-			sessionStore.set(sessionId, sessionData)
+			const sessionId = sessionStore.createSession(sessionData)
+
+			expect(sessionId).toBeDefined()
+			expect(typeof sessionId).toBe("string")
+			expect(sessionId.length).toBeGreaterThan(0)
+
+			// Verify session was stored
+			const retrieved = sessionStore.get(sessionId)
+			expect(retrieved).toEqual(sessionData)
+		})
+
+		test("should create unique session IDs", () => {
+			const sessionData: SessionData = { username: "admin" }
+
+			const sessionId1 = sessionStore.createSession(sessionData)
+			const sessionId2 = sessionStore.createSession(sessionData)
+
+			expect(sessionId1).not.toBe(sessionId2)
+		})
+	})
+
+	describe("get", () => {
+		test("should retrieve session data", () => {
+			const sessionData: SessionData = { username: "admin" }
+			const sessionId = sessionStore.createSession(sessionData)
+
 			const result = sessionStore.get(sessionId)
 
 			expect(result).toEqual(sessionData)
@@ -28,10 +52,9 @@ describe("SessionStore", () => {
 
 	describe("delete", () => {
 		test("should delete existing session", () => {
-			const sessionId = "test-session-123"
 			const sessionData: SessionData = { username: "admin" }
+			const sessionId = sessionStore.createSession(sessionData)
 
-			sessionStore.set(sessionId, sessionData)
 			const deleted = sessionStore.delete(sessionId)
 
 			expect(deleted).toBe(true)
@@ -46,10 +69,9 @@ describe("SessionStore", () => {
 
 	describe("has", () => {
 		test("should return true for existing session", () => {
-			const sessionId = "test-session-123"
 			const sessionData: SessionData = { username: "admin" }
+			const sessionId = sessionStore.createSession(sessionData)
 
-			sessionStore.set(sessionId, sessionData)
 			expect(sessionStore.has(sessionId)).toBe(true)
 		})
 
@@ -60,13 +82,13 @@ describe("SessionStore", () => {
 
 	describe("clear", () => {
 		test("should clear all sessions", () => {
-			sessionStore.set("session-1", { username: "user1" })
-			sessionStore.set("session-2", { username: "user2" })
+			const sessionId1 = sessionStore.createSession({ username: "user1" })
+			const sessionId2 = sessionStore.createSession({ username: "user2" })
 
 			sessionStore.clear()
 
-			expect(sessionStore.get("session-1")).toBeNull()
-			expect(sessionStore.get("session-2")).toBeNull()
+			expect(sessionStore.get(sessionId1)).toBeNull()
+			expect(sessionStore.get(sessionId2)).toBeNull()
 		})
 	})
 })

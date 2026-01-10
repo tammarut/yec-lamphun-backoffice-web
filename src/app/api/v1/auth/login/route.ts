@@ -4,10 +4,9 @@ import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
 import { envConfig } from "src/shared/config/env"
-import { idGenerator } from "src/shared/lib/id-generator"
 import { sessionCache } from "src/shared/lib/session-store"
 
-const authService = new AuthService(envConfig, sessionCache, idGenerator)
+const authService = new AuthService(envConfig, sessionCache)
 
 export async function POST(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
@@ -27,14 +26,14 @@ export async function POST(request: NextRequest) {
 	// Use auth service for business logic
 	const loginResult = await authService.login(username, password)
 
-	if (!loginResult) {
-		return NextResponse.json({ error_message: "Invalid credentials" }, { status: 401 })
+	if (loginResult.isErr()) {
+		return NextResponse.json({ error_message: loginResult.error }, { status: 401 })
 	}
 
 	const response = new NextResponse(null, { status: 204 })
 
 	// Set-Cookie
-	response.cookies.set("session_id", loginResult.sessionId, {
+	response.cookies.set("session_id", loginResult.value, {
 		httpOnly: true,
 		secure: envConfig.NODE_ENV === "production",
 		sameSite: "lax",

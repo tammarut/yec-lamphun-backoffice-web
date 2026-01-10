@@ -1,4 +1,5 @@
 import { NodeCache } from "@cacheable/node-cache"
+import { ulid } from "ulid"
 
 export interface SessionData {
 	username: string
@@ -11,25 +12,37 @@ export class SessionStore {
 	private cache: NodeCache<SessionData>
 	private readonly defaultTTL: number
 
-	constructor(ttl: number = 86400) {
-		// TTL 1 day (86400 seconds) by default
+	constructor(ttl: number) {
 		this.defaultTTL = ttl
-		this.cache = new NodeCache({ stdTTL: this.defaultTTL })
+		this.cache = new NodeCache({
+			stdTTL: ttl,
+			checkperiod: 300, // Cleanup interval (5 minutes)
+			useClones: false, // Better performance
+			deleteOnExpire: true, // Auto-delete expired
+			maxKeys: -1, // Unlimited sessions (memory only constraint)
+		})
 	}
 
 	/**
-	 * Store a session
+	 * Create a new session and return the session ID
 	 */
-	set(sessionId: string, data: SessionData): void {
+	createSession(data: SessionData): string {
+		const sessionId = ulid()
 		this.cache.set(sessionId, data)
+		return sessionId
 	}
 
 	/**
-	 * Get a session by ID
+	 * Get a session by ID with sliding expiration
 	 */
 	get(sessionId: string): SessionData | null {
 		const data = this.cache.get(sessionId)
-		return data !== undefined ? data : null
+		if (data !== undefined) {
+			// Update with sliding expiration
+			this.cache.ttl(sessionId, this.defaultTTL)
+			return data
+		}
+		return null
 	}
 
 	/**
@@ -56,4 +69,4 @@ export class SessionStore {
 }
 
 // Export singleton instance for backward compatibility
-export const sessionCache = new SessionStore()
+export const sessionCache = new SessionStore(86400) // 1 day TTL

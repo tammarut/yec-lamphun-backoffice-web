@@ -4,7 +4,7 @@ import type { SessionData } from "./types"
  * Interface for session storage operations
  */
 export interface ISessionStore {
-	set(sessionId: string, data: SessionData): Promise<void> | void
+	createSession(data: SessionData): Promise<string> | string
 	get(sessionId: string): Promise<SessionData | null> | SessionData | null
 	delete(sessionId: string): Promise<boolean> | boolean
 }
@@ -14,11 +14,4 @@ export interface ISessionStore {
  */
 export interface IIdGenerator {
 	generate(): string
-}
-
-/**
- * Interface for environment configuration
- */
-export interface IAuthConfig {
-	readonly ADMIN_PASSWORD: string
 }

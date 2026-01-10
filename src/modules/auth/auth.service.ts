@@ -1,35 +1,32 @@
-import type { IAuthConfig, IIdGenerator, ISessionStore } from "./interfaces"
-import type { LoginResult, SessionData } from "./types"
+import { err, ok, type Result } from "neverthrow"
+import type { EnvConfig } from "src/shared/config/env"
+import type { ISessionStore } from "./interfaces"
+import type { SessionData } from "./types"
 
 export class AuthService {
 	constructor(
-		private readonly config: IAuthConfig,
-		private readonly sessionStore: ISessionStore,
-		private readonly idGenerator: IIdGenerator
+		private readonly config: EnvConfig,
+		private readonly sessionStore: ISessionStore
 	) {}
 
 	/**
 	 * Authenticate user with username and password
 	 * @param username - The username to authenticate
 	 * @param password - The password to authenticate
-	 * @returns LoginResult if successful, null if authentication fails
+	 * @returns Result with sessionId if successful, error if authentication fails
 	 */
-	async login(username: string, password: string): Promise<LoginResult | null> {
+	async login(username: string, password: string): Promise<Result<string, string>> {
 		const adminPassword = this.config.ADMIN_PASSWORD
 
 		// Verify credentials
 		if (username !== "admin" || password !== adminPassword) {
-			return null
+			return err("Invalid credentials")
 		}
 
 		// Create session
-		const sessionId = this.idGenerator.generate()
 		const sessionData: SessionData = { username }
-		await this.sessionStore.set(sessionId, sessionData)
+		const sessionId = await this.sessionStore.createSession(sessionData)
 
-		return {
-			sessionId,
-			username,
-		}
+		return ok(sessionId)
 	}
 }
