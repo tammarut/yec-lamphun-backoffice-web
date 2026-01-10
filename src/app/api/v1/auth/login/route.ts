@@ -1,12 +1,13 @@
+import "reflect-metadata"
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
 import { envConfig } from "src/shared/config/env"
-import { sessionCache } from "src/shared/lib/session-cache"
+import { container } from "src/shared/di/container"
 
-const authService = new AuthService(envConfig, sessionCache)
+const authService = container.resolve(AuthService)
 
 export async function POST(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
