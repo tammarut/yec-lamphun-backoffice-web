@@ -4,7 +4,7 @@ import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
 import { envConfig } from "src/shared/config/env"
-import { sessionCache } from "src/shared/lib/session-store"
+import { sessionCache } from "src/shared/lib/session-cache"
 
 const authService = new AuthService(envConfig, sessionCache)
 

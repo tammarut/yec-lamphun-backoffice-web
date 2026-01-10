@@ -1,12 +1,17 @@
-import { describe, expect, test, beforeEach } from "vitest"
+import { describe, expect, test, beforeEach, vi } from "vitest"
 import { SessionStore } from "./session-store"
 import type { SessionData } from "./session-store"
+import type { IIdGenerator } from "src/modules/auth/interfaces"
 
 describe("SessionStore", () => {
 	let sessionStore: SessionStore
+	let mockIdGenerator: IIdGenerator
 
 	beforeEach(() => {
-		sessionStore = new SessionStore(86400) // 1 day TTL
+		mockIdGenerator = {
+			generate: vi.fn().mockReturnValue("mock-session-id-123"),
+		}
+		sessionStore = new SessionStore(86400, mockIdGenerator) // 1 day TTL
 	})
 
 	describe("createSession", () => {
@@ -15,9 +20,8 @@ describe("SessionStore", () => {
 
 			const sessionId = sessionStore.createSession(sessionData)
 
-			expect(sessionId).toBeDefined()
-			expect(typeof sessionId).toBe("string")
-			expect(sessionId.length).toBeGreaterThan(0)
+			expect(sessionId).toBe("mock-session-id-123")
+			expect(mockIdGenerator.generate).toHaveBeenCalledTimes(1)
 
 			// Verify session was stored
 			const retrieved = sessionStore.get(sessionId)
@@ -27,9 +31,14 @@ describe("SessionStore", () => {
 		test("should create unique session IDs", () => {
 			const sessionData: SessionData = { username: "admin" }
 
+			// Mock different IDs for each call
+			;(mockIdGenerator.generate as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-id-1").mockReturnValueOnce("session-id-2")
+
 			const sessionId1 = sessionStore.createSession(sessionData)
 			const sessionId2 = sessionStore.createSession(sessionData)
 
+			expect(sessionId1).toBe("session-id-1")
+			expect(sessionId2).toBe("session-id-2")
 			expect(sessionId1).not.toBe(sessionId2)
 		})
 	})
@@ -82,6 +91,8 @@ describe("SessionStore", () => {
 
 	describe("clear", () => {
 		test("should clear all sessions", () => {
+			;(mockIdGenerator.generate as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-1").mockReturnValueOnce("session-2")
+
 			const sessionId1 = sessionStore.createSession({ username: "user1" })
 			const sessionId2 = sessionStore.createSession({ username: "user2" })
 

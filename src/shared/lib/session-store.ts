@@ -1,5 +1,5 @@
 import { NodeCache } from "@cacheable/node-cache"
-import { ulid } from "ulid"
+import type { IIdGenerator } from "src/modules/auth/interfaces"
 
 export interface SessionData {
 	username: string
@@ -12,7 +12,10 @@ export class SessionStore {
 	private cache: NodeCache<SessionData>
 	private readonly defaultTTL: number
 
-	constructor(ttl: number) {
+	constructor(
+		ttl: number,
+		private readonly idGenerator: IIdGenerator
+	) {
 		this.defaultTTL = ttl
 		this.cache = new NodeCache({
 			stdTTL: ttl,
@@ -27,7 +30,7 @@ export class SessionStore {
 	 * Create a new session and return the session ID
 	 */
 	createSession(data: SessionData): string {
-		const sessionId = ulid()
+		const sessionId = this.idGenerator.generate()
 		this.cache.set(sessionId, data)
 		return sessionId
 	}
@@ -37,12 +40,12 @@ export class SessionStore {
 	 */
 	get(sessionId: string): SessionData | null {
 		const data = this.cache.get(sessionId)
-		if (data !== undefined) {
-			// Update with sliding expiration
-			this.cache.ttl(sessionId, this.defaultTTL)
-			return data
+		if (!data) {
+			return null
 		}
-		return null
+		// Update with sliding expiration
+		this.cache.ttl(sessionId, this.defaultTTL)
+		return data
 	}
 
 	/**
@@ -67,6 +70,3 @@ export class SessionStore {
 		this.cache.flushAll()
 	}
 }
-
-// Export singleton instance for backward compatibility
-export const sessionCache = new SessionStore(86400) // 1 day TTL
