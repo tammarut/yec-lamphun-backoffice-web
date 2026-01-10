@@ -3,10 +3,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
-import { env } from "src/env"
+import { envConfig } from "src/shared/config/env"
 import { sessionCache } from "src/shared/lib/session-cache"
 
-const authService = new AuthService(env, sessionCache)
+const authService = new AuthService(envConfig, sessionCache)
 
 export async function POST(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 	// Set-Cookie
 	response.cookies.set("session_id", loginResult.value, {
 		httpOnly: true,
-		secure: env.NODE_ENV === "production",
+		secure: envConfig.NODE_ENV === "production",
 		sameSite: "lax",
 		path: "/",
 		maxAge: 60 * 60 * 24, // 1 day

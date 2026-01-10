@@ -3,8 +3,8 @@ import { describe, expect, test, vi } from "vitest"
 import { POST } from "./route"
 
 // Mock the env configuration
-vi.mock("src/env", () => ({
-	env: {
+vi.mock("src/shared/config/env", () => ({
+	envConfig: {
 		NODE_ENV: "test",
 		ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6",
 	},
