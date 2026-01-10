@@ -1,4 +1,5 @@
-import { describe, expect, test, vi, beforeEach } from "vitest"
+import { describe, expect, test, beforeEach } from "vitest"
+import { mock, type MockProxy } from "vitest-mock-extended"
 import { AuthService } from "./auth.service"
 import { InvalidCredentialsError } from "./errors"
 import type { EnvConfig } from "src/shared/config/env"
@@ -7,7 +8,7 @@ import type { ISessionStore } from "./interfaces"
 describe("AuthService", () => {
 	let authService: AuthService
 	let mockConfig: EnvConfig
-	let mockSessionStore: ISessionStore
+	let mockSessionStore: MockProxy<ISessionStore>
 	let mockSessionId: string
 
 	beforeEach(() => {
@@ -19,11 +20,8 @@ describe("AuthService", () => {
 			ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6",
 		}
 
-		mockSessionStore = {
-			createSession: vi.fn().mockReturnValue(mockSessionId),
-			get: vi.fn(),
-			delete: vi.fn(),
-		}
+		mockSessionStore = mock<ISessionStore>()
+		mockSessionStore.createSession.mockReturnValue(mockSessionId)
 
 		authService = new AuthService(mockConfig, mockSessionStore)
 	})
@@ -43,7 +41,7 @@ describe("AuthService", () => {
 
 			test("should create unique sessionIds for multiple successful logins", () => {
 				// Mock different session IDs for each call
-				;(mockSessionStore.createSession as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-id-1").mockReturnValueOnce("session-id-2")
+				mockSessionStore.createSession.mockReturnValueOnce("session-id-1").mockReturnValueOnce("session-id-2")
 
 				const result1 = authService.login("admin", "Energetic9-Mulch2-Arknight6")
 				const result2 = authService.login("admin", "Energetic9-Mulch2-Arknight6")
