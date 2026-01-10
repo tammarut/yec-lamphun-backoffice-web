@@ -1,3 +1,4 @@
+import "./src/shared/config/env"
 import type { NextConfig } from "next"
 
 const appEnv = process.env["NODE_ENV"]
