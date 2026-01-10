@@ -30,50 +30,54 @@ describe("POST /api/v1/auth/logout", () => {
 		vi.clearAllMocks()
 	})
 
-	test("should return 204 and clear cookie on successful logout", async () => {
-		const sessionId = "valid-session-id"
-		mockSessionDelete.mockReturnValue(true)
+	describe("Happy cases", () => {
+		test("should return 204 and clear cookie on successful logout", async () => {
+			const sessionId = "valid-session-id"
+			mockSessionDelete.mockReturnValue(true)
 
-		const request = new NextRequest("http://localhost/api/v1/auth/logout", {
-			method: "POST",
+			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
+				method: "POST",
+			})
+			request.cookies.set("session_id", sessionId)
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(204)
+			expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
+
+			// Check if cookie is cleared (maxAge: 0)
+			const setCookieHeader = response.headers.get("set-cookie")
+			expect(setCookieHeader).toBeDefined()
+			expect(setCookieHeader).toContain("session_id=;")
+			expect(setCookieHeader).toContain("Max-Age=0")
 		})
-		request.cookies.set("session_id", sessionId)
-
-		const response = await POST(request)
-
-		expect(response.status).toBe(204)
-		expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
-
-		// Check if cookie is cleared (maxAge: 0)
-		const setCookieHeader = response.headers.get("set-cookie")
-		expect(setCookieHeader).toBeDefined()
-		expect(setCookieHeader).toContain("session_id=;")
-		expect(setCookieHeader).toContain("Max-Age=0")
 	})
 
-	test("should return 401 when session_id cookie is missing", async () => {
-		const request = new NextRequest("http://localhost/api/v1/auth/logout", {
-			method: "POST",
+	describe("Unhappy cases", () => {
+		test("should return 401 when session_id cookie is missing", async () => {
+			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
+				method: "POST",
+			})
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(401)
+			expect(mockSessionDelete).not.toHaveBeenCalled()
 		})
 
-		const response = await POST(request)
+		test("should return 401 when session is invalid (not found in store)", async () => {
+			const sessionId = "invalid-session-id"
+			mockSessionDelete.mockReturnValue(false)
 
-		expect(response.status).toBe(401)
-		expect(mockSessionDelete).not.toHaveBeenCalled()
-	})
+			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
+				method: "POST",
+			})
+			request.cookies.set("session_id", sessionId)
 
-	test("should return 401 when session is invalid (not found in store)", async () => {
-		const sessionId = "invalid-session-id"
-		mockSessionDelete.mockReturnValue(false)
+			const response = await POST(request)
 
-		const request = new NextRequest("http://localhost/api/v1/auth/logout", {
-			method: "POST",
+			expect(response.status).toBe(401)
+			expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
 		})
-		request.cookies.set("session_id", sessionId)
-
-		const response = await POST(request)
-
-		expect(response.status).toBe(401)
-		expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
 	})
 })
