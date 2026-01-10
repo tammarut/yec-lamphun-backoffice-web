@@ -4,9 +4,9 @@ import type { SessionData } from "./types"
  * Interface for session storage operations
  */
 export interface ISessionStore {
-	createSession(data: SessionData): Promise<string> | string
-	get(sessionId: string): Promise<SessionData | null> | SessionData | null
-	delete(sessionId: string): Promise<boolean> | boolean
+	createSession(data: SessionData): string
+	get(sessionId: string): SessionData | null
+	delete(sessionId: string): boolean
 }
 
 /**

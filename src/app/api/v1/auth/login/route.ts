@@ -24,10 +24,10 @@ export async function POST(request: NextRequest) {
 	const { username, password } = validateReqBodyResult.output
 
 	// Use auth service for business logic
-	const loginResult = await authService.login(username, password)
+	const loginResult = authService.login(username, password)
 
 	if (loginResult.isErr()) {
-		return NextResponse.json({ error_message: loginResult.error }, { status: 401 })
+		return NextResponse.json({ error_message: loginResult.error.message }, { status: 401 })
 	}
 
 	const response = new NextResponse(null, { status: 204 })

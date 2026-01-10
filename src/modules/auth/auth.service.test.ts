@@ -1,5 +1,6 @@
 import { describe, expect, test, vi, beforeEach } from "vitest"
 import { AuthService } from "./auth.service"
+import { AuthErrors } from "./errors"
 import type { EnvConfig } from "src/shared/config/env"
 import type { ISessionStore } from "./interfaces"
 
@@ -28,8 +29,8 @@ describe("AuthService", () => {
 	})
 
 	describe("login", () => {
-		test("should return Result with sessionId on successful login", async () => {
-			const result = await authService.login("admin", "Energetic9-Mulch2-Arknight6")
+		test("should return Result with sessionId on successful login", () => {
+			const result = authService.login("admin", "Energetic9-Mulch2-Arknight6")
 
 			expect(result.isOk()).toBe(true)
 			if (result.isOk()) {
@@ -39,42 +40,45 @@ describe("AuthService", () => {
 			expect(mockSessionStore.createSession).toHaveBeenCalledWith({ username: "admin" })
 		})
 
-		test("should return error Result on invalid username", async () => {
-			const result = await authService.login("wronguser", "Energetic9-Mulch2-Arknight6")
+		test("should return error Result on invalid username", () => {
+			const result = authService.login("wronguser", "Energetic9-Mulch2-Arknight6")
 
 			expect(result.isErr()).toBe(true)
 			if (result.isErr()) {
-				expect(result.error).toBe("Invalid credentials")
+				expect(result.error).toBe(AuthErrors.INVALID_CREDENTIALS)
+				expect(result.error.message).toBe("Invalid credentials")
 			}
 			expect(mockSessionStore.createSession).not.toHaveBeenCalled()
 		})
 
-		test("should return error Result on invalid password", async () => {
-			const result = await authService.login("admin", "wrong-password")
+		test("should return error Result on invalid password", () => {
+			const result = authService.login("admin", "wrong-password")
 
 			expect(result.isErr()).toBe(true)
 			if (result.isErr()) {
-				expect(result.error).toBe("Invalid credentials")
+				expect(result.error).toBe(AuthErrors.INVALID_CREDENTIALS)
+				expect(result.error.message).toBe("Invalid credentials")
 			}
 			expect(mockSessionStore.createSession).not.toHaveBeenCalled()
 		})
 
-		test("should return error Result on both invalid username and password", async () => {
-			const result = await authService.login("wronguser", "wrong-password")
+		test("should return error Result on both invalid username and password", () => {
+			const result = authService.login("wronguser", "wrong-password")
 
 			expect(result.isErr()).toBe(true)
 			if (result.isErr()) {
-				expect(result.error).toBe("Invalid credentials")
+				expect(result.error).toBe(AuthErrors.INVALID_CREDENTIALS)
+				expect(result.error.message).toBe("Invalid credentials")
 			}
 			expect(mockSessionStore.createSession).not.toHaveBeenCalled()
 		})
 
-		test("should create unique sessionIds for multiple successful logins", async () => {
+		test("should create unique sessionIds for multiple successful logins", () => {
 			// Mock different session IDs for each call
 			;(mockSessionStore.createSession as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-id-1").mockReturnValueOnce("session-id-2")
 
-			const result1 = await authService.login("admin", "Energetic9-Mulch2-Arknight6")
-			const result2 = await authService.login("admin", "Energetic9-Mulch2-Arknight6")
+			const result1 = authService.login("admin", "Energetic9-Mulch2-Arknight6")
+			const result2 = authService.login("admin", "Energetic9-Mulch2-Arknight6")
 
 			expect(result1.isOk()).toBe(true)
 			expect(result2.isOk()).toBe(true)

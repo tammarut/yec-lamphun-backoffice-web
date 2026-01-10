@@ -2,6 +2,7 @@ import { err, ok, type Result } from "neverthrow"
 import type { EnvConfig } from "src/shared/config/env"
 import type { ISessionStore } from "./interfaces"
 import type { SessionData } from "./types"
+import { AuthErrors } from "./errors"
 
 export class AuthService {
 	constructor(
@@ -15,17 +16,17 @@ export class AuthService {
 	 * @param password - The password to authenticate
 	 * @returns Result with sessionId if successful, error if authentication fails
 	 */
-	async login(username: string, password: string): Promise<Result<string, string>> {
+	login(username: string, password: string): Result<string, Error> {
 		const adminPassword = this.config.ADMIN_PASSWORD
 
 		// Verify credentials
 		if (username !== "admin" || password !== adminPassword) {
-			return err("Invalid credentials")
+			return err(AuthErrors.INVALID_CREDENTIALS)
 		}
 
 		// Create session
 		const sessionData: SessionData = { username }
-		const sessionId = await this.sessionStore.createSession(sessionData)
+		const sessionId = this.sessionStore.createSession(sessionData)
 
 		return ok(sessionId)
 	}
