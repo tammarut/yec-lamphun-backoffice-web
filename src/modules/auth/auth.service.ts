@@ -1,9 +1,13 @@
-import { ulid } from "ulid"
-import { envConfig } from "src/shared/config/env"
-import { sessionCache } from "src/shared/lib/session-store"
+import type { IAuthConfig, IIdGenerator, ISessionStore } from "./interfaces"
 import type { LoginResult, SessionData } from "./types"
 
 export class AuthService {
+	constructor(
+		private readonly config: IAuthConfig,
+		private readonly sessionStore: ISessionStore,
+		private readonly idGenerator: IIdGenerator
+	) {}
+
 	/**
 	 * Authenticate user with username and password
 	 * @param username - The username to authenticate
@@ -11,7 +15,7 @@ export class AuthService {
 	 * @returns LoginResult if successful, null if authentication fails
 	 */
 	async login(username: string, password: string): Promise<LoginResult | null> {
-		const adminPassword = envConfig.ADMIN_PASSWORD
+		const adminPassword = this.config.ADMIN_PASSWORD
 
 		// Verify credentials
 		if (username !== "admin" || password !== adminPassword) {
@@ -19,9 +23,9 @@ export class AuthService {
 		}
 
 		// Create session
-		const sessionId = ulid()
+		const sessionId = this.idGenerator.generate()
 		const sessionData: SessionData = { username }
-		sessionCache.set(sessionId, sessionData)
+		await this.sessionStore.set(sessionId, sessionData)
 
 		return {
 			sessionId,

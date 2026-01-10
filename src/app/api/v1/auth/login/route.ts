@@ -4,8 +4,10 @@ import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
 import { envConfig } from "src/shared/config/env"
+import { idGenerator } from "src/shared/lib/id-generator"
+import { sessionCache } from "src/shared/lib/session-store"
 
-const authService = new AuthService()
+const authService = new AuthService(envConfig, sessionCache, idGenerator)
 
 export async function POST(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
