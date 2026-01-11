@@ -1,5 +1,8 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+import { mock } from "vitest-mock-extended"
+
+import { AuthService } from "src/modules/auth"
 
 // Mock env config BEFORE importing the route
 vi.mock("src/shared/config/env", () => ({
@@ -9,14 +12,11 @@ vi.mock("src/shared/config/env", () => ({
 	},
 }))
 
+// Create mock AuthService
+const mockAuthService = mock<AuthService>()
+
 // Mock container BEFORE importing the route
-const mockLogout = vi.fn()
-
 vi.mock("src/modules/container", () => {
-	const mockAuthService = {
-		logout: (sessionId: string) => mockLogout(sessionId),
-	}
-
 	return {
 		container: {
 			resolve: vi.fn(() => mockAuthService),
@@ -44,7 +44,7 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(204)
-			expect(mockLogout).toHaveBeenCalledWith(sessionId)
+			expect(mockAuthService.logout).toHaveBeenCalledWith(sessionId)
 
 			// Check if cookie is cleared (maxAge: 0)
 			const setCookieHeader = response.headers.get("set-cookie")
@@ -64,7 +64,7 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(204)
-			expect(mockLogout).toHaveBeenCalledWith(sessionId)
+			expect(mockAuthService.logout).toHaveBeenCalledWith(sessionId)
 		})
 	})
 
@@ -77,7 +77,7 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(401)
-			expect(mockLogout).not.toHaveBeenCalled()
+			expect(mockAuthService.logout).not.toHaveBeenCalled()
 		})
 	})
 })
