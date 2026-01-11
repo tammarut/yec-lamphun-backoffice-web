@@ -1,7 +1,7 @@
 import "reflect-metadata"
 import { container } from "tsyringe"
 import { envConfig } from "src/shared/config/env"
-import { SessionStore } from "src/shared/lib/session-store"
+import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { ulidGenerator } from "src/shared/lib/ulid-generator"
 
 export const REGISTER_KEY = {
