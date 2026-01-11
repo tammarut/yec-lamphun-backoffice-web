@@ -5,7 +5,7 @@ import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
 import { envConfig } from "src/shared/config/env"
-import { container } from "src/shared/di/container"
+import { container } from "src/modules/container"
 
 const authService = container.resolve(AuthService)
 
