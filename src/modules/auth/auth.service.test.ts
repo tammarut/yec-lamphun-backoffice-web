@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 import { AuthService } from "./auth.service"
-import { InvalidCredentialsError, InvalidSessionError } from "./errors"
+import { InvalidCredentialsError } from "./errors"
 import type { EnvConfig } from "src/shared/config/env"
 import type { ISessionStore } from "./interfaces"
 
@@ -103,18 +103,12 @@ describe("AuthService", () => {
 				expect(mockSessionStore.delete).toHaveBeenCalledTimes(1)
 				expect(mockSessionStore.delete).toHaveBeenCalledWith(mockSessionId)
 			})
-		})
 
-		describe("Unhappy cases", () => {
-			test("should return error Result on invalid session ID", () => {
+			test("should return Ok even if session does not exist (idempotent)", () => {
 				mockSessionStore.delete.mockReturnValue(false)
 				const result = authService.logout("invalid-session-id")
 
-				expect(result.isErr()).toBe(true)
-				if (result.isErr()) {
-					expect(result.error).toBeInstanceOf(InvalidSessionError)
-					expect(result.error.message).toBe("Invalid session")
-				}
+				expect(result.isOk()).toBe(true)
 				expect(mockSessionStore.delete).toHaveBeenCalledTimes(1)
 				expect(mockSessionStore.delete).toHaveBeenCalledWith("invalid-session-id")
 			})

@@ -21,13 +21,3 @@ export class InvalidCredentialsError extends AuthError {
 		this.name = "InvalidCredentialsError"
 	}
 }
-
-/**
- * Invalid session error
- */
-export class InvalidSessionError extends AuthError {
-	constructor() {
-		super("Invalid session")
-		this.name = "InvalidSessionError"
-	}
-}

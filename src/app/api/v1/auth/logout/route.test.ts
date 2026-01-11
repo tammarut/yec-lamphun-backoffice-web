@@ -51,6 +51,21 @@ describe("POST /api/v1/auth/logout", () => {
 			expect(setCookieHeader).toContain("session_id=;")
 			expect(setCookieHeader).toContain("Max-Age=0")
 		})
+
+		test("should return 204 when session is invalid/not found (idempotent)", async () => {
+			const sessionId = "invalid-session-id"
+			mockSessionDelete.mockReturnValue(false)
+
+			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
+				method: "POST",
+			})
+			request.cookies.set("session_id", sessionId)
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(204)
+			expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -63,21 +78,6 @@ describe("POST /api/v1/auth/logout", () => {
 
 			expect(response.status).toBe(401)
 			expect(mockSessionDelete).not.toHaveBeenCalled()
-		})
-
-		test("should return 401 when session is invalid (not found in store)", async () => {
-			const sessionId = "invalid-session-id"
-			mockSessionDelete.mockReturnValue(false)
-
-			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
-				method: "POST",
-			})
-			request.cookies.set("session_id", sessionId)
-
-			const response = await POST(request)
-
-			expect(response.status).toBe(401)
-			expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
 		})
 	})
 })

@@ -13,11 +13,7 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json(null, { status: 401 })
 	}
 
-	const logoutResult = authService.logout(sessionId)
-
-	if (logoutResult.isErr()) {
-		return NextResponse.json(null, { status: 401 })
-	}
+	authService.logout(sessionId)
 
 	const response = new NextResponse(null, { status: 204 })
 
