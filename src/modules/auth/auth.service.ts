@@ -33,4 +33,14 @@ export class AuthService {
 
 		return ok(sessionId)
 	}
+
+	/**
+	 * Logout user by invalidating their session
+	 * @param sessionId - The session ID to invalidate
+	 * @returns Result void if successful (idempotent)
+	 */
+	logout(sessionId: string): Result<void, Error> {
+		this.sessionStore.delete(sessionId)
+		return ok(undefined)
+	}
 }

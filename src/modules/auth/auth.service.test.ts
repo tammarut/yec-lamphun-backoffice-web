@@ -92,4 +92,26 @@ describe("AuthService", () => {
 			})
 		})
 	})
+
+	describe("logout", () => {
+		describe("Happy cases", () => {
+			test("should return Ok on successful logout", () => {
+				mockSessionStore.delete.mockReturnValue(true)
+				const result = authService.logout(mockSessionId)
+
+				expect(result.isOk()).toBe(true)
+				expect(mockSessionStore.delete).toHaveBeenCalledTimes(1)
+				expect(mockSessionStore.delete).toHaveBeenCalledWith(mockSessionId)
+			})
+
+			test("should return Ok even if session does not exist (idempotent)", () => {
+				mockSessionStore.delete.mockReturnValue(false)
+				const result = authService.logout("invalid-session-id")
+
+				expect(result.isOk()).toBe(true)
+				expect(mockSessionStore.delete).toHaveBeenCalledTimes(1)
+				expect(mockSessionStore.delete).toHaveBeenCalledWith("invalid-session-id")
+			})
+		})
+	})
 })
