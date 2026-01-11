@@ -1,5 +1,5 @@
-import { describe, expect, test, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
+import { beforeEach, describe, expect, test, vi } from "vitest"
 
 // Mock env config BEFORE importing the route
 vi.mock("src/shared/config/env", () => ({
@@ -9,15 +9,17 @@ vi.mock("src/shared/config/env", () => ({
 	},
 }))
 
-// Mock session cache
-const mockSessionDelete = vi.fn()
-const mockSessionCreate = vi.fn()
+// Mock container BEFORE importing the route
+const mockLogout = vi.fn()
 
-vi.mock("src/shared/lib/session-cache", () => {
+vi.mock("src/modules/container", () => {
+	const mockAuthService = {
+		logout: (sessionId: string) => mockLogout(sessionId),
+	}
+
 	return {
-		sessionCache: {
-			delete: (sessionId: string) => mockSessionDelete(sessionId),
-			createSession: (data: any) => mockSessionCreate(data),
+		container: {
+			resolve: vi.fn(() => mockAuthService),
 		},
 	}
 })
@@ -33,7 +35,6 @@ describe("POST /api/v1/auth/logout", () => {
 	describe("Happy cases", () => {
 		test("should return 204 and clear cookie on successful logout", async () => {
 			const sessionId = "valid-session-id"
-			mockSessionDelete.mockReturnValue(true)
 
 			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
 				method: "POST",
@@ -43,7 +44,7 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(204)
-			expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
+			expect(mockLogout).toHaveBeenCalledWith(sessionId)
 
 			// Check if cookie is cleared (maxAge: 0)
 			const setCookieHeader = response.headers.get("set-cookie")
@@ -54,7 +55,6 @@ describe("POST /api/v1/auth/logout", () => {
 
 		test("should return 204 when session is invalid/not found (idempotent)", async () => {
 			const sessionId = "invalid-session-id"
-			mockSessionDelete.mockReturnValue(false)
 
 			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
 				method: "POST",
@@ -64,7 +64,7 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(204)
-			expect(mockSessionDelete).toHaveBeenCalledWith(sessionId)
+			expect(mockLogout).toHaveBeenCalledWith(sessionId)
 		})
 	})
 
@@ -77,7 +77,7 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(401)
-			expect(mockSessionDelete).not.toHaveBeenCalled()
+			expect(mockLogout).not.toHaveBeenCalled()
 		})
 	})
 })

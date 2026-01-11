@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import "reflect-metadata"
 
 import { AuthService } from "src/modules/auth"
+import { container } from "src/modules/container"
 import { envConfig } from "src/shared/config/env"
-import { sessionCache } from "src/shared/lib/session-cache"
 
-const authService = new AuthService(envConfig, sessionCache)
+const authService = container.resolve(AuthService)
 
 export async function POST(request: NextRequest) {
 	const sessionId = request.cookies.get("session_id")?.value
