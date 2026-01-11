@@ -5,6 +5,8 @@
 		"module": "preserve",
 		"moduleResolution": "bundler",
 		"jsx": "react-jsx",
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
 		// Include the DOM types
 		"lib": ["dom", "dom.iterable", "esnext"],
 		"allowJs": true,

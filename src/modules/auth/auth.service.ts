@@ -1,13 +1,16 @@
 import { err, ok, type Result } from "neverthrow"
+import { inject, injectable } from "tsyringe"
 import type { EnvConfig } from "src/shared/config/env"
+import { REGISTER_KEY } from "src/modules/container"
 import type { ISessionStore } from "./interfaces"
 import type { SessionData } from "./types"
 import { InvalidCredentialsError } from "./errors"
 
+@injectable()
 export class AuthService {
 	constructor(
-		private readonly config: EnvConfig,
-		private readonly sessionStore: ISessionStore
+		@inject(REGISTER_KEY.ENV_CONFIG) private readonly config: EnvConfig,
+		@inject(REGISTER_KEY.SESSION_STORE) private readonly sessionStore: ISessionStore
 	) {}
 
 	/**
