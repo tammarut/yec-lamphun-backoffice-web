@@ -7,7 +7,8 @@ vi.mock("src/shared/config/env", () => ({
 		DATABASE_URL: "postgres://mock:5432/db",
 		DB_MAX_CONNECTIONS: 50,
 		DB_IDLE_TIMEOUT: 60,
-		// DB_CONNECTION_TIMEOUT is undefined to test default
+		// Mocking the default behavior of envConfig for DB_CONNECTION_TIMEOUT
+		DB_CONNECTION_TIMEOUT: 30,
 	},
 }))
 
@@ -34,7 +35,7 @@ describe("DatabaseClient", () => {
 			url: "postgres://mock:5432/db",
 			max: 50,
 			idleTimeout: 60,
-			connectionTimeout: 30, // Default value
+			connectionTimeout: 30,
 		})
 	})
 

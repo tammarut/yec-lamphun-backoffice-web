@@ -5,9 +5,9 @@ const ServerSchema = v.object({
   NODE_ENV: v.picklist(["development", "local", "test", "production"]),
   ADMIN_PASSWORD: v.pipe(v.string(), v.minLength(1, "ADMIN_PASSWORD is required")),
   DATABASE_URL: v.pipe(v.string(), v.minLength(1, "DATABASE_URL is required")),
-  DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer())),
-  DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer())),
-  DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer())),
+  DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 10),
+  DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
+  DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
 });
 
 const ClientSchema = v.object({});
@@ -17,9 +17,9 @@ export const envConfig = createEnv({
     NODE_ENV: v.picklist(["development", "local", "test", "production"]),
     ADMIN_PASSWORD: v.pipe(v.string(), v.minLength(1, "ADMIN_PASSWORD is required")),
     DATABASE_URL: v.pipe(v.string(), v.minLength(1, "DATABASE_URL is required")),
-    DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer())),
-    DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer())),
-    DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer())),
+    DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 10),
+    DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
+    DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
   },
   client: {},
   runtimeEnv: {

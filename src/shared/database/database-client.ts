@@ -12,9 +12,9 @@ export class DatabaseClient implements IDatabaseClient {
 		// The Bun SQL client manages the connection pool lazily.
 		this.sql = new SQL({
 			url: envConfig.DATABASE_URL,
-			max: envConfig.DB_MAX_CONNECTIONS ?? 10,
-			idleTimeout: envConfig.DB_IDLE_TIMEOUT ?? 30,
-			connectionTimeout: envConfig.DB_CONNECTION_TIMEOUT ?? 30,
+			max: envConfig.DB_MAX_CONNECTIONS,
+			idleTimeout: envConfig.DB_IDLE_TIMEOUT,
+			connectionTimeout: envConfig.DB_CONNECTION_TIMEOUT,
 		})
 	}
 
