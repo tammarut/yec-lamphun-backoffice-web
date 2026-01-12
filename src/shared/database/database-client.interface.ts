@@ -6,4 +6,10 @@ export interface IDatabaseClient {
 	 * @returns A promise that resolves to an array of rows.
 	 */
 	query<T = any>(query: string, params?: any[]): Promise<T[]>
+
+	/**
+	 * Verifies the database connection by executing a simple query.
+	 * Throws an error if the connection fails.
+	 */
+	verifyConnection(): Promise<void>
 }

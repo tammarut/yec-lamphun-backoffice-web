@@ -23,4 +23,14 @@ export class DatabaseClient implements IDatabaseClient {
 		// We use the instance method .unsafe() on the initialized client.
 		return (await this.sql.unsafe(query, params)) as T[]
 	}
+
+	async verifyConnection(): Promise<void> {
+		try {
+			await this.query("SELECT 1")
+			console.log("Database connection verified successfully.")
+		} catch (error) {
+			console.error("Failed to verify database connection:", error)
+			throw error
+		}
+	}
 }
