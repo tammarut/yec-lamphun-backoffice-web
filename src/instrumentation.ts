@@ -5,13 +5,12 @@ export async function register() {
 			// before other parts of the application where it might be imported.
 			await import("reflect-metadata")
 
-			const { container, REGISTER_KEY } = await import("src/modules/container")
-			// Ensure DatabaseClient is resolved and verifyConnection is called
-			const dbClient = container.resolve(REGISTER_KEY.DATABASE_CLIENT)
+			const { container } = await import("src/modules/container")
+			const { DatabaseClient } = await import("src/shared/database/database-client")
 
-			// Cast to any to access verifyConnection since we're resolving by symbol and TS might not know the type here
-			// without importing the interface.
-			await (dbClient as any).verifyConnection()
+			// Ensure DatabaseClient is resolved and verifyConnection is called
+			const dbClient = container.resolve(DatabaseClient)
+			await dbClient.verifyConnection()
 		} catch (error) {
 			console.error("Critical error during server initialization:", error)
 			// Explicitly exit process if database connection fails,

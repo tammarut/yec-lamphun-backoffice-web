@@ -1,10 +1,9 @@
 import { SQL } from "bun"
 import { singleton } from "tsyringe"
 import { envConfig } from "src/shared/config/env"
-import { IDatabaseClient } from "./database-client.interface"
 
 @singleton()
-export class DatabaseClient implements IDatabaseClient {
+export class DatabaseClient {
 	private sql: SQL
 
 	constructor() {

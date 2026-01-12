@@ -29,8 +29,15 @@ container.register(REGISTER_KEY.SESSION_STORE, {
 })
 
 // 3. Register DatabaseClient
-container.register(REGISTER_KEY.DATABASE_CLIENT, {
+// We register the class constructor itself as the token to allow direct injection
+container.register(DatabaseClient, {
 	useClass: DatabaseClient,
+})
+// We also keep the symbol registration if other parts use it, or we can alias it.
+// For now, I'll keep the symbol pointing to the same class to avoid breaking existing symbol usages immediately,
+// but the plan says "update usage to resolve by class constructor".
+container.register(REGISTER_KEY.DATABASE_CLIENT, {
+	useToken: DatabaseClient,
 })
 
 // 4. Register Health Module

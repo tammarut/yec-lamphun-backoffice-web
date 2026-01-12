@@ -1,12 +1,11 @@
 import { injectable, inject } from "tsyringe"
-import { REGISTER_KEY } from "src/modules/container"
-import { IDatabaseClient } from "src/shared/database/database-client.interface"
+import { DatabaseClient } from "src/shared/database/database-client"
 import { IHealthRepository } from "./health.repository.interface"
 
 @injectable()
 export class HealthRepository implements IHealthRepository {
 	constructor(
-		@inject(REGISTER_KEY.DATABASE_CLIENT) private dbClient: IDatabaseClient,
+		@inject(DatabaseClient) private dbClient: DatabaseClient,
 	) {}
 
 	async getDatabaseTime(): Promise<Date> {
