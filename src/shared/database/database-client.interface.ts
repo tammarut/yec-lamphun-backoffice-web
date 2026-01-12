@@ -1,4 +1,4 @@
-export interface ISqlClient {
+export interface IDatabaseClient {
 	/**
 	 * Executes a SQL query with optional parameters.
 	 * @param query The SQL query string.

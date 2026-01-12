@@ -3,12 +3,12 @@ import { container } from "tsyringe"
 import { envConfig } from "src/shared/config/env"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { ulidGenerator } from "src/shared/lib/ulid-generator"
-import { BunSqlClient } from "src/shared/database/bun-sql-client"
+import { DatabaseClient } from "src/shared/database/database-client"
 
 export const REGISTER_KEY = {
 	ENV_CONFIG: Symbol("ENV_CONFIG"),
 	SESSION_STORE: Symbol("SESSION_STORE"),
-	SQL_CLIENT: Symbol("SQL_CLIENT"),
+	DATABASE_CLIENT: Symbol("DATABASE_CLIENT"),
 } as const
 
 // 1. Register EnvConfig
@@ -24,9 +24,9 @@ container.register(REGISTER_KEY.SESSION_STORE, {
 	useValue: sessionStore,
 })
 
-// 3. Register SqlClient
-container.register(REGISTER_KEY.SQL_CLIENT, {
-	useClass: BunSqlClient,
+// 3. Register DatabaseClient
+container.register(REGISTER_KEY.DATABASE_CLIENT, {
+	useClass: DatabaseClient,
 })
 
 export { container }

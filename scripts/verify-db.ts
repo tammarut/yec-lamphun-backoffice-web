@@ -1,12 +1,14 @@
 import "reflect-metadata"
 import { container, REGISTER_KEY } from "src/modules/container"
-import { ISqlClient } from "src/shared/database/sql-client.interface"
+import { IDatabaseClient } from "src/shared/database/database-client.interface"
 
 async function verifyDb() {
 	try {
 		console.log("Verifying database connection...")
-		const sqlClient = container.resolve<ISqlClient>(REGISTER_KEY.SQL_CLIENT)
-		const result = await sqlClient.query("SELECT 1 as result")
+		const dbClient = container.resolve<IDatabaseClient>(
+			REGISTER_KEY.DATABASE_CLIENT,
+		)
+		const result = await dbClient.query("SELECT 1 as result")
 		console.log("Connection successful! Result:", result)
 		process.exit(0)
 	} catch (error) {
