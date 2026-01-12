@@ -5,6 +5,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 vi.mock("src/shared/config/env", () => ({
 	envConfig: {
 		DATABASE_URL: "postgres://mock:5432/db",
+		DB_MAX_CONNECTIONS: 50,
+		DB_IDLE_TIMEOUT: 60,
+		// DB_CONNECTION_TIMEOUT is undefined to test default
 	},
 }))
 
@@ -19,6 +22,20 @@ describe("DatabaseClient", () => {
 		vi.clearAllMocks()
 		// Instantiate client
 		client = new DatabaseClient()
+	})
+
+	it("should initialize SQL client with correct options", () => {
+		// Access the static lastConstructorArgs from the mocked class
+		// We cast SQL to any because it's the class constructor itself
+		const args = (SQL as any).lastConstructorArgs
+
+		expect(args).toHaveLength(1)
+		expect(args[0]).toEqual({
+			url: "postgres://mock:5432/db",
+			max: 50,
+			idleTimeout: 60,
+			connectionTimeout: 30, // Default value
+		})
 	})
 
 	it("should execute query using sql.unsafe", async () => {

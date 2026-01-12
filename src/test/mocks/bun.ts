@@ -3,7 +3,12 @@ import { vi } from "vitest"
 // Mock the SQL class
 export const SQL = class MockSQL {
 	unsafe = vi.fn().mockResolvedValue([])
-	constructor(url: string) {}
+	// Store constructor args for inspection
+	static lastConstructorArgs: any[] = []
+
+	constructor(...args: any[]) {
+		MockSQL.lastConstructorArgs = args
+	}
 }
 
 // Also export the default 'sql' tag if needed, though we are using 'SQL' class now.

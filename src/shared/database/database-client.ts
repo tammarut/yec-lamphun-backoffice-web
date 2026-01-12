@@ -10,7 +10,12 @@ export class DatabaseClient implements IDatabaseClient {
 	constructor() {
 		// Initialize the Bun SQL client with the connection URL from environment variables.
 		// The Bun SQL client manages the connection pool lazily.
-		this.sql = new SQL(envConfig.DATABASE_URL)
+		this.sql = new SQL({
+			url: envConfig.DATABASE_URL,
+			max: envConfig.DB_MAX_CONNECTIONS ?? 10,
+			idleTimeout: envConfig.DB_IDLE_TIMEOUT ?? 30,
+			connectionTimeout: envConfig.DB_CONNECTION_TIMEOUT ?? 30,
+		})
 	}
 
 	async query<T = any>(query: string, params: any[] = []): Promise<T[]> {
