@@ -4,11 +4,15 @@ import { envConfig } from "src/shared/config/env"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { ulidGenerator } from "src/shared/lib/ulid-generator"
 import { DatabaseClient } from "src/shared/database/database-client"
+import { HealthRepository } from "src/modules/health/health.repository"
+import { HealthService } from "src/modules/health/health.service"
 
 export const REGISTER_KEY = {
 	ENV_CONFIG: Symbol("ENV_CONFIG"),
 	SESSION_STORE: Symbol("SESSION_STORE"),
 	DATABASE_CLIENT: Symbol("DATABASE_CLIENT"),
+	HEALTH_REPOSITORY: Symbol("HEALTH_REPOSITORY"),
+	HEALTH_SERVICE: Symbol("HEALTH_SERVICE"),
 } as const
 
 // 1. Register EnvConfig
@@ -27,6 +31,15 @@ container.register(REGISTER_KEY.SESSION_STORE, {
 // 3. Register DatabaseClient
 container.register(REGISTER_KEY.DATABASE_CLIENT, {
 	useClass: DatabaseClient,
+})
+
+// 4. Register Health Module
+container.register(REGISTER_KEY.HEALTH_REPOSITORY, {
+	useClass: HealthRepository,
+})
+
+container.register(REGISTER_KEY.HEALTH_SERVICE, {
+	useClass: HealthService,
 })
 
 export { container }

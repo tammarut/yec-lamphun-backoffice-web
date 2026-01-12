@@ -1,11 +1,13 @@
+import { SQL } from "bun"
+
 export interface IDatabaseClient {
 	/**
-	 * Executes a SQL query with optional parameters.
-	 * @param query The SQL query string.
-	 * @param params Optional parameters to bind to the query.
-	 * @returns A promise that resolves to an array of rows.
+	 * Returns the native Bun SQL instance.
+	 * Usage:
+	 * const sql = dbClient.getSql();
+	 * const result = await sql`SELECT * FROM users`;
 	 */
-	query<T = any>(query: string, params?: any[]): Promise<T[]>
+	getSql(): SQL
 
 	/**
 	 * Verifies the database connection by executing a simple query.

@@ -18,15 +18,15 @@ export class DatabaseClient implements IDatabaseClient {
 		})
 	}
 
-	async query<T = any>(query: string, params: any[] = []): Promise<T[]> {
-		// Use sql.unsafe to execute a raw query string with parameters.
-		// We use the instance method .unsafe() on the initialized client.
-		return (await this.sql.unsafe(query, params)) as T[]
+	getSql(): SQL {
+		return this.sql
 	}
 
 	async verifyConnection(): Promise<void> {
 		try {
-			await this.query("SELECT 1")
+			// Use tagged template literal for verification
+			// We can use the instance itself as a function for tagged templates
+			await this.sql`SELECT 1`
 			console.log("Database connection verified successfully.")
 		} catch (error) {
 			console.error("Failed to verify database connection:", error)

@@ -8,7 +8,13 @@ async function verifyDb() {
 		const dbClient = container.resolve<IDatabaseClient>(
 			REGISTER_KEY.DATABASE_CLIENT,
 		)
-		const result = await dbClient.query("SELECT 1 as result")
+		// Use the verifyConnection method which internally uses getSql() and tagged templates
+		await dbClient.verifyConnection()
+
+		// To demonstrate getSql usage in script:
+		const sql = dbClient.getSql()
+		const result = await sql`SELECT 1 as result`
+
 		console.log("Connection successful! Result:", result)
 		process.exit(0)
 	} catch (error) {
