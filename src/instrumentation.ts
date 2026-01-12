@@ -6,20 +6,16 @@ export async function register() {
 			await import("reflect-metadata")
 
 			const { container, REGISTER_KEY } = await import("src/modules/container")
-			const { IDatabaseClient } = await import(
-				"src/shared/database/database-client.interface"
-			)
-
+			// Ensure DatabaseClient is resolved and verifyConnection is called
 			const dbClient = container.resolve(REGISTER_KEY.DATABASE_CLIENT)
-			// We can't use type assertion easily here without importing the interface type properly,
-			// but we know it has verifyConnection.
-			// To keep it type safe we can cast to any or define a minimal interface.
+
+			// Cast to any to access verifyConnection since we're resolving by symbol and TS might not know the type here
+			// without importing the interface.
 			await (dbClient as any).verifyConnection()
 		} catch (error) {
 			console.error("Critical error during server initialization:", error)
 			// Explicitly exit process if database connection fails,
 			// as the user requested "throw an error" to stop startup.
-			// Throwing here might be caught by Next.js and logged, but verifying strict failure is good.
 			throw error
 		}
 	}
