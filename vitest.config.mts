@@ -12,6 +12,7 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			src: path.resolve(__dirname, "./src"),
+			bun: path.resolve(__dirname, "./src/test/mocks/bun.ts"),
 		},
 	},
 })
