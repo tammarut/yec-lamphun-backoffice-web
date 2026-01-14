@@ -1,6 +1,6 @@
 import { injectable, inject } from "tsyringe"
 import { REGISTER_KEY } from "src/modules/container"
-import { IHealthRepository } from "./health.repository.interface"
+import { IHealthRepository } from "./repository/health.repository.interface"
 
 @injectable()
 export class HealthService {
