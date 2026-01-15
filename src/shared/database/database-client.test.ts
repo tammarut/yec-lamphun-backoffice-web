@@ -39,16 +39,20 @@ describe("DatabaseClient", () => {
 			})
 		})
 
-		it("should return SQL instance via getSql()", () => {
-			const sqlInstance = client.getSql()
+		it("should return SQL instance via getRwConnection()", () => {
+			const sqlInstance = client.getRwConnection()
 			expect(sqlInstance).toBeDefined()
 			expect(typeof sqlInstance).toBe("function")
 		})
 
 		it("should verify connection successfully and return Ok", async () => {
-			const sqlInstance = client.getSql()
+			const sqlInstance = client.getRwConnection()
 			// Mock successful query
-			const spy = vi.spyOn(client, "getSql").mockReturnValue(sqlInstance)
+			// Need to mock getRwConnection since verifyConnection calls it internally (or uses the property)
+			// Wait, verifyConnection uses this.rwConnection directly.
+			// However, in the test, we want to spy on the sqlInstance (mock) behavior.
+			// Since client.getRwConnection() returns the same instance as this.rwConnection,
+			// any mock on that instance will work.
 
 			const result = await client.verifyConnection()
 
@@ -58,7 +62,7 @@ describe("DatabaseClient", () => {
 
 	describe("Unhappy cases", () => {
 		it("should return Err when verification fails", async () => {
-			const sqlInstance = client.getSql() as any
+			const sqlInstance = client.getRwConnection() as any
 			// Override the mock implementation for this test to throw
 			sqlInstance.mockImplementation(() => Promise.reject(new Error("Connection failed")))
 

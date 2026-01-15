@@ -6,12 +6,12 @@ import { DatabaseError } from "src/shared/core/errors/app-error"
 
 @singleton()
 export class DatabaseClient {
-	private sql: SQL
+	private rwConnection: SQL
 
 	constructor() {
 		// Initialize the Bun SQL client with the connection URL from environment variables.
 		// The Bun SQL client manages the connection pool lazily.
-		this.sql = new SQL({
+		this.rwConnection = new SQL({
 			adapter: "postgres",
 			url: envConfig.DATABASE_URL,
 			max: envConfig.DB_MAX_CONNECTIONS,
@@ -21,15 +21,15 @@ export class DatabaseClient {
 		})
 	}
 
-	getSql(): SQL {
-		return this.sql
+	getRwConnection(): SQL {
+		return this.rwConnection
 	}
 
 	async verifyConnection(): Promise<Result<void, DatabaseError>> {
 		try {
 			// Use tagged template literal for verification
 			// We can use the instance itself as a function for tagged templates
-			await this.sql`SELECT 1`
+			await this.rwConnection`SELECT 1`
 			// Log removed to prevent blocking main thread
 			return ok(undefined)
 		} catch (error) {
