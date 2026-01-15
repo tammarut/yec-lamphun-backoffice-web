@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 	const result = await healthService.checkHealth()
 
 	if (result.isErr()) {
-		console.error("Health check failed:", result.error)
+		// Log removed to prevent blocking main thread
 		return NextResponse.json(
 			{
 				status: "error",

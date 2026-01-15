@@ -30,10 +30,10 @@ export class DatabaseClient {
 			// Use tagged template literal for verification
 			// We can use the instance itself as a function for tagged templates
 			await this.sql`SELECT 1`
-			console.log("Database connection verified successfully.")
+			// Log removed to prevent blocking main thread
 			return ok(undefined)
 		} catch (error) {
-			console.error("Failed to verify database connection:", error)
+			// Log removed to prevent blocking main thread
 			return err(new DatabaseError("Failed to verify database connection", error))
 		}
 	}

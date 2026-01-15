@@ -48,16 +48,11 @@ describe("DatabaseClient", () => {
 		it("should verify connection successfully and return Ok", async () => {
 			const sqlInstance = client.getSql()
 			// Mock successful query
-			// We need to spy on the instance itself since it's a callable function
 			const spy = vi.spyOn(client, "getSql").mockReturnValue(sqlInstance)
-			const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {})
 
 			const result = await client.verifyConnection()
 
 			expect(result.isOk()).toBe(true)
-			expect(consoleSpy).toHaveBeenCalledWith(
-				"Database connection verified successfully.",
-			)
 		})
 	})
 
@@ -66,15 +61,10 @@ describe("DatabaseClient", () => {
 			const sqlInstance = client.getSql() as any
 			// Override the mock implementation for this test to throw
 			sqlInstance.mockImplementation(() => Promise.reject(new Error("Connection failed")))
-			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
 			const result = await client.verifyConnection()
 
 			expect(result.isErr()).toBe(true)
-			expect(consoleSpy).toHaveBeenCalledWith(
-				"Failed to verify database connection:",
-				expect.any(Error),
-			)
 		})
 	})
 })

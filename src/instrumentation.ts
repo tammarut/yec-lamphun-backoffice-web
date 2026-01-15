@@ -13,16 +13,13 @@ export async function register() {
 			const result = await dbClient.verifyConnection()
 
 			if (result.isErr()) {
-				console.error(
-					"Critical error during server initialization:",
-					result.error,
-				)
+				// Log removed to prevent blocking main thread
 				// Explicitly exit process if database connection fails,
 				// as the user requested "throw an error" to stop startup.
 				throw result.error
 			}
 		} catch (error) {
-			console.error("Critical error during server initialization:", error)
+			// Log removed to prevent blocking main thread
 			// Explicitly exit process if database connection fails,
 			// as the user requested "throw an error" to stop startup.
 			throw error
