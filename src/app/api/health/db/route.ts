@@ -9,17 +9,22 @@ import "src/shared/config/env"
 export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
-	try {
-		const healthService = container.resolve<HealthService>(
-			REGISTER_KEY.HEALTH_SERVICE,
-		)
-		const result = await healthService.checkHealth()
-		return NextResponse.json(result)
-	} catch (error) {
-		console.error("Health check failed:", error)
+	const healthService = container.resolve<HealthService>(
+		REGISTER_KEY.HEALTH_SERVICE,
+	)
+	const result = await healthService.checkHealth()
+
+	if (result.isErr()) {
+		console.error("Health check failed:", result.error)
 		return NextResponse.json(
-			{ status: "error", message: "Health check failed" },
+			{
+				status: "error",
+				message: result.error.message,
+				code: result.error.code,
+			},
 			{ status: 500 },
 		)
 	}
+
+	return NextResponse.json(result.value)
 }

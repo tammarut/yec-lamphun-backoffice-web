@@ -1,6 +1,8 @@
 import { SQL } from "bun"
 import { singleton } from "tsyringe"
+import { ok, err, Result } from "neverthrow"
 import { envConfig } from "src/shared/config/env"
+import { DatabaseError } from "src/shared/core/errors/app-error"
 
 @singleton()
 export class DatabaseClient {
@@ -23,15 +25,16 @@ export class DatabaseClient {
 		return this.sql
 	}
 
-	async verifyConnection(): Promise<void> {
+	async verifyConnection(): Promise<Result<void, DatabaseError>> {
 		try {
 			// Use tagged template literal for verification
 			// We can use the instance itself as a function for tagged templates
 			await this.sql`SELECT 1`
 			console.log("Database connection verified successfully.")
+			return ok(undefined)
 		} catch (error) {
 			console.error("Failed to verify database connection:", error)
-			throw error
+			return err(new DatabaseError("Failed to verify database connection", error))
 		}
 	}
 }

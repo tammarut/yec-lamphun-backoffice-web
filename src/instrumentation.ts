@@ -10,7 +10,17 @@ export async function register() {
 
 			// Ensure DatabaseClient is resolved and verifyConnection is called
 			const dbClient = container.resolve(DatabaseClient)
-			await dbClient.verifyConnection()
+			const result = await dbClient.verifyConnection()
+
+			if (result.isErr()) {
+				console.error(
+					"Critical error during server initialization:",
+					result.error,
+				)
+				// Explicitly exit process if database connection fails,
+				// as the user requested "throw an error" to stop startup.
+				throw result.error
+			}
 		} catch (error) {
 			console.error("Critical error during server initialization:", error)
 			// Explicitly exit process if database connection fails,
