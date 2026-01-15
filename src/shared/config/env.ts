@@ -8,7 +8,7 @@ const ServerSchema = v.object({
   DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 10),
   DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
   DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
-  DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 0), // 0 means forever
+  DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 3600), // 1 hour default
 });
 
 const ClientSchema = v.object({});
@@ -21,7 +21,7 @@ export const envConfig = createEnv({
     DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 10),
     DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
     DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
-    DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 0),
+    DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 3600),
   },
   client: {},
   runtimeEnv: {
