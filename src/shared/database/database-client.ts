@@ -10,10 +10,12 @@ export class DatabaseClient {
 		// Initialize the Bun SQL client with the connection URL from environment variables.
 		// The Bun SQL client manages the connection pool lazily.
 		this.sql = new SQL({
+			adapter: "postgres",
 			url: envConfig.DATABASE_URL,
 			max: envConfig.DB_MAX_CONNECTIONS,
 			idleTimeout: envConfig.DB_IDLE_TIMEOUT,
 			connectionTimeout: envConfig.DB_CONNECTION_TIMEOUT,
+			maxLifetime: envConfig.DB_MAX_LIFETIME,
 		})
 	}
 
