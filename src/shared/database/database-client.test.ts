@@ -1,28 +1,6 @@
 import "reflect-metadata"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-// Inline mock for "bun"
-vi.mock("bun", () => {
-	// Create a mock SQL class that is also callable (to simulate tagged templates)
-	const MockSQL = class MockSQL extends Function {
-		static lastConstructorArgs: any[] = []
-
-		constructor(...args: any[]) {
-			super()
-			MockSQL.lastConstructorArgs = args
-
-			// Simulate the tagged template behavior
-			const callable = vi.fn().mockImplementation(() => Promise.resolve([]))
-			Object.assign(callable, this)
-			return callable
-		}
-	}
-
-	return {
-		SQL: MockSQL,
-	}
-})
-
 // Mock envConfig before importing dependencies that use it
 vi.mock("src/shared/config/env", () => ({
 	envConfig: {
