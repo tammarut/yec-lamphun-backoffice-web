@@ -12,25 +12,15 @@ vi.mock("src/shared/config/env", () => ({
 	},
 }))
 
-// Use vi.hoisted to ensure the mock variable is initialized.
-// We cannot use mock<AuthService>() inside vi.hoisted because the import 'mock'
-// is not available inside the hoisted block (hoisted block runs before imports).
-// So we define the shape manually or use a simpler mock for the hoisted variable,
-// and then type assertion if needed.
-const { mockAuthService } = vi.hoisted(() => {
-	return {
-		mockAuthService: {
-			logout: vi.fn(),
-			login: vi.fn(),
-		},
-	}
+// Create a spy that is hoisted so it can be used in the mock factory
+const { resolveSpy } = vi.hoisted(() => {
+	return { resolveSpy: vi.fn() }
 })
 
-// Mock container BEFORE importing the route
 vi.mock("src/modules/container", () => {
 	return {
 		container: {
-			resolve: vi.fn(() => mockAuthService),
+			resolve: resolveSpy,
 		},
 	}
 })
@@ -39,8 +29,12 @@ vi.mock("src/modules/container", () => {
 import { POST } from "./route"
 
 describe("POST /api/v1/auth/logout", () => {
+	const mockAuthService = mock<AuthService>()
+
 	beforeEach(() => {
 		vi.clearAllMocks()
+		// Reset the resolve spy to return our local mockAuthService
+		resolveSpy.mockReturnValue(mockAuthService)
 	})
 
 	describe("Happy cases", () => {

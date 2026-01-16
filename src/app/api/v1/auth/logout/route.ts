@@ -5,9 +5,8 @@ import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { envConfig } from "src/shared/config/env"
 
-const authService = container.resolve(AuthService)
-
 export async function POST(request: NextRequest) {
+	const authService = container.resolve(AuthService)
 	const sessionId = request.cookies.get("session_id")?.value
 
 	if (!sessionId) {
