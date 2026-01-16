@@ -13,8 +13,3 @@ export class SQL extends Function {
 		return callable
 	}
 }
-
-// Mock sql tag
-export const sql = {
-	unsafe: vi.fn(),
-}
