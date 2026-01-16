@@ -6,13 +6,9 @@ import { ulidGenerator } from "src/shared/lib/ulid-generator"
 import { DatabaseClient } from "src/shared/database/database-client"
 import { HealthRepository } from "src/modules/health/repository/health.repository"
 import { HealthService } from "src/modules/health/health.service"
+import { REGISTER_KEY } from "./di-tokens"
 
-export const REGISTER_KEY = {
-	ENV_CONFIG: Symbol("ENV_CONFIG"),
-	SESSION_STORE: Symbol("SESSION_STORE"),
-	HEALTH_REPOSITORY: Symbol("HEALTH_REPOSITORY"),
-	HEALTH_SERVICE: Symbol("HEALTH_SERVICE"),
-} as const
+export { REGISTER_KEY } from "./di-tokens"
 
 // 1. Register EnvConfig
 container.register(REGISTER_KEY.ENV_CONFIG, {

@@ -1,5 +1,5 @@
 export async function register() {
-	if (process.env.NEXT_RUNTIME === "nodejs") {
+	if (process.env["NEXT_RUNTIME"] === "nodejs") {
 		try {
 			// We need to import 'reflect-metadata' here because this function runs
 			// before other parts of the application where it might be imported.

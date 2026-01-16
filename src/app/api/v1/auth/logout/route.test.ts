@@ -1,8 +1,6 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
-import { mock } from "vitest-mock-extended"
-
-import { AuthService } from "src/modules/auth"
+import { ok } from "neverthrow"
 
 // Mock env config BEFORE importing the route
 vi.mock("src/shared/config/env", () => ({
@@ -12,8 +10,14 @@ vi.mock("src/shared/config/env", () => ({
 	},
 }))
 
-// Create mock AuthService
-const mockAuthService = mock<AuthService>()
+const { mockAuthService } = vi.hoisted(() => {
+	return {
+		mockAuthService: {
+			logout: vi.fn(),
+			login: vi.fn(),
+		},
+	}
+})
 
 // Mock container BEFORE importing the route
 vi.mock("src/modules/container", () => {
