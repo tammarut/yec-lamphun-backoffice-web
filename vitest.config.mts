@@ -12,6 +12,8 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			src: path.resolve(__dirname, "./src"),
+			// Alias 'bun' to the test setup file which exports a mock SQL class
+			bun: path.resolve(__dirname, "./src/test-setup.ts"),
 		},
 	},
 })
