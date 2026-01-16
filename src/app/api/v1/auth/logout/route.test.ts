@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
-import { ok } from "neverthrow"
+import { mock } from "vitest-mock-extended"
+
+import { AuthService } from "src/modules/auth"
 
 // Mock env config BEFORE importing the route
 vi.mock("src/shared/config/env", () => ({
@@ -10,6 +12,11 @@ vi.mock("src/shared/config/env", () => ({
 	},
 }))
 
+// Use vi.hoisted to ensure the mock variable is initialized.
+// We cannot use mock<AuthService>() inside vi.hoisted because the import 'mock'
+// is not available inside the hoisted block (hoisted block runs before imports).
+// So we define the shape manually or use a simpler mock for the hoisted variable,
+// and then type assertion if needed.
 const { mockAuthService } = vi.hoisted(() => {
 	return {
 		mockAuthService: {
