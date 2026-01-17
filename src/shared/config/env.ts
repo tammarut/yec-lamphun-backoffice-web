@@ -1,15 +1,16 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import * as v from "valibot";
 
-export const envConfig = createEnv({
+// @ts-ignore
+const config = createEnv({
   server: {
     NODE_ENV: v.picklist(["development", "local", "test", "production"]),
     ADMIN_PASSWORD: v.pipe(v.string(), v.minLength(1, "ADMIN_PASSWORD is required")),
     DATABASE_URL: v.pipe(v.string(), v.minLength(1, "DATABASE_URL is required")),
-    DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 10),
-    DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
-    DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 30),
-    DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), 3600),
+    DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "10"),
+    DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "30"),
+    DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "30"),
+    DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "3600"),
   },
   client: {},
   runtimeEnv: {
@@ -23,4 +24,14 @@ export const envConfig = createEnv({
   },
 });
 
-export type EnvConfig = typeof envConfig;
+export interface EnvConfig {
+  NODE_ENV: "development" | "local" | "test" | "production";
+  ADMIN_PASSWORD: string;
+  DATABASE_URL: string;
+  DB_MAX_CONNECTIONS: number;
+  DB_IDLE_TIMEOUT: number;
+  DB_CONNECTION_TIMEOUT: number;
+  DB_MAX_LIFETIME: number;
+}
+
+export const envConfig = config as unknown as EnvConfig;

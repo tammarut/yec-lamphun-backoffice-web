@@ -12,14 +12,15 @@ vi.mock("src/shared/config/env", () => ({
 	},
 }))
 
-// Create mock AuthService
-const mockAuthService = mock<AuthService>()
+// Create a spy that is hoisted so it can be used in the mock factory
+const { resolveSpy } = vi.hoisted(() => {
+	return { resolveSpy: vi.fn() }
+})
 
-// Mock container BEFORE importing the route
 vi.mock("src/modules/container", () => {
 	return {
 		container: {
-			resolve: vi.fn(() => mockAuthService),
+			resolve: resolveSpy,
 		},
 	}
 })
@@ -28,8 +29,12 @@ vi.mock("src/modules/container", () => {
 import { POST } from "./route"
 
 describe("POST /api/v1/auth/logout", () => {
+	const mockAuthService = mock<AuthService>()
+
 	beforeEach(() => {
 		vi.clearAllMocks()
+		// Reset the resolve spy to return our local mockAuthService
+		resolveSpy.mockReturnValue(mockAuthService)
 	})
 
 	describe("Happy cases", () => {
