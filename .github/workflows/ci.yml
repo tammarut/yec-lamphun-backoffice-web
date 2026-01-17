@@ -5,8 +5,8 @@ on:
     branches: ["main"]
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  test-and-build:
+    name: Test and Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
