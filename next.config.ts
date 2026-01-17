@@ -1,5 +1,5 @@
-import "./src/shared/config/env"
 import type { NextConfig } from "next"
+import "./src/shared/config/env"
 
 const appEnv = process.env["NODE_ENV"]
 const isProduction = appEnv === "production"

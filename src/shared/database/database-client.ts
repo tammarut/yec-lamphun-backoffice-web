@@ -1,27 +1,25 @@
-import { SQL } from "bun"
-import { singleton } from "tsyringe"
-import { ok, err, Result } from "neverthrow"
+import { err, ok, Result } from "neverthrow"
+import postgres from "postgres"
 import { envConfig } from "src/shared/config/env"
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import { singleton } from "tsyringe"
 
 @singleton()
 export class DatabaseClient {
-	private rwConnection: SQL
+	private rwConnection: postgres.Sql
 
 	constructor() {
-		// Initialize the Bun SQL client with the connection URL from environment variables.
-		// The Bun SQL client manages the connection pool lazily.
-		this.rwConnection = new SQL({
-			adapter: "postgres",
-			url: envConfig.DATABASE_URL,
+		// Initialize the postgres client with the connection URL from environment variables.
+		// postgres.js manages the connection pool internally.
+		this.rwConnection = postgres(envConfig.DATABASE_URL, {
 			max: envConfig.DB_MAX_CONNECTIONS,
-			idleTimeout: envConfig.DB_IDLE_TIMEOUT,
-			connectionTimeout: envConfig.DB_CONNECTION_TIMEOUT,
-			maxLifetime: envConfig.DB_MAX_LIFETIME,
+			idle_timeout: envConfig.DB_IDLE_TIMEOUT,
+			connect_timeout: envConfig.DB_CONNECTION_TIMEOUT,
+			max_lifetime: envConfig.DB_MAX_LIFETIME,
 		})
 	}
 
-	getRwConnection(): SQL {
+	getRwConnection(): postgres.Sql {
 		return this.rwConnection
 	}
 
@@ -30,10 +28,8 @@ export class DatabaseClient {
 			// Use tagged template literal for verification
 			// We can use the instance itself as a function for tagged templates
 			await this.rwConnection`SELECT 1`
-			// Log removed to prevent blocking main thread
 			return ok(undefined)
 		} catch (error) {
-			// Log removed to prevent blocking main thread
 			return err(new DatabaseError("Failed to verify database connection", error))
 		}
 	}
