@@ -1,11 +1,12 @@
 import "reflect-metadata"
+
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import { safeParse } from "valibot"
 
 import { AuthService, LoginRequestSchema } from "src/modules/auth"
-import { envConfig } from "src/shared/config/env"
 import { container } from "src/modules/container"
+import { envConfig } from "src/shared/config/env"
 
 const authService = container.resolve(AuthService)
 
