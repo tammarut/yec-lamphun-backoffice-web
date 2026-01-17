@@ -1,8 +1,8 @@
-import { describe, expect, test, beforeEach } from "vitest"
+import type { EnvConfig } from "src/shared/config/env"
+import { beforeEach, describe, expect, test } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 import { AuthService } from "./auth.service"
 import { InvalidCredentialsError } from "./errors"
-import type { EnvConfig } from "src/shared/config/env"
 import type { ISessionStore } from "./interfaces"
 
 describe("AuthService", () => {
@@ -18,6 +18,11 @@ describe("AuthService", () => {
 		mockConfig = {
 			NODE_ENV: "test",
 			ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6",
+			DATABASE_URL: "postgres://mock:5432/db",
+			DB_MAX_CONNECTIONS: 10,
+			DB_IDLE_TIMEOUT: 30,
+			DB_CONNECTION_TIMEOUT: 30,
+			DB_MAX_LIFETIME: 3600,
 		}
 
 		mockSessionStore = mock<ISessionStore>()

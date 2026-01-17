@@ -1,11 +1,13 @@
 import "reflect-metadata"
-import { container } from "tsyringe"
-import { envConfig } from "src/shared/config/env"
-import { SessionStore } from "src/modules/shared/session-store/session-store"
-import { ulidGenerator } from "src/shared/lib/ulid-generator"
-import { DatabaseClient } from "src/shared/database/database-client"
-import { HealthRepository } from "src/modules/health/repository/health.repository"
 import { HealthService } from "src/modules/health/health.service"
+import { HealthRepository } from "src/modules/health/repository/health.repository"
+import { SessionStore } from "src/modules/shared/session-store/session-store"
+import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
+import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
+import { envConfig } from "src/shared/config/env"
+import { DatabaseClient } from "src/shared/database/database-client"
+import { ulidGenerator } from "src/shared/lib/ulid-generator"
+import { container } from "tsyringe"
 import { REGISTER_KEY } from "./di-tokens"
 
 export { REGISTER_KEY } from "./di-tokens"
@@ -36,6 +38,15 @@ container.register(REGISTER_KEY.HEALTH_REPOSITORY, {
 
 container.register(REGISTER_KEY.HEALTH_SERVICE, {
 	useClass: HealthService,
+})
+
+// 5. Register System Settings Module
+container.register(REGISTER_KEY.SYSTEM_SETTINGS_REPOSITORY, {
+	useClass: SystemSettingsRepository,
+})
+
+container.register(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE, {
+	useClass: SystemSettingsService,
 })
 
 export { container }
