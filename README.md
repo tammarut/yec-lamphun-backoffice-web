@@ -1,5 +1,52 @@
 # This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app)
 
+## Tech Stack
+
+### Core
+- **Runtime**: [Bun](https://bun.sh) - Fast JavaScript runtime
+- **Framework**: [Next.js](https://nextjs.org) v16.1.1 - React framework with App Router
+- **UI Library**: [React](https://react.dev) v19.2.3
+
+### Language & Type Safety
+- **Language**: [TypeScript](https://www.typescriptlang.org) v5 - Static type checking for JavaScript
+
+### UI Components & Styling
+- **Component Library**: [shadcn/ui](https://ui.shadcn.com) - High-quality React components
+- **Headless Components**: [Radix UI](https://radix-ui.com) - Primitive components for building accessible UIs
+- **CSS Framework**: [Tailwind CSS](https://tailwindcss.com) v4 - Utility-first CSS framework
+- **Icon Library**: [@hugeicons/react](https://hugeicons.com) - Beautiful icons
+
+### Forms & Validation
+- **Form Management**: [React Hook Form](https://react-hook-form.com) v7.70.0
+- **Validation**: [Valibot](https://valibot.dev) v1.2.0 - Schema validation library
+- **Form Resolvers**: [@hookform/resolvers](https://react-hook-form.com/form-builder)
+
+### Data & API
+- **HTTP Client**: Built-in Next.js API routes
+- **Database**: PostgreSQL with [postgres](https://github.com/pramuka/postgres) v3.4.8
+- **State Management**: [@tanstack/react-query](https://tanstack.com/query/latest) v5.90.16 - Server state management
+- **Caching**: [@cacheable/node-cache](https://www.npmjs.com/package/@cacheable/node-cache) v1.7.6
+
+### Development & Build Tools
+- **Package Manager**: Bun
+- **Linting**: [ESLint](https://eslint.org) v9 with Next.js config
+- **Code Formatting**: [Prettier](https://prettier.io) v3.7.4
+- **Git Hooks**: [Husky](https://typicode.github.io/husky/) v9.1.7 with lint-staged
+- **TypeScript Config**: Path aliases and strict type checking enabled
+
+### Testing
+- **Test Framework**: [Vitest](https://vitest.dev) v4.0.16 - Unit and component testing
+- **Testing Library**: 
+  - [@testing-library/react](https://testing-library.com) v16.3.1
+  - [@testing-library/dom](https://testing-library.com) v10.4.1
+- **DOM Environment**: [jsdom](https://github.com/jsdom/jsdom) v27.4.0
+
+### Utilities
+- **ID Generation**: [ULID](https://github.com/ulid/spec) v3.0.2
+- **Dependency Injection**: [tsyringe](https://github.com/microsoft/tsyringe) v4.10.0
+- **Error Handling**: [neverthrow](https://github.com/supermacro/neverthrow) v8.2.0
+- **Class Name Utilities**: [clsx](https://github.com/lukeed/clsx) v2.1.1, [tailwind-merge](https://github.com/dcastil/tailwind-merge) v3.4.0
+
 ## Getting Started
 
 First, run the development server:
