@@ -1,15 +1,22 @@
 import "reflect-metadata"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
-import { DatabaseClient } from "src/shared/database/database-client"
-import { SystemSettingsRepository } from "./system-settings.repository"
-import { getAllSettings, type GetAllSettingsRow } from "src/shared/database/system-settings/sqlc-generated/queries_sql"
-import { SQL } from "bun"
 
-// Mock the generated queries file
+// Mock the generated queries file BEFORE imports
 vi.mock("src/shared/database/system-settings/sqlc-generated/queries_sql", () => ({
 	getAllSettings: vi.fn(),
+	updateSetting: vi.fn(),
 }))
+
+// Mock bun package BEFORE imports
+vi.mock("bun", () => ({
+	SQL: vi.fn(),
+}))
+
+import { DatabaseClient } from "src/shared/database/database-client"
+import { SystemSettingsRepository } from "./system-settings.repository"
+import { getAllSettings, updateSetting, type GetAllSettingsRow } from "src/shared/database/system-settings/sqlc-generated/queries_sql"
+import { SQL } from "bun"
 
 describe("SystemSettingsRepository", () => {
 	let repository: SystemSettingsRepository
@@ -89,6 +96,35 @@ describe("SystemSettingsRepository", () => {
 			expect(result.isErr()).toBe(true)
 			expect(result._unsafeUnwrapErr().message).toBe("Connection refused")
 			expect(result._unsafeUnwrapErr().code).toBe("DATABASE_ERROR")
+		})
+	})
+
+	describe("updateSetting", () => {
+		describe("Happy cases", () => {
+			it("should update a system setting successfully", async () => {
+				vi.mocked(updateSetting).mockResolvedValueOnce(undefined)
+
+				const result = await repository.updateSetting("open_membership_renewal", false)
+
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toBeUndefined()
+				expect(updateSetting).toHaveBeenCalledWith(mockSql, {
+					feature: "open_membership_renewal",
+					value: false,
+				})
+			})
+		})
+
+		describe("Unhappy cases", () => {
+			it("should return DatabaseError when update setting query fails", async () => {
+				vi.mocked(updateSetting).mockRejectedValueOnce(new Error("DB Connection Error"))
+
+				const result = await repository.updateSetting("open_membership_renewal", false)
+
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr().message).toBe("DB Connection Error")
+				expect(result._unsafeUnwrapErr().code).toBe("DATABASE_ERROR")
+			})
 		})
 	})
 })

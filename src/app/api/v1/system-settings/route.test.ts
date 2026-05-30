@@ -1,20 +1,23 @@
 import { errAsync, okAsync, ResultAsync } from "neverthrow"
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
-import { container } from "src/modules/container"
-import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
-import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock } from "vitest-mock-extended"
-import { GET } from "./route"
 
-// Mock the container module
+// Mock container module BEFORE importing the route
 vi.mock("src/modules/container", () => ({
 	container: {
 		resolve: vi.fn(),
 	},
 }))
+
+import { container } from "src/modules/container"
+import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
+import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
+
+// Import route AFTER mocks
+import { GET, PATCH } from "./route"
 
 describe("GET /api/v1/system-settings", () => {
 	let mockService: ReturnType<typeof mock<SystemSettingsService>>
@@ -76,5 +79,96 @@ describe("GET /api/v1/system-settings", () => {
 		expect(json).toEqual({ message: "Internal Server Error" })
 
 		consoleSpy.mockRestore()
+	})
+})
+
+describe("PATCH /api/v1/system-settings", () => {
+	let mockService: ReturnType<typeof mock<SystemSettingsService>>
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mockService = mock<SystemSettingsService>()
+		vi.mocked(container.resolve).mockReturnValue(mockService)
+	})
+
+	describe("Happy cases", () => {
+		it("should return 204 when system settings update is successful", async () => {
+			mockService.updateSettings.mockReturnValue(Promise.resolve(okAsync(undefined as unknown as void)) as unknown as Promise<ResultAsync<void, DatabaseError>>)
+
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: JSON.stringify({ open_membership_renewal: true }),
+			})
+
+			const response = await PATCH(request)
+
+			expect(response).toBeInstanceOf(NextResponse)
+			expect(response.status).toBe(204)
+			expect(mockService.updateSettings).toHaveBeenCalledWith({ open_membership_renewal: true })
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		it("should return 400 when value is invalid type", async () => {
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: JSON.stringify({ open_membership_renewal: "not-a-boolean" }),
+			})
+
+			const response = await PATCH(request)
+
+			expect(response.status).toBe(400)
+			const json = await response.json()
+			expect(json.error_message).toBe('Invalid type: Expected boolean but received "not-a-boolean"')
+		})
+
+		it("should return 400 when value is missing", async () => {
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: JSON.stringify({}),
+			})
+
+			const response = await PATCH(request)
+
+			expect(response.status).toBe(400)
+			const json = await response.json()
+			expect(json.error_message).toBe('Invalid key: Expected "open_membership_renewal" but received undefined')
+		})
+
+		it("should return 400 when json payload is invalid", async () => {
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: "invalid-json",
+			})
+
+			const response = await PATCH(request)
+
+			expect(response.status).toBe(400)
+			const json = await response.json()
+			expect(json).toEqual({
+				error_message: "Invalid request body",
+			})
+		})
+
+		it("should return 500 when service fails", async () => {
+			mockService.updateSettings.mockReturnValue(Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<void, DatabaseError>>)
+
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: JSON.stringify({ open_membership_renewal: true }),
+			})
+
+			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+			const response = await PATCH(request)
+
+			expect(response.status).toBe(500)
+			const json = await response.json()
+			expect(json).toEqual({
+				error_message: "Internal Server Error",
+			})
+
+			consoleSpy.mockRestore()
+		})
 	})
 })
