@@ -31,6 +31,3 @@ bun.lockb
 
 *.md
 Dockerfile*
-
-# Ignore generated code:
-**/sqlc-generated/**
