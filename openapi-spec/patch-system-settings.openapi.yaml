@@ -1,0 +1,83 @@
+openapi: 3.0.1
+info:
+  title: Default module
+  description: API for managing members.
+  version: 1.0.0
+tags: []
+paths:
+  /api/v1/system-settings:
+    patch:
+      summary: Update a system setting - Admin only (/api/v1/system-settings)
+      deprecated: false
+      description: >-
+        Updates the value of a specific system setting. Requires admin
+        authentication.
+      tags: []
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                open_membership_renewal:
+                  type: boolean
+              required:
+                - open_membership_renewal
+            example:
+              open_membership_renewal: true
+        required: true
+      responses:
+        '204':
+          description: Setting updated successfully.
+          headers: {}
+        '400':
+          description: Validation failed (e.g., invalid value type).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error_message:
+                    type: string
+                required:
+                  - error_message
+              examples:
+                Validation Error:
+                  summary: Example when the provided value is invalid for the setting.
+                  value:
+                    error_message: >-
+                      Invalid type for setting 'open_membership_renewal'.
+                      Expected boolean.
+          headers: {}
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error_message:
+                    type: string
+                required:
+                  - error_message
+              examples:
+                Unauthorized:
+                  summary: Example when the user is not an admin.
+                  value:
+                    error_message: >-
+                      Authentication token is invalid or user is not an
+                      administrator.
+          headers: {}
+      security:
+        - cookieAuth: []
+components:
+  schemas: {}
+  responses: {}
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+servers: []
+security: []

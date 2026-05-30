@@ -1,7 +1,12 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
+import { ResultAsync } from "neverthrow"
+import { safeParse } from "valibot"
 import { container } from "src/modules/container"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
+import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
+
+export const dynamic = "force-dynamic"
 
 function toSystemSettingsResponse(settings: ReadonlyArray<SystemSettingDomain>) {
 	const response: Record<string, unknown> = {}
@@ -24,4 +29,30 @@ export async function GET() {
 	const responseBody = toSystemSettingsResponse(result.value)
 
 	return NextResponse.json(responseBody)
+}
+
+export async function PATCH(request: NextRequest) {
+	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
+	if (parseReqBodyResult.isErr()) {
+		return NextResponse.json({ error_message: "Invalid request body" }, { status: 400 })
+	}
+
+	const reqBody = parseReqBodyResult.value
+	const validateReqBodyResult = safeParse(PatchSystemSettingsSchema, reqBody)
+
+	if (!validateReqBodyResult.success) {
+		const issue = validateReqBodyResult.issues[0]
+		const errorMessage = issue?.message || "Validation failed"
+		return NextResponse.json({ error_message: errorMessage }, { status: 400 })
+	}
+
+	const systemSettingsService = container.resolve(SystemSettingsService)
+	const result = await systemSettingsService.updateSettings(validateReqBodyResult.output)
+
+	if (result.isErr()) {
+		console.error("Failed to update system settings:", result.error)
+		return NextResponse.json({ error_message: "Internal Server Error" }, { status: 500 })
+	}
+
+	return new NextResponse(null, { status: 204 })
 }

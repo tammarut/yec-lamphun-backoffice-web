@@ -77,7 +77,26 @@ Follow these steps to run the project locally for the first time:
 
 2. **Environment Variables:** `.env.local` file
 
-3. **Run the Development Server:**
+3. **Compile Type-Safe Database Queries (`sqlc`):**
+
+   If you modify or create raw SQL schemas (`schema.sql`) or queries (`queries.sql`) under `src/shared/database/[table-name]`, regenerate the type-safe TypeScript database functions:
+
+   * **Install `sqlc` CLI** (if not already installed):
+
+       ```bash
+       # macOS (Homebrew)
+       brew install sqlc
+       ```
+
+   * **Compile SQL code**:
+
+       ```bash
+       sqlc generate
+       ```
+
+       The compiled, fully-typed functions are generated under the respective table folder, e.g., `src/shared/database/system-settings/sqlc-generated/queries_sql.ts`.
+
+4. **Run the Development Server:**
 
    ```bash
    bun run dev

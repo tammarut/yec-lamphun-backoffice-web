@@ -2,7 +2,7 @@ import { createEnv } from "@t3-oss/env-nextjs"
 import * as v from "valibot"
 
 export type EnvConfig = {
-	NODE_ENV: "development" | "local" | "test" | "production"
+	NODE_ENV: "development" | "test" | "production"
 	ADMIN_PASSWORD: string
 	DATABASE_URL: string
 	DB_MAX_CONNECTIONS: number
@@ -13,7 +13,7 @@ export type EnvConfig = {
 
 export const envConfig = createEnv({
 	server: {
-		NODE_ENV: v.picklist(["development", "local", "test", "production"]),
+		NODE_ENV: v.picklist(["development", "test", "production"]),
 		ADMIN_PASSWORD: v.pipe(v.string(), v.minLength(1, "ADMIN_PASSWORD is required")),
 		DATABASE_URL: v.pipe(v.string(), v.minLength(1, "DATABASE_URL is required")),
 		DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "10"),

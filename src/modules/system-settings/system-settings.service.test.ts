@@ -47,4 +47,34 @@ describe("SystemSettingsService", () => {
 			expect(result._unsafeUnwrapErr()).toEqual(dbError)
 		})
 	})
+
+	describe("updateSettings", () => {
+		it("should return void on successful repository updates", async () => {
+			mockRepository.updateSetting.mockResolvedValue(ok(undefined as unknown as void))
+
+			const result = await service.updateSettings({ open_membership_renewal: false })
+
+			expect(result.isOk()).toBe(true)
+			expect(result._unsafeUnwrap()).toBeUndefined()
+			expect(mockRepository.updateSetting).toHaveBeenCalledWith("open_membership_renewal", false)
+		})
+
+		it("should return void when no updates are provided", async () => {
+			const result = await service.updateSettings({})
+
+			expect(result.isOk()).toBe(true)
+			expect(result._unsafeUnwrap()).toBeUndefined()
+			expect(mockRepository.updateSetting).not.toHaveBeenCalled()
+		})
+
+		it("should propagate database error", async () => {
+			const dbError = new DatabaseError("DB Error")
+			mockRepository.updateSetting.mockResolvedValue(err(dbError))
+
+			const result = await service.updateSettings({ open_membership_renewal: false })
+
+			expect(result.isErr()).toBe(true)
+			expect(result._unsafeUnwrapErr()).toEqual(dbError)
+		})
+	})
 })
