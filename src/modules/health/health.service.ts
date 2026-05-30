@@ -8,12 +8,10 @@ import { DatabaseError } from "src/shared/core/errors/app-error"
 export class HealthService {
 	constructor(
 		@inject(REGISTER_KEY.HEALTH_REPOSITORY)
-		private healthRepository: IHealthRepository,
+		private healthRepository: IHealthRepository
 	) {}
 
-	async checkHealth(): Promise<
-		Result<{ status: string; dbTime: Date }, DatabaseError>
-	> {
+	async checkHealth(): Promise<Result<{ status: string; dbTime: Date }, DatabaseError>> {
 		const result = await this.healthRepository.getDatabaseTime()
 
 		if (result.isErr()) {

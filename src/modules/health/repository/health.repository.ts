@@ -11,9 +11,7 @@ export class HealthRepository implements IHealthRepository {
 	async getDatabaseTime(): Promise<Result<Date, DatabaseError>> {
 		try {
 			const sql = this.dbClient.getRwConnection()
-			// Execute a raw query using the tagged template literal syntax
-			// Postgres returns current timestamp as a Date object in the result array
-			// e.g. [{ now: 2023-10-27T... }]
+			// Execute raw query using bun:sql tagged template literal
 			const result = await sql`SELECT NOW() as now`
 			const date = result[0]?.["now"] as Date
 			return ok(date)

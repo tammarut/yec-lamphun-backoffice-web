@@ -2,16 +2,10 @@ import { err, ok, ResultAsync } from "neverthrow"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/database/database-client"
 import { inject, injectable } from "tsyringe"
+import type { Sql } from "postgres"
 import { SystemSettingDomain } from "../domain/system-setting.domain"
 import { ISystemSettingsRepository } from "../interfaces"
-
-interface SystemSettingDb {
-	feature: string
-	value: unknown
-	description: string | null
-	created_at: Date
-	updated_at: Date
-}
+import { getAllSettings } from "src/shared/database/system-settings/sqlc-generated/queries_sql"
 
 @injectable()
 export class SystemSettingsRepository implements ISystemSettingsRepository {
@@ -20,13 +14,7 @@ export class SystemSettingsRepository implements ISystemSettingsRepository {
 	async getAllSettings(): Promise<ResultAsync<SystemSettingDomain[], DatabaseError>> {
 		const dbConn = this.dbClient.getRwConnection()
 
-		const result = await ResultAsync.fromPromise(
-			dbConn<SystemSettingDb[]>`
-				SELECT feature, value, description, created_at, updated_at
-				FROM system_settings;
-			`,
-			(error) => error as Error
-		)
+		const result = await ResultAsync.fromPromise(getAllSettings(dbConn as unknown as Sql), (error) => error as Error)
 
 		if (result.isErr()) {
 			const error = result.error
@@ -39,8 +27,8 @@ export class SystemSettingsRepository implements ISystemSettingsRepository {
 			feature: row.feature,
 			value: row.value,
 			description: row.description,
-			createdAt: row.created_at,
-			updatedAt: row.updated_at,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt,
 		}))
 
 		return ok(settings)

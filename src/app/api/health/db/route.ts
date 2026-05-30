@@ -10,9 +10,7 @@ import "src/shared/config/env"
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-	const healthService = container.resolve<HealthService>(
-		REGISTER_KEY.HEALTH_SERVICE,
-	)
+	const healthService = container.resolve<HealthService>(REGISTER_KEY.HEALTH_SERVICE)
 	const result = await healthService.checkHealth()
 
 	if (result.isErr()) {
@@ -23,7 +21,7 @@ export async function GET() {
 				message: result.error.message,
 				code: result.error.code,
 			},
-			{ status: 500 },
+			{ status: 500 }
 		)
 	}
 
