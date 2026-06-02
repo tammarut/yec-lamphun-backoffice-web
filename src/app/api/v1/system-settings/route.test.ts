@@ -13,8 +13,10 @@ vi.mock("src/modules/container", () => ({
 }))
 
 import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
+import type { ISessionStore } from "src/modules/auth/interfaces"
 
 // Import route AFTER mocks
 import { GET, PATCH } from "./route"
@@ -84,21 +86,31 @@ describe("GET /api/v1/system-settings", () => {
 
 describe("PATCH /api/v1/system-settings", () => {
 	let mockService: ReturnType<typeof mock<SystemSettingsService>>
+	let mockSessionStore: ReturnType<typeof mock<ISessionStore>>
 
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockService = mock<SystemSettingsService>()
-		vi.mocked(container.resolve).mockReturnValue(mockService)
+		mockSessionStore = mock<ISessionStore>()
+
+		// Configure container to return correct mock based on requested token
+		vi.mocked(container.resolve).mockImplementation((token) => {
+			if (token === REGISTER_KEY.SESSION_STORE) return mockSessionStore
+			if (token === SystemSettingsService) return mockService
+			return {}
+		})
 	})
 
 	describe("Happy cases", () => {
 		it("should return 204 when system settings update is successful", async () => {
 			mockService.updateSettings.mockReturnValue(Promise.resolve(okAsync(undefined as unknown as void)) as unknown as Promise<ResultAsync<void, DatabaseError>>)
+			mockSessionStore.get.mockReturnValue({ username: "admin" })
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
 				body: JSON.stringify({ open_membership_renewal: true }),
 			})
+			request.cookies.set("session_id", "valid-session")
 
 			const response = await PATCH(request)
 
@@ -109,11 +121,44 @@ describe("PATCH /api/v1/system-settings", () => {
 	})
 
 	describe("Unhappy cases", () => {
+		it("should return 401 when session_id cookie is missing", async () => {
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: JSON.stringify({ open_membership_renewal: true }),
+			})
+			// No cookie set
+
+			const response = await PATCH(request)
+
+			expect(response.status).toBe(401)
+			const json = await response.json()
+			expect(json.error_message).toBe("Unauthorized")
+		})
+
+		it("should return 401 when session is invalid", async () => {
+			mockSessionStore.get.mockReturnValue(null)
+
+			const request = new NextRequest("http://localhost/api/v1/system-settings", {
+				method: "PATCH",
+				body: JSON.stringify({ open_membership_renewal: true }),
+			})
+			request.cookies.set("session_id", "invalid-session")
+
+			const response = await PATCH(request)
+
+			expect(response.status).toBe(401)
+			const json = await response.json()
+			expect(json.error_message).toBe("Unauthorized")
+		})
+
 		it("should return 400 when value is invalid type", async () => {
+			mockSessionStore.get.mockReturnValue({ username: "admin" })
+
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
 				body: JSON.stringify({ open_membership_renewal: "not-a-boolean" }),
 			})
+			request.cookies.set("session_id", "valid-session")
 
 			const response = await PATCH(request)
 
@@ -123,10 +168,13 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is missing", async () => {
+			mockSessionStore.get.mockReturnValue({ username: "admin" })
+
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
 				body: JSON.stringify({}),
 			})
+			request.cookies.set("session_id", "valid-session")
 
 			const response = await PATCH(request)
 
@@ -136,10 +184,13 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when json payload is invalid", async () => {
+			mockSessionStore.get.mockReturnValue({ username: "admin" })
+
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
 				body: "invalid-json",
 			})
+			request.cookies.set("session_id", "valid-session")
 
 			const response = await PATCH(request)
 
@@ -151,12 +202,14 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 500 when service fails", async () => {
+			mockSessionStore.get.mockReturnValue({ username: "admin" })
 			mockService.updateSettings.mockReturnValue(Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<void, DatabaseError>>)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
 				body: JSON.stringify({ open_membership_renewal: true }),
 			})
+			request.cookies.set("session_id", "valid-session")
 
 			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 

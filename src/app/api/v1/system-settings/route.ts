@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { ResultAsync } from "neverthrow"
 import { safeParse } from "valibot"
 import { container } from "src/modules/container"
+import { withAuth } from "src/modules/auth"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
@@ -31,7 +32,7 @@ export async function GET() {
 	return NextResponse.json(responseBody)
 }
 
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async function PATCH(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseReqBodyResult.isErr()) {
 		return NextResponse.json({ error_message: "Invalid request body" }, { status: 400 })
@@ -55,4 +56,4 @@ export async function PATCH(request: NextRequest) {
 	}
 
 	return new NextResponse(null, { status: 204 })
-}
+})
