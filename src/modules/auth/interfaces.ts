@@ -8,10 +8,3 @@ export interface ISessionStore {
 	get(sessionId: string): SessionData | null
 	delete(sessionId: string): boolean
 }
-
-/**
- * Interface for generating unique identifiers
- */
-export interface IIdGenerator {
-	generate(): string
-}

@@ -1,7 +1,6 @@
 import { describe, expect, test, beforeEach, vi } from "vitest"
 import { SessionStore } from "./session-store"
-import type { SessionData } from "./session-store"
-import type { IIdGenerator } from "src/modules/auth/interfaces"
+import type { SessionData, IIdGenerator } from "./session-store"
 
 describe("SessionStore", () => {
 	let sessionStore: SessionStore

@@ -17,6 +17,7 @@ describe("AuthService", () => {
 
 		mockConfig = {
 			NODE_ENV: "test",
+			ADMIN_USERNAME: "admin",
 			ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6",
 			DATABASE_URL: "postgres://mock:5432/db",
 			DB_MAX_CONNECTIONS: 10,

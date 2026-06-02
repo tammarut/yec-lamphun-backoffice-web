@@ -1,8 +1,14 @@
 import { NodeCache } from "@cacheable/node-cache"
-import type { IIdGenerator } from "src/modules/auth/interfaces"
 
 export interface SessionData {
 	username: string
+}
+
+/**
+ * Interface for generating unique identifiers
+ */
+export interface IIdGenerator {
+	generate(): string
 }
 
 /**

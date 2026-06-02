@@ -3,6 +3,7 @@ import * as v from "valibot"
 
 export type EnvConfig = {
 	NODE_ENV: "development" | "test" | "production"
+	ADMIN_USERNAME: string
 	ADMIN_PASSWORD: string
 	DATABASE_URL: string
 	DB_MAX_CONNECTIONS: number
@@ -14,6 +15,7 @@ export type EnvConfig = {
 export const envConfig = createEnv({
 	server: {
 		NODE_ENV: v.picklist(["development", "test", "production"]),
+		ADMIN_USERNAME: v.pipe(v.string(), v.minLength(1, "ADMIN_USERNAME is required")),
 		ADMIN_PASSWORD: v.pipe(v.string(), v.minLength(1, "ADMIN_PASSWORD is required")),
 		DATABASE_URL: v.pipe(v.string(), v.minLength(1, "DATABASE_URL is required")),
 		DB_MAX_CONNECTIONS: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "10"),
@@ -24,6 +26,7 @@ export const envConfig = createEnv({
 	client: {},
 	runtimeEnv: {
 		NODE_ENV: process.env["NODE_ENV"],
+		ADMIN_USERNAME: process.env["ADMIN_USERNAME"],
 		ADMIN_PASSWORD: process.env["ADMIN_PASSWORD"],
 		DATABASE_URL: process.env["DATABASE_URL"],
 		DB_MAX_CONNECTIONS: process.env["DB_MAX_CONNECTIONS"],

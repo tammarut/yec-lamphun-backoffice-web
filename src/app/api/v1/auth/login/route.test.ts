@@ -6,6 +6,7 @@ import { POST } from "./route"
 vi.mock("src/shared/config/env", () => ({
 	envConfig: {
 		NODE_ENV: "test",
+		ADMIN_USERNAME: "admin",
 		ADMIN_PASSWORD: "Energetic9-Mulch2-Arknight6",
 	},
 }))

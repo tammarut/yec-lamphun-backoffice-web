@@ -20,10 +20,11 @@ export class AuthService {
 	 * @returns Result with sessionId if successful, error if authentication fails
 	 */
 	login(username: string, password: string): Result<string, Error> {
+		const adminUsername = this.config.ADMIN_USERNAME
 		const adminPassword = this.config.ADMIN_PASSWORD
 
 		// Verify credentials
-		if (username !== "admin" || password !== adminPassword) {
+		if (username !== adminUsername || password !== adminPassword) {
 			return err(new InvalidCredentialsError())
 		}
 
