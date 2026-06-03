@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Home01Icon, UserGroupIcon, HierarchySquare01Icon, IdCardLanyardIcon, ShieldUserIcon } from "@hugeicons/core-free-icons"
+import { Home01Icon, UserGroupIcon, HierarchySquare01Icon, IdCardLanyardIcon } from "@hugeicons/core-free-icons"
 import { cn } from "src/shared/lib/utils/utils"
 
 interface SidebarItemProps {
@@ -64,13 +64,6 @@ export function Sidebar() {
 						isDisabled={true}
 					/>
 				</nav>
-				<div className="mt-auto border-t border-border px-2 pt-4 lg:px-4">
-					<SidebarItem
-						icon={<HugeiconsIcon icon={ShieldUserIcon} size={20} />}
-						label="ผู้ดูแลระบบ"
-						isDisabled={true}
-					/>
-				</div>
 			</div>
 		</aside>
 	)

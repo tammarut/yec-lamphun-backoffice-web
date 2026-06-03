@@ -18,12 +18,8 @@ import {
 
 export default function Page() {
 	return (
-		<DashboardLayout>
+		<DashboardLayout title="ภาพรวม (Dashboard)">
 			<div className="space-y-6">
-				<div>
-					<h2 className="text-2xl font-bold tracking-tight">ภาพรวม (Dashboard)</h2>
-				</div>
-
 				{/* Stats Row */}
 				<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 					<Card>
