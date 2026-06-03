@@ -1,6 +1,7 @@
 import { DashboardLayout } from "src/shared/components/layout/dashboard-layout"
 import { Card, CardHeader, CardTitle, CardContent } from "src/shared/components/ui/card"
 import { Button } from "src/shared/components/ui/button"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
 	UserGroupIcon,
 	Building01Icon,
@@ -13,7 +14,7 @@ import {
 	TelephoneIcon,
 	Message01Icon,
 	AiSearch02Icon
-} from "hugeicons-react"
+} from "@hugeicons/core-free-icons"
 
 export default function Page() {
 	return (
@@ -29,7 +30,7 @@ export default function Page() {
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">สมาชิกทั้งหมด</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-								<UserGroupIcon size={20} />
+								<HugeiconsIcon icon={UserGroupIcon} size={20} />
 							</div>
 						</CardHeader>
 						<CardContent>
@@ -41,7 +42,7 @@ export default function Page() {
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">จำนวนกิจการ</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-								<Building01Icon size={20} />
+								<HugeiconsIcon icon={Building01Icon} size={20} />
 							</div>
 						</CardHeader>
 						<CardContent>
@@ -53,7 +54,7 @@ export default function Page() {
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">สมาชิก Active</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-								<UserCheck01Icon size={20} />
+								<HugeiconsIcon icon={UserCheck01Icon} size={20} />
 							</div>
 						</CardHeader>
 						<CardContent>
@@ -65,7 +66,7 @@ export default function Page() {
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">ยังไม่ได้ต่ออายุ</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive text-destructive-foreground shadow-sm">
-								<Time02Icon size={20} />
+								<HugeiconsIcon icon={Time02Icon} size={20} />
 							</div>
 						</CardHeader>
 						<CardContent>
@@ -78,7 +79,7 @@ export default function Page() {
 				<div className="flex flex-col items-center justify-between gap-6 rounded-2xl border bg-card p-6 shadow-sm md:flex-row">
 					<div className="flex items-center gap-5">
 						<div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-2xl text-primary shadow-sm">
-							<AiSearch02Icon size={28} />
+							<HugeiconsIcon icon={AiSearch02Icon} size={28} />
 						</div>
 						<div>
 							<h3 className="text-xl font-bold text-foreground">ตรวจสอบสมาชิก</h3>
@@ -86,7 +87,7 @@ export default function Page() {
 						</div>
 					</div>
 					<Button className="whitespace-nowrap px-8 py-6 text-base font-bold shadow-md transition-transform hover:-translate-y-0.5">
-						<Search01Icon size={20} className="mr-2" />
+						<HugeiconsIcon icon={Search01Icon} size={20} className="mr-2" />
 						ค้นหาสมาชิก
 					</Button>
 				</div>
@@ -95,7 +96,7 @@ export default function Page() {
 				<Card data-slot="card-root">
 					<CardHeader className="flex flex-row items-center justify-between pb-2">
 						<CardTitle className="flex items-center gap-2 text-lg">
-							<PresentationLineChart01Icon size={24} className="text-primary" />
+							<HugeiconsIcon icon={PresentationLineChart01Icon} size={24} className="text-primary" />
 							จำนวนสมาชิกในแต่ละปี (ย้อนหลัง 5 ปี)
 						</CardTitle>
 					</CardHeader>
@@ -110,7 +111,7 @@ export default function Page() {
 				<Card data-slot="card-root">
 					<CardHeader className="pb-4">
 						<CardTitle className="flex items-center gap-2 text-lg">
-							<Message01Icon size={24} className="text-primary" />
+							<HugeiconsIcon icon={Message01Icon} size={24} className="text-primary" />
 							ช่องทางการติดต่อ
 						</CardTitle>
 					</CardHeader>
@@ -120,7 +121,7 @@ export default function Page() {
 								{/* Facebook Card */}
 								<a href="https://www.facebook.com/yeclamphun" target="_blank" rel="noopener noreferrer" className="group flex cursor-pointer items-center gap-4 rounded-2xl border bg-muted/50 p-5 transition hover:border-primary/50 hover:shadow-md">
 									<div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-3xl text-primary shadow-lg shadow-primary/20 transition-transform duration-300 group-hover:scale-110">
-										<Facebook01Icon size={32} />
+										<HugeiconsIcon icon={Facebook01Icon} size={32} />
 									</div>
 									<div>
 										<h4 className="mb-1 text-lg font-bold text-foreground">Facebook Page</h4>
@@ -133,7 +134,7 @@ export default function Page() {
 								<a href="#" className="group flex cursor-pointer items-center gap-4 rounded-2xl border bg-muted/50 p-5 transition hover:border-primary/50 hover:shadow-md">
 									<div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-3xl text-primary shadow-lg shadow-primary/20 transition-transform duration-300 group-hover:scale-110">
 										{/* Line Icon mock using Message */}
-										<Message01Icon size={32} />
+										<HugeiconsIcon icon={Message01Icon} size={32} />
 									</div>
 									<div>
 										<h4 className="mb-1 text-lg font-bold text-foreground">LINE Official</h4>
@@ -146,14 +147,14 @@ export default function Page() {
 							<div className="flex flex-col items-center justify-center gap-6 rounded-xl border bg-muted p-4 text-sm text-muted-foreground md:flex-row">
 								<div className="flex items-center gap-2">
 									<div className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-primary shadow-sm">
-										<Location01Icon size={16} />
+										<HugeiconsIcon icon={Location01Icon} size={16} />
 									</div>
 									<span>สำนักงานหอการค้าจังหวัดลำพูน</span>
 								</div>
 								<div className="hidden h-8 w-px bg-border md:block"></div>
 								<div className="flex items-center gap-2">
 									<div className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-muted-foreground shadow-sm">
-										<TelephoneIcon size={16} />
+										<HugeiconsIcon icon={TelephoneIcon} size={16} />
 									</div>
 									<span>053-510-686</span>
 								</div>
