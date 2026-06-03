@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Home01Icon, UserGroupIcon, Calendar01Icon, Settings01Icon } from "@hugeicons/core-free-icons"
+import { Home01Icon, UserGroupIcon, HierarchySquare01Icon, IdCardLanyardIcon, ShieldUserIcon } from "@hugeicons/core-free-icons"
 import { cn } from "src/shared/lib/utils/utils"
 
 interface SidebarItemProps {
@@ -49,20 +49,25 @@ export function Sidebar() {
 						isActive={true}
 					/>
 					<SidebarItem
-						icon={<HugeiconsIcon icon={UserGroupIcon} size={20} />}
-						label="สมาชิก"
+						icon={<HugeiconsIcon icon={HierarchySquare01Icon} size={20} />}
+						label="โครงสร้างองค์กร"
 						isDisabled={true}
 					/>
 					<SidebarItem
-						icon={<HugeiconsIcon icon={Calendar01Icon} size={20} />}
-						label="กิจกรรม"
+						icon={<HugeiconsIcon icon={UserGroupIcon} size={20} />}
+						label="รายชื่อสมาชิก"
+						isDisabled={true}
+					/>
+					<SidebarItem
+						icon={<HugeiconsIcon icon={IdCardLanyardIcon} size={20} />}
+						label="ต่ออายุสมาชิก"
 						isDisabled={true}
 					/>
 				</nav>
-				<div className="mt-auto px-2 lg:px-4 pt-4 border-t border-border">
+				<div className="mt-auto border-t border-border px-2 pt-4 lg:px-4">
 					<SidebarItem
-						icon={<HugeiconsIcon icon={Settings01Icon} size={20} />}
-						label="การตั้งค่า"
+						icon={<HugeiconsIcon icon={ShieldUserIcon} size={20} />}
+						label="ผู้ดูแลระบบ"
 						isDisabled={true}
 					/>
 				</div>
