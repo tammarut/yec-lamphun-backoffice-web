@@ -1,4 +1,4 @@
-import { errAsync, okAsync, ResultAsync } from "neverthrow"
+import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { DatabaseError } from "src/shared/core/errors/app-error"
@@ -13,10 +13,9 @@ vi.mock("src/modules/container", () => ({
 }))
 
 import { container } from "src/modules/container"
-import { REGISTER_KEY } from "src/modules/di-tokens"
+import { AuthService } from "src/modules/auth"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
-import type { ISessionStore } from "src/modules/auth/interfaces"
 
 // Import route AFTER mocks
 import { GET, PATCH } from "./route"
@@ -86,16 +85,16 @@ describe("GET /api/v1/system-settings", () => {
 
 describe("PATCH /api/v1/system-settings", () => {
 	let mockService: ReturnType<typeof mock<SystemSettingsService>>
-	let mockSessionStore: ReturnType<typeof mock<ISessionStore>>
+	let mockAuthService: ReturnType<typeof mock<AuthService>>
 
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockService = mock<SystemSettingsService>()
-		mockSessionStore = mock<ISessionStore>()
+		mockAuthService = mock<AuthService>()
 
 		// Configure container to return correct mock based on requested token
 		vi.mocked(container.resolve).mockImplementation((token) => {
-			if (token === REGISTER_KEY.SESSION_STORE) return mockSessionStore
+			if (token === AuthService) return mockAuthService
 			if (token === SystemSettingsService) return mockService
 			return {}
 		})
@@ -104,7 +103,7 @@ describe("PATCH /api/v1/system-settings", () => {
 	describe("Happy cases", () => {
 		it("should return 204 when system settings update is successful", async () => {
 			mockService.updateSettings.mockReturnValue(Promise.resolve(okAsync(undefined as unknown as void)) as unknown as Promise<ResultAsync<void, DatabaseError>>)
-			mockSessionStore.get.mockReturnValue({ username: "admin" })
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -136,7 +135,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 401 when session is invalid", async () => {
-			mockSessionStore.get.mockReturnValue(null)
+			mockAuthService.validateSession.mockReturnValue(err(new Error("Unauthorized")) as any)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -152,7 +151,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is invalid type", async () => {
-			mockSessionStore.get.mockReturnValue({ username: "admin" })
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -168,7 +167,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is missing", async () => {
-			mockSessionStore.get.mockReturnValue({ username: "admin" })
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -184,7 +183,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when json payload is invalid", async () => {
-			mockSessionStore.get.mockReturnValue({ username: "admin" })
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -202,7 +201,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 500 when service fails", async () => {
-			mockSessionStore.get.mockReturnValue({ username: "admin" })
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
 			mockService.updateSettings.mockReturnValue(Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<void, DatabaseError>>)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {

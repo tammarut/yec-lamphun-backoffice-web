@@ -120,4 +120,36 @@ describe("AuthService", () => {
 			})
 		})
 	})
+
+	describe("validateSession", () => {
+		describe("Happy cases", () => {
+			test("should return ok with session data when session is valid", () => {
+				const sessionData = { username: "admin" }
+				mockSessionStore.get.mockReturnValue(sessionData)
+
+				const result = authService.validateSession("valid-session-id")
+
+				expect(result.isOk()).toBe(true)
+				if (result.isOk()) {
+					expect(result.value).toEqual(sessionData)
+				}
+				expect(mockSessionStore.get).toHaveBeenCalledWith("valid-session-id")
+			})
+		})
+
+		describe("Unhappy cases", () => {
+			test("should return err when session is invalid or expired", () => {
+				mockSessionStore.get.mockReturnValue(null)
+
+				const result = authService.validateSession("invalid-session-id")
+
+				expect(result.isErr()).toBe(true)
+				if (result.isErr()) {
+					expect(result.error).toBeInstanceOf(Error)
+					expect(result.error.message).toBe("Unauthorized")
+				}
+				expect(mockSessionStore.get).toHaveBeenCalledWith("invalid-session-id")
+			})
+		})
+	})
 })

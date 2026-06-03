@@ -4,7 +4,7 @@ import type { EnvConfig } from "src/shared/config/env"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { ISessionStore } from "./interfaces"
 import type { SessionData } from "./types"
-import { InvalidCredentialsError } from "./errors"
+import { AuthError, InvalidCredentialsError } from "./errors"
 
 @injectable()
 export class AuthService {
@@ -43,5 +43,20 @@ export class AuthService {
 	logout(sessionId: string): Result<void, Error> {
 		this.sessionStore.delete(sessionId)
 		return ok(undefined)
+	}
+
+	/**
+	 * Validate a session by ID
+	 * @param sessionId - The session ID to validate
+	 * @returns Result with session data if valid, error if invalid or expired
+	 */
+	validateSession(sessionId: string): Result<SessionData, Error> {
+		const session = this.sessionStore.get(sessionId)
+
+		if (!session) {
+			return err(new AuthError("Unauthorized"))
+		}
+
+		return ok(session)
 	}
 }
