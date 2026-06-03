@@ -1,6 +1,7 @@
 import React from "react"
-import { Sidebar } from "./sidebar"
+import { AppSidebar } from "./app-sidebar"
 import { Header } from "./header"
+import { SidebarProvider } from "src/shared/components/ui/sidebar"
 
 interface DashboardLayoutProps {
 	children: React.ReactNode
@@ -9,14 +10,14 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 	return (
-		<div className="flex min-h-screen w-full flex-col md:flex-row">
-			<Sidebar />
+		<SidebarProvider>
+			<AppSidebar />
 			<div className="flex flex-1 flex-col sm:gap-4 sm:py-4">
 				<Header title={title} />
 				<main className="flex flex-1 flex-col gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
 					{children}
 				</main>
 			</div>
-		</div>
+		</SidebarProvider>
 	)
 }

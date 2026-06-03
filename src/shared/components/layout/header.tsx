@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Menu01Icon, Notification01Icon, UserCircleIcon, ShieldUserIcon } from "@hugeicons/core-free-icons"
+import { Notification01Icon, UserCircleIcon, ShieldUserIcon } from "@hugeicons/core-free-icons"
 import { Button } from "src/shared/components/ui/button"
 import {
 	DropdownMenu,
@@ -7,6 +7,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "src/shared/components/ui/dropdown-menu"
+import { SidebarTrigger } from "src/shared/components/ui/sidebar"
 
 interface HeaderProps {
 	title: string
@@ -15,10 +16,7 @@ interface HeaderProps {
 export function Header({ title }: HeaderProps) {
 	return (
 		<header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
-			<Button variant="outline" size="icon" className="shrink-0 md:hidden" disabled>
-				<HugeiconsIcon icon={Menu01Icon} size={20} className="h-5 w-5" />
-				<span className="sr-only">Toggle navigation menu</span>
-			</Button>
+			<SidebarTrigger className="-ml-1" />
 			<div className="w-full flex-1">
 				<h1 className="text-lg font-semibold md:text-xl">{title}</h1>
 			</div>
