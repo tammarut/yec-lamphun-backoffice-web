@@ -4,7 +4,20 @@ import { mock } from "vitest-mock-extended"
 import { ok, err } from "neverthrow"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 
-// Mock container module BEFORE importing the route
+// Mock env + container modules BEFORE importing the route (route imports env for side effects)
+vi.mock("src/shared/config/env", () => ({
+	envConfig: {
+		NODE_ENV: "test",
+		ADMIN_USERNAME: "admin",
+		ADMIN_PASSWORD: "password",
+		DATABASE_URL: "postgres://mock:5432/db",
+		DB_MAX_CONNECTIONS: 10,
+		DB_IDLE_TIMEOUT: 30,
+		DB_CONNECTION_TIMEOUT: 30,
+		DB_MAX_LIFETIME: 3600,
+	},
+}))
+
 vi.mock("src/modules/container", () => ({
 	container: {
 		resolve: vi.fn(),
