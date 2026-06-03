@@ -1,0 +1,29 @@
+$ bun --bun next dev
+⚠ Port 3000 is in use by process 1452536, using available port 3001 instead.
+▲ Next.js 16.1.1 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.0.2:3001
+- Environments: .env
+
+✓ Starting...
+Error [DatabaseError]: An error occurred while loading instrumentation hook: Failed to verify database connection
+    at new AppError (file:/app/src/shared/core/errors/app-error.ts:7:3)
+    at new DatabaseError (file:/app/src/shared/core/errors/app-error.ts:14:3)
+    at verifyConnection (file:/app/src/shared/database/database-client.ts:41:15)
+    at processTicksAndRejections (null)
+   5 | 		public override readonly cause?: unknown
+   6 | 	) {
+>  7 | 		super(message)
+     | 		^
+   8 | 		this.name = this.constructor.name
+   9 | 	}
+  10 | } {
+  code: 'DATABASE_ERROR',
+  [cause]: [Error [PostgresError]: Connection closed] {
+    code: 'ERR_POSTGRES_CONNECTION_CLOSED',
+    toString: [Function: toString]
+  }
+}
+[?25h
+error: "next" exited with code 1
+error: script "dev" exited with code 1
