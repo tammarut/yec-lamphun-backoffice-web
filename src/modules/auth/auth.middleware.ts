@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { container } from "src/modules/container"
-import { REGISTER_KEY } from "src/modules/di-tokens"
-import type { ISessionStore } from "src/modules/auth/interfaces"
-import type { SessionData } from "src/modules/auth/types"
+import { AuthService } from "./auth.service"
+import type { SessionData } from "./types"
 
 type RouteHandler = (request: NextRequest, session: SessionData) => Promise<NextResponse> | NextResponse
 
@@ -14,13 +13,13 @@ export function withAuth(handler: RouteHandler) {
 			return NextResponse.json({ error_message: "Unauthorized" }, { status: 401 })
 		}
 
-		const sessionStore = container.resolve<ISessionStore>(REGISTER_KEY.SESSION_STORE)
-		const session = sessionStore.get(sessionId)
+		const authService = container.resolve(AuthService)
+		const sessionResult = authService.validateSession(sessionId)
 
-		if (!session) {
+		if (sessionResult.isErr()) {
 			return NextResponse.json({ error_message: "Unauthorized" }, { status: 401 })
 		}
 
-		return handler(request, session)
+		return handler(request, sessionResult.value)
 	}
 }
