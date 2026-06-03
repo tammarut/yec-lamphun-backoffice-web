@@ -41,8 +41,8 @@ export function Sidebar() {
 					<span>YEC Lamphun</span>
 				</div>
 			</div>
-			<div className="flex-1 overflow-auto py-4">
-				<nav className="grid items-start px-2 text-sm font-medium lg:px-4">
+			<div className="flex flex-1 flex-col overflow-auto py-4">
+				<nav className="grid items-start gap-1 px-2 text-sm font-medium lg:px-4">
 					<SidebarItem
 						icon={<HugeiconsIcon icon={Home01Icon} size={20} />}
 						label="หน้าหลัก"
@@ -58,12 +58,14 @@ export function Sidebar() {
 						label="กิจกรรม"
 						isDisabled={true}
 					/>
+				</nav>
+				<div className="mt-auto px-2 lg:px-4 pt-4 border-t border-border">
 					<SidebarItem
 						icon={<HugeiconsIcon icon={Settings01Icon} size={20} />}
 						label="การตั้งค่า"
 						isDisabled={true}
 					/>
-				</nav>
+				</div>
 			</div>
 		</aside>
 	)
