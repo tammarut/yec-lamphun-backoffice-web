@@ -3,10 +3,10 @@ import { container } from "src/modules/container"
 import { AuthService } from "src/modules/auth"
 import type { SessionData } from "src/modules/auth/types"
 
-type RouteHandler = (request: NextRequest, session: SessionData) => Promise<NextResponse> | NextResponse
+type RouteHandler = (request: NextRequest, context: unknown, session: SessionData) => Promise<NextResponse> | NextResponse
 
 export function withAuth(handler: RouteHandler) {
-	return async function authMiddleware(request: NextRequest): Promise<NextResponse> {
+	return async function authMiddleware(request: NextRequest, context: unknown): Promise<NextResponse> {
 		const sessionId = request.cookies.get("session_id")?.value
 
 		if (!sessionId) {
@@ -20,6 +20,10 @@ export function withAuth(handler: RouteHandler) {
 			return NextResponse.json({ error_message: "Unauthorized" }, { status: 401 })
 		}
 
-		return handler(request, sessionResult.value)
+		if (!sessionResult.value.username) {
+			return NextResponse.json({ error_message: "Forbidden" }, { status: 403 })
+		}
+
+		return handler(request, context, sessionResult.value)
 	}
 }
