@@ -26,7 +26,7 @@ export default function Page() {
 
 				{/* Stats Row */}
 				<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-					<Card data-slot="card-root">
+					<Card>
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">สมาชิกทั้งหมด</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
@@ -38,7 +38,7 @@ export default function Page() {
 						</CardContent>
 					</Card>
 
-					<Card data-slot="card-root">
+					<Card>
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">จำนวนกิจการ</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
@@ -50,7 +50,7 @@ export default function Page() {
 						</CardContent>
 					</Card>
 
-					<Card data-slot="card-root">
+					<Card>
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">สมาชิก Active</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
@@ -62,7 +62,7 @@ export default function Page() {
 						</CardContent>
 					</Card>
 
-					<Card data-slot="card-root">
+					<Card>
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
 							<CardTitle className="text-sm font-medium text-muted-foreground">ยังไม่ได้ต่ออายุ</CardTitle>
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive text-destructive-foreground shadow-sm">
@@ -93,7 +93,7 @@ export default function Page() {
 				</div>
 
 				{/* Chart Area Mock */}
-				<Card data-slot="card-root">
+				<Card>
 					<CardHeader className="flex flex-row items-center justify-between pb-2">
 						<CardTitle className="flex items-center gap-2 text-lg">
 							<HugeiconsIcon icon={PresentationLineChart01Icon} size={24} className="text-primary" />
@@ -108,7 +108,7 @@ export default function Page() {
 				</Card>
 
 				{/* Contact Channels */}
-				<Card data-slot="card-root">
+				<Card>
 					<CardHeader className="pb-4">
 						<CardTitle className="flex items-center gap-2 text-lg">
 							<HugeiconsIcon icon={Message01Icon} size={24} className="text-primary" />

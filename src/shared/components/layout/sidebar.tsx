@@ -11,9 +11,12 @@ interface SidebarItemProps {
 
 function SidebarItem({ icon, label, isActive, isDisabled }: SidebarItemProps) {
 	return (
-		<div
+		<button
+			type="button"
+			disabled={isDisabled}
+			aria-current={isActive ? "page" : undefined}
 			className={cn(
-				"flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+				"flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
 				isActive
 					? "bg-primary text-primary-foreground"
 					: isDisabled
@@ -23,7 +26,7 @@ function SidebarItem({ icon, label, isActive, isDisabled }: SidebarItemProps) {
 		>
 			{icon}
 			<span>{label}</span>
-		</div>
+		</button>
 	)
 }
 
@@ -35,7 +38,7 @@ export function Sidebar() {
 					<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
 						<span className="text-sm font-bold">YEC</span>
 					</div>
-					<span className="">YEC Lamphun</span>
+					<span>YEC Lamphun</span>
 				</div>
 			</div>
 			<div className="flex-1 overflow-auto py-4">
