@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { container } from "src/modules/container"
-import { AuthService } from "./auth.service"
-import type { SessionData } from "./types"
+import { AuthService } from "src/modules/auth"
+import type { SessionData } from "src/modules/auth/types"
 
 type RouteHandler = (request: NextRequest, session: SessionData) => Promise<NextResponse> | NextResponse
 
