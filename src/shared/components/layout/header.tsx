@@ -9,10 +9,10 @@ import {
 } from "src/shared/components/ui/dropdown-menu"
 
 interface HeaderProps {
-	title?: string
+	title: string
 }
 
-export function Header({ title = "Dashboard" }: HeaderProps) {
+export function Header({ title }: HeaderProps) {
 	return (
 		<header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
 			<Button variant="outline" size="icon" className="shrink-0 md:hidden" disabled>
