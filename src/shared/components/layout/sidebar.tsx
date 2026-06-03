@@ -1,5 +1,5 @@
 import React from "react"
-import { Home01Icon, UserGroupIcon, Calendar01Icon, Settings01Icon } from "hugeicons-react"
+import { Home, Users, Calendar, Settings } from "lucide-react"
 import { cn } from "src/shared/lib/utils/utils"
 
 interface SidebarItemProps {
@@ -41,22 +41,22 @@ export function Sidebar() {
 			<div className="flex-1 overflow-auto py-4">
 				<nav className="grid items-start px-2 text-sm font-medium lg:px-4">
 					<SidebarItem
-						icon={<Home01Icon size={20} />}
+						icon={<Home size={20} />}
 						label="หน้าหลัก"
 						isActive={true}
 					/>
 					<SidebarItem
-						icon={<UserGroupIcon size={20} />}
+						icon={<Users size={20} />}
 						label="สมาชิก"
 						isDisabled={true}
 					/>
 					<SidebarItem
-						icon={<Calendar01Icon size={20} />}
+						icon={<Calendar size={20} />}
 						label="กิจกรรม"
 						isDisabled={true}
 					/>
 					<SidebarItem
-						icon={<Settings01Icon size={20} />}
+						icon={<Settings size={20} />}
 						label="การตั้งค่า"
 						isDisabled={true}
 					/>
