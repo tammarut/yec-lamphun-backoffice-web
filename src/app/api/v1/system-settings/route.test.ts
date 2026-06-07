@@ -103,7 +103,7 @@ describe("PATCH /api/v1/system-settings", () => {
 	describe("Happy cases", () => {
 		it("should return 204 when system settings update is successful", async () => {
 			mockService.updateSettings.mockReturnValue(Promise.resolve(okAsync(undefined as unknown as void)) as unknown as Promise<ResultAsync<void, DatabaseError>>)
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -111,7 +111,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			request.cookies.set("session_id", "valid-session")
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response).toBeInstanceOf(NextResponse)
 			expect(response.status).toBe(204)
@@ -127,7 +127,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			// No cookie set
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(401)
 			const json = await response.json()
@@ -135,7 +135,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 401 when session is invalid", async () => {
-			mockAuthService.validateSession.mockReturnValue(err(new Error("Unauthorized")) as any)
+			mockAuthService.validateSession.mockReturnValue(err(new Error("Unauthorized")))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -143,7 +143,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			request.cookies.set("session_id", "invalid-session")
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(401)
 			const json = await response.json()
@@ -151,7 +151,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is invalid type", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -159,7 +159,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			request.cookies.set("session_id", "valid-session")
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
 			const json = await response.json()
@@ -167,7 +167,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is missing", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -175,7 +175,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			request.cookies.set("session_id", "valid-session")
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
 			const json = await response.json()
@@ -183,7 +183,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when json payload is invalid", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -191,7 +191,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			request.cookies.set("session_id", "valid-session")
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
 			const json = await response.json()
@@ -201,7 +201,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 500 when service fails", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }) as any)
+			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
 			mockService.updateSettings.mockReturnValue(Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<void, DatabaseError>>)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
@@ -212,7 +212,7 @@ describe("PATCH /api/v1/system-settings", () => {
 
 			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-			const response = await PATCH(request)
+			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(500)
 			const json = await response.json()

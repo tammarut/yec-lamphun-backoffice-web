@@ -10,6 +10,7 @@ Four-step discipline for any debug session. Recite verbatim, then apply in order
 ## Recite this — verbatim, as the first thing in your first response
 
 > **Mantra:**
+>
 > 1. **First is reproducibility.** Can the issue be reproduced reliably?
 > 2. **Know the fail path.** Debugger first; then source trace + knob enumeration; then in-code instrumentation.
 > 3. **Question your hypothesis.** What would disprove it?

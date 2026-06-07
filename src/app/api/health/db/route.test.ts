@@ -41,9 +41,7 @@ describe("GET /api/health/db", () => {
 
 	it("should return 200 and db time on success", async () => {
 		const dbTime = new Date("2024-01-01T00:00:00Z")
-		mockService.checkHealth.mockReturnValue(
-			Promise.resolve(ok({ status: "ok", dbTime }))
-		)
+		mockService.checkHealth.mockReturnValue(Promise.resolve(ok({ status: "ok", dbTime })))
 
 		const response = await GET()
 
@@ -58,9 +56,7 @@ describe("GET /api/health/db", () => {
 	})
 
 	it("should return 500 and error details on failure", async () => {
-		mockService.checkHealth.mockReturnValue(
-			Promise.resolve(err(new DatabaseError("Failed to connect")))
-		)
+		mockService.checkHealth.mockReturnValue(Promise.resolve(err(new DatabaseError("Failed to connect"))))
 
 		const response = await GET()
 
