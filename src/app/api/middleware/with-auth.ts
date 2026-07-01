@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { container } from "src/modules/container"
 import { AuthService } from "src/modules/auth"
 import type { SessionData } from "src/modules/auth/types"
@@ -13,7 +14,7 @@ export function withAuth(handler: RouteHandler) {
 			return NextResponse.json({ error_message: "Unauthorized" }, { status: 401 })
 		}
 
-		const authService = container.resolve(AuthService)
+		const authService = container.resolve<AuthService>(REGISTER_KEY.AUTH_SERVICE)
 		const sessionResult = authService.validateSession(sessionId)
 
 		if (sessionResult.isErr()) {

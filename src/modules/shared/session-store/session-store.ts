@@ -1,7 +1,13 @@
 import { NodeCache } from "@cacheable/node-cache"
 
 export interface SessionData {
-	username: string
+	readonly username: string
+	readonly ip: string | null
+	readonly userAgent: string | null
+	readonly createdAt: Date
+	readonly lastAccessedAt: Date
+	readonly expiresAt: Date
+	readonly isPersistent: boolean
 }
 
 /**
@@ -15,16 +21,12 @@ export interface IIdGenerator {
  * Session store class for managing user sessions
  */
 export class SessionStore {
-	private cache: NodeCache<SessionData>
-	private readonly defaultTTL: number
+	private readonly cache: NodeCache<SessionData>
+	private readonly idGenerator: IIdGenerator
 
-	constructor(
-		ttl: number,
-		private readonly idGenerator: IIdGenerator
-	) {
-		this.defaultTTL = ttl
+	constructor(idGenerator: IIdGenerator) {
+		this.idGenerator = idGenerator
 		this.cache = new NodeCache({
-			stdTTL: ttl,
 			checkperiod: 300, // Cleanup interval (5 minutes)
 			useClones: false, // Better performance
 			deleteOnExpire: true, // Auto-delete expired
@@ -35,9 +37,9 @@ export class SessionStore {
 	/**
 	 * Create a new session and return the session ID
 	 */
-	createSession(data: SessionData): string {
+	createSession(data: SessionData, ttl: number): string {
 		const sessionId = this.idGenerator.generate()
-		this.cache.set(sessionId, data)
+		this.cache.set(sessionId, data, ttl)
 		return sessionId
 	}
 
@@ -50,8 +52,15 @@ export class SessionStore {
 			return null
 		}
 		// Update with sliding expiration
-		this.cache.ttl(sessionId, this.defaultTTL)
-		return data
+		const ttl = data.isPersistent ? 30 * 24 * 60 * 60 : 24 * 60 * 60
+		const now = new Date()
+		const updatedData: SessionData = {
+			...data,
+			lastAccessedAt: now,
+			expiresAt: new Date(now.getTime() + ttl * 1000),
+		}
+		this.cache.set(sessionId, updatedData, ttl)
+		return updatedData
 	}
 
 	/**

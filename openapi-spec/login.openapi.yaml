@@ -1,0 +1,205 @@
+openapi: 3.0.1
+info:
+  title: Default module
+  description: API for managing members.
+  version: 1.0.0
+tags: []
+paths:
+  /api/v1/auth/login:
+    post:
+      summary: Login username&password (/api/v1/auth/login)
+      deprecated: false
+      description: >-
+        # Validates credentials and creates a stateful session using HttpOnly
+        cookies
+
+
+        > Login username/password, create&store a session, and keep session_id
+        in cookie
+
+
+        ## ✍️Pseudocode
+
+        1. Extract `username`, `password`, and `rememberMe` from request body.
+            - Extract `ip` and `userAgent` from request headers
+
+        2. Parse and validate request body:
+           ```
+           {
+              username: string,     // min 1, max 100
+              password: string,     // min 1, max 255
+              rememberMe?: boolean  // default false
+           }
+           ```
+           break if username or password is empty:
+              -> Return HTTP 400 Bad Request
+            ```
+            { error: "Missing credentials" }
+            ```
+
+        3. Sanitize input username (trim, remove dangerous characters)
+
+
+        4. Validate credentials against environment variables:
+           if (username !== process.env.AUTH_USERNAME OR password !== process.env.AUTH_PASSWORD):
+              -> Return HTTP 401 Unauthorized { error: "Invalid credentials" }
+
+        5. Generate Session ID:
+           -> session_id = generateULID()
+
+        6. Determine TTL (in seconds):
+           -> isPersistent = (rememberMe === true)
+           -> if isPersistent:
+                  -> ttl_seconds = 30 * 24 * 60 * 60  // 30 days
+              else:
+                  -> ttl_seconds = 24 * 60 * 60      // 24 hours
+
+        7. Build SessionData object:
+           -> now = current timestamp
+           -> session_data = 
+           ```
+           {
+                username: username,
+                ip: ip,
+                userAgent: userAgent,
+                createdAt: now,
+                lastAccessedAt: now,
+                expiresAt: now + (ttl_seconds * 1000),
+                isPersistent: isPersistent
+              }
+           ``` 
+        8. Store a session in Memory Cache:
+
+
+        9. Set Cookie Header:
+               -> cookie_string = `session_id=${session_id}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${ttl_seconds}`
+               -> response.setHeader('Set-Cookie', cookie_string)
+
+        10. Return HTTP 204 No Content
+
+
+        ## Sequence diagram
+
+
+        ```mermaid
+
+        sequenceDiagram
+            participant browser as Browser
+            participant nextjsapi as Next.js /api
+            participant cache as SessionStore
+            
+            autonumber
+
+            browser->>nextjsapi: POST /api/v1/auth/login<br/>{ username, password, rememberMe }
+
+            break Missiong username or password
+                nextjsapi-->>browser: 400 Bad Request { error: "Missing credentials" }
+            end
+
+            nextjsapi -->> nextjsapi: Sanitize input username (trim, remove dangerous characters)
+
+            nextjsapi -->> nextjsapi: Validate against Environment Variables<br/>(process.env.AUTH_USERNAME / AUTH_PASSWORD)
+            break Incorrect username or password
+                nextjsapi-->>browser: 401 Unauthorized { error: "Invalid credentials" }
+            end
+
+            nextjsapi->>+cache: Create a new session
+            Note over cache: 1. Generate Session ID (ULID)<br/>2. Calculate TTL:<br/>- rememberMe=true ➞ 30 days (in seconds)<br/>- rememberMe=false ➞ 24 hours (in seconds)
+            Note over cache: Build SessionData Object:<br/>{<br/>  username, ip, userAgent,<br/>  createdAt, lastAccessedAt, expiresAt,<br/>  isPersistent<br/>}
+
+            cache-->>-nextjsapi: Return session ID
+
+            Note over nextjsapi: Construct Set-Cookie Header:<br/>session_id={ulid}, HttpOnly Secure<br/>SameSite=Lax, Path=/, Max-Age={TTL_seconds}
+
+            nextjsapi-->>browser: 204 No Content<br/>(Includes Set-Cookie header)
+        ```
+      tags: []
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  format: password
+                rememberMe:
+                  type: boolean
+                  default: false
+              required:
+                - username
+                - password
+            example:
+              username: admin
+              password: Energetic9-Mulch2-Arknight6
+              rememberMe: false
+        required: true
+      responses:
+        '204':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              example: >-
+                session_id=01KDZR8DGA2MF5WQ1QX17HRQH5; Path=/; HttpOnly; Secure;
+                SameSite=Lax; Max-Age=86400
+              required: true
+              description: ''
+              schema:
+                type: string
+            Cache-Control:
+              example: no-store
+              required: false
+              description: ''
+              schema:
+                type: string
+            X-Content-Type-Options:
+              example: nosniff
+              required: false
+              description: ''
+              schema:
+                type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_message: Invalid request body
+          headers: {}
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_message: Invalid credentials
+          headers: {}
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers: {}
+      security: []
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error_message:
+          type: string
+          example: Invalid credentials
+  responses: {}
+  securitySchemes: {}
+servers: []
+security: []
