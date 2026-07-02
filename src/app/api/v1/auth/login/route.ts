@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
 	})
 
 	response.headers.set("Cache-Control", "no-store")
+	response.headers.set("X-Content-Type-Options", "nosniff")
 
 	return response
 }
