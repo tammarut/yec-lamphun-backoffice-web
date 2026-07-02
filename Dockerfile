@@ -18,6 +18,10 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Allow skipping env validation at build time (real vars injected at runtime)
+ARG SKIP_ENV_VALIDATION=true
+ENV SKIP_ENV_VALIDATION=$SKIP_ENV_VALIDATION
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 

@@ -13,6 +13,7 @@ export type EnvConfig = {
 }
 
 export const envConfig = createEnv({
+	skipValidation: process.env["SKIP_ENV_VALIDATION"] === "true",
 	server: {
 		NODE_ENV: v.picklist(["development", "test", "production"]),
 		ADMIN_USERNAME: v.pipe(v.string(), v.minLength(1, "ADMIN_USERNAME is required")),
