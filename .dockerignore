@@ -12,6 +12,7 @@ out
 # Local environment variables
 .env
 .env.local
+.env.docker
 .env.production
 
 # Docker and editor files
