@@ -7,6 +7,7 @@ import * as v from "valibot"
 import { AuthService } from "src/modules/auth"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { container } from "src/modules/container"
+import { envConfig } from "src/shared/config/env"
 
 export const dynamic = "force-dynamic"
 
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
 	// Set-Cookie
 	response.cookies.set("session_id", sessionId, {
 		httpOnly: true,
-		secure: true,
+		secure: envConfig.NODE_ENV === "production",
 		sameSite: "lax",
 		path: "/",
 		maxAge: ttlSeconds,

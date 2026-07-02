@@ -29,5 +29,7 @@ export async function POST(request: NextRequest) {
 		maxAge: 0,
 	})
 
+	response.headers.set("Cache-Control", "no-store")
+
 	return response
 }
