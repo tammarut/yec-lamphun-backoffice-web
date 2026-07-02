@@ -15,7 +15,13 @@ out
 .env.production
 
 # Docker and editor files
-Dockerfile
+Dockerfile*
+docker-compose*
 .dockerignore
 README.md
 *.log
+
+.vscode
+Makefile
+helm-charts
+coverage*
