@@ -95,6 +95,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		lastAccessedAt: new Date(),
 		expiresAt: new Date(),
 		isPersistent: false,
+		ttlSeconds: 86400,
 	}
 
 	beforeEach(() => {

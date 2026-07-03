@@ -1,14 +1,5 @@
 import { NodeCache } from "@cacheable/node-cache"
-
-export interface SessionData {
-	readonly username: string
-	readonly ip: string | null
-	readonly userAgent: string | null
-	readonly createdAt: Date
-	readonly lastAccessedAt: Date
-	readonly expiresAt: Date
-	readonly isPersistent: boolean
-}
+import type { SessionData } from "src/modules/auth/types"
 
 /**
  * Interface for generating unique identifiers
@@ -52,7 +43,7 @@ export class SessionStore {
 			return null
 		}
 		// Update with sliding expiration
-		const ttl = data.isPersistent ? 30 * 24 * 60 * 60 : 24 * 60 * 60
+		const ttl = data.ttlSeconds
 		const now = new Date()
 		const updatedData: SessionData = {
 			...data,

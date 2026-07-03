@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, vi } from "vitest"
 import { SessionStore } from "./session-store"
-import type { SessionData, IIdGenerator } from "./session-store"
+import type { IIdGenerator } from "./session-store"
+import type { SessionData } from "src/modules/auth/types"
 
 describe("SessionStore", () => {
 	let sessionStore: SessionStore
@@ -23,6 +24,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 
 			const sessionId = sessionStore.createSession(sessionData, 86400)
@@ -46,6 +48,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 
 			// Mock different IDs for each call
@@ -70,6 +73,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 			const sessionId = sessionStore.createSession(sessionData, 86400)
 
@@ -79,6 +83,26 @@ describe("SessionStore", () => {
 			expect(result?.username).toBe(sessionData.username)
 			// verify that lastAccessedAt is updated to now
 			expect(result?.lastAccessedAt.getTime()).toBeGreaterThanOrEqual(sessionData.lastAccessedAt.getTime())
+		})
+
+		test("should respect and update sliding expiration using stored ttlSeconds", () => {
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 600, // 10 minutes custom TTL
+			}
+			const sessionId = sessionStore.createSession(sessionData, 600)
+
+			const result = sessionStore.get(sessionId)
+
+			expect(result).toBeDefined()
+			const expectedExpiryTime = new Date().getTime() + 600 * 1000
+			expect(result?.expiresAt.getTime()).toBeCloseTo(expectedExpiryTime, -3)
 		})
 
 		test("should return null for non-existent session", () => {
@@ -97,6 +121,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 			const sessionId = sessionStore.createSession(sessionData, 86400)
 
@@ -122,6 +147,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 			const sessionId = sessionStore.createSession(sessionData, 86400)
 
@@ -145,6 +171,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 			const sessionData2: SessionData = {
 				username: "user2",
@@ -154,6 +181,7 @@ describe("SessionStore", () => {
 				lastAccessedAt: new Date(),
 				expiresAt: new Date(),
 				isPersistent: false,
+				ttlSeconds: 86400,
 			}
 
 			const sessionId1 = sessionStore.createSession(sessionData1, 86400)

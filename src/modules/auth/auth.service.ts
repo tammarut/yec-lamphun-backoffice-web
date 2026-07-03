@@ -50,6 +50,7 @@ export class AuthService {
 			lastAccessedAt: now,
 			expiresAt: this.calculateExpirationDate(now, ttlSeconds),
 			isPersistent,
+			ttlSeconds,
 		}
 
 		const sessionId = this.sessionStore.createSession(sessionData, ttlSeconds)

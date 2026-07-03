@@ -53,6 +53,7 @@ describe("AuthService", () => {
 					expect.objectContaining({
 						username: "admin",
 						isPersistent: false,
+						ttlSeconds: 86400,
 					}),
 					86400
 				)
@@ -107,6 +108,7 @@ describe("AuthService", () => {
 						ip: "127.0.0.1",
 						userAgent: "Mozilla/5.0",
 						isPersistent: true,
+						ttlSeconds: 30 * 24 * 60 * 60,
 					}),
 					30 * 24 * 60 * 60
 				)
@@ -221,6 +223,7 @@ describe("AuthService", () => {
 					lastAccessedAt: new Date(),
 					expiresAt: new Date(),
 					isPersistent: false,
+					ttlSeconds: 86400,
 				}
 				mockSessionStore.get.mockReturnValue(sessionData)
 
