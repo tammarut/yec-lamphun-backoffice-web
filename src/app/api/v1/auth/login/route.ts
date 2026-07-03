@@ -20,8 +20,7 @@ const LoginRequestBodySchema = v.object({
 export async function POST(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseReqBodyResult.isErr()) {
-		console.error("Failed to parse request body:", parseReqBodyResult.error)
-		return NextResponse.json({ error_message: "Invalid request body" }, { status: 400 })
+		return NextResponse.json({ error_message: parseReqBodyResult.error.message }, { status: 400 })
 	}
 
 	const rawReqBody = parseReqBodyResult.value
