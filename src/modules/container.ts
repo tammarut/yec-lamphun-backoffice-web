@@ -1,4 +1,5 @@
 import "reflect-metadata"
+import { AuthService } from "src/modules/auth/auth.service"
 import { HealthService } from "src/modules/health/health.service"
 import { HealthRepository } from "src/modules/health/repository/health.repository"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
@@ -19,7 +20,7 @@ container.register(REGISTER_KEY.ENV_CONFIG, {
 
 // 2. Initialize and Register SessionStore
 // We create the instance here instead of in a separate file (formerly session-cache.ts)
-const sessionStore = new SessionStore(86400, ulidGenerator) // 1 day TTL
+const sessionStore = new SessionStore(ulidGenerator)
 
 container.register(REGISTER_KEY.SESSION_STORE, {
 	useValue: sessionStore,
@@ -47,6 +48,11 @@ container.register(REGISTER_KEY.SYSTEM_SETTINGS_REPOSITORY, {
 
 container.register(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE, {
 	useClass: SystemSettingsService,
+})
+
+// 6. Register Auth Module
+container.register(REGISTER_KEY.AUTH_SERVICE, {
+	useClass: AuthService,
 })
 
 export { container }

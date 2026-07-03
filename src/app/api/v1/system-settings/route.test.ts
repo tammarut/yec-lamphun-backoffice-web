@@ -13,6 +13,7 @@ vi.mock("src/modules/container", () => ({
 }))
 
 import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { AuthService } from "src/modules/auth"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
@@ -86,6 +87,16 @@ describe("GET /api/v1/system-settings", () => {
 describe("PATCH /api/v1/system-settings", () => {
 	let mockService: ReturnType<typeof mock<SystemSettingsService>>
 	let mockAuthService: ReturnType<typeof mock<AuthService>>
+	const mockSessionData = {
+		username: "admin",
+		ip: "127.0.0.1",
+		userAgent: "Mozilla/5.0",
+		createdAt: new Date(),
+		lastAccessedAt: new Date(),
+		expiresAt: new Date(),
+		isPersistent: false,
+		ttlSeconds: 86400,
+	}
 
 	beforeEach(() => {
 		vi.clearAllMocks()
@@ -94,8 +105,8 @@ describe("PATCH /api/v1/system-settings", () => {
 
 		// Configure container to return correct mock based on requested token
 		vi.mocked(container.resolve).mockImplementation((token) => {
-			if (token === AuthService) return mockAuthService
-			if (token === SystemSettingsService) return mockService
+			if (token === AuthService || token === REGISTER_KEY.AUTH_SERVICE) return mockAuthService
+			if (token === SystemSettingsService || token === REGISTER_KEY.SYSTEM_SETTINGS_SERVICE) return mockService
 			return {}
 		})
 	})
@@ -103,7 +114,7 @@ describe("PATCH /api/v1/system-settings", () => {
 	describe("Happy cases", () => {
 		it("should return 204 when system settings update is successful", async () => {
 			mockService.updateSettings.mockReturnValue(Promise.resolve(okAsync(undefined as unknown as void)) as unknown as Promise<ResultAsync<void, DatabaseError>>)
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -151,7 +162,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is invalid type", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -167,7 +178,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when value is missing", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -183,7 +194,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 400 when json payload is invalid", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
@@ -201,7 +212,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		})
 
 		it("should return 500 when service fails", async () => {
-			mockAuthService.validateSession.mockReturnValue(ok({ username: "admin" }))
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 			mockService.updateSettings.mockReturnValue(Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<void, DatabaseError>>)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {

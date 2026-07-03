@@ -56,6 +56,7 @@ describe("POST /api/v1/auth/logout", () => {
 			expect(setCookieHeader).toBeDefined()
 			expect(setCookieHeader).toContain("session_id=;")
 			expect(setCookieHeader).toContain("Max-Age=0")
+			expect(response.headers.get("Cache-Control")).toBe("no-store")
 		})
 
 		test("should return 204 when session is invalid/not found (idempotent)", async () => {
@@ -70,6 +71,7 @@ describe("POST /api/v1/auth/logout", () => {
 
 			expect(response.status).toBe(204)
 			expect(mockAuthService.logout).toHaveBeenCalledWith(sessionId)
+			expect(response.headers.get("Cache-Control")).toBe("no-store")
 		})
 	})
 

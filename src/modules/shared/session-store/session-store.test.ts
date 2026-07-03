@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, vi } from "vitest"
 import { SessionStore } from "./session-store"
-import type { SessionData, IIdGenerator } from "./session-store"
+import type { IIdGenerator } from "./session-store"
+import type { SessionData } from "src/modules/auth/types"
 
 describe("SessionStore", () => {
 	let sessionStore: SessionStore
@@ -10,31 +11,51 @@ describe("SessionStore", () => {
 		mockIdGenerator = {
 			generate: vi.fn().mockReturnValue("mock-session-id-123"),
 		}
-		sessionStore = new SessionStore(86400, mockIdGenerator) // 1 day TTL
+		sessionStore = new SessionStore(mockIdGenerator)
 	})
 
 	describe("createSession", () => {
 		test("should create session and return sessionId", () => {
-			const sessionData: SessionData = { username: "admin" }
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: "127.0.0.1",
+				userAgent: "Mozilla/5.0",
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
 
-			const sessionId = sessionStore.createSession(sessionData)
+			const sessionId = sessionStore.createSession(sessionData, 86400)
 
 			expect(sessionId).toBe("mock-session-id-123")
 			expect(mockIdGenerator.generate).toHaveBeenCalledTimes(1)
 
 			// Verify session was stored
 			const retrieved = sessionStore.get(sessionId)
-			expect(retrieved).toEqual(sessionData)
+			expect(retrieved?.username).toBe(sessionData.username)
+			expect(retrieved?.ip).toBe(sessionData.ip)
+			expect(retrieved?.isPersistent).toBe(sessionData.isPersistent)
 		})
 
 		test("should create unique session IDs", () => {
-			const sessionData: SessionData = { username: "admin" }
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
 
 			// Mock different IDs for each call
 			;(mockIdGenerator.generate as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-id-1").mockReturnValueOnce("session-id-2")
 
-			const sessionId1 = sessionStore.createSession(sessionData)
-			const sessionId2 = sessionStore.createSession(sessionData)
+			const sessionId1 = sessionStore.createSession(sessionData, 86400)
+			const sessionId2 = sessionStore.createSession(sessionData, 86400)
 
 			expect(sessionId1).toBe("session-id-1")
 			expect(sessionId2).toBe("session-id-2")
@@ -43,13 +64,45 @@ describe("SessionStore", () => {
 	})
 
 	describe("get", () => {
-		test("should retrieve session data", () => {
-			const sessionData: SessionData = { username: "admin" }
-			const sessionId = sessionStore.createSession(sessionData)
+		test("should retrieve session data and update sliding expiration", () => {
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
+			const sessionId = sessionStore.createSession(sessionData, 86400)
 
 			const result = sessionStore.get(sessionId)
 
-			expect(result).toEqual(sessionData)
+			expect(result).toBeDefined()
+			expect(result?.username).toBe(sessionData.username)
+			// verify that lastAccessedAt is updated to now
+			expect(result?.lastAccessedAt.getTime()).toBeGreaterThanOrEqual(sessionData.lastAccessedAt.getTime())
+		})
+
+		test("should respect and update sliding expiration using stored ttlSeconds", () => {
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 600, // 10 minutes custom TTL
+			}
+			const sessionId = sessionStore.createSession(sessionData, 600)
+
+			const result = sessionStore.get(sessionId)
+
+			expect(result).toBeDefined()
+			const expectedExpiryTime = new Date().getTime() + 600 * 1000
+			expect(result?.expiresAt.getTime()).toBeCloseTo(expectedExpiryTime, -3)
 		})
 
 		test("should return null for non-existent session", () => {
@@ -60,8 +113,17 @@ describe("SessionStore", () => {
 
 	describe("delete", () => {
 		test("should delete existing session", () => {
-			const sessionData: SessionData = { username: "admin" }
-			const sessionId = sessionStore.createSession(sessionData)
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
+			const sessionId = sessionStore.createSession(sessionData, 86400)
 
 			const deleted = sessionStore.delete(sessionId)
 
@@ -77,8 +139,17 @@ describe("SessionStore", () => {
 
 	describe("has", () => {
 		test("should return true for existing session", () => {
-			const sessionData: SessionData = { username: "admin" }
-			const sessionId = sessionStore.createSession(sessionData)
+			const sessionData: SessionData = {
+				username: "admin",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
+			const sessionId = sessionStore.createSession(sessionData, 86400)
 
 			expect(sessionStore.has(sessionId)).toBe(true)
 		})
@@ -92,8 +163,29 @@ describe("SessionStore", () => {
 		test("should clear all sessions", () => {
 			;(mockIdGenerator.generate as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-1").mockReturnValueOnce("session-2")
 
-			const sessionId1 = sessionStore.createSession({ username: "user1" })
-			const sessionId2 = sessionStore.createSession({ username: "user2" })
+			const sessionData1: SessionData = {
+				username: "user1",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
+			const sessionData2: SessionData = {
+				username: "user2",
+				ip: null,
+				userAgent: null,
+				createdAt: new Date(),
+				lastAccessedAt: new Date(),
+				expiresAt: new Date(),
+				isPersistent: false,
+				ttlSeconds: 86400,
+			}
+
+			const sessionId1 = sessionStore.createSession(sessionData1, 86400)
+			const sessionId2 = sessionStore.createSession(sessionData2, 86400)
 
 			sessionStore.clear()
 

@@ -35,37 +35,116 @@ describe("AuthService", () => {
 	describe("login", () => {
 		describe("Happy cases", () => {
 			test("should return Result with sessionId on successful login", () => {
-				const result = authService.login("admin", "Energetic9-Mulch2-Arknight6")
+				const result = authService.login({
+					username: "admin",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
 
 				expect(result.isOk()).toBe(true)
 				if (result.isOk()) {
-					expect(result.value).toBe(mockSessionId)
+					expect(result.value.sessionId).toBe(mockSessionId)
+					expect(result.value.ttlSeconds).toBe(86400)
 				}
 				expect(mockSessionStore.createSession).toHaveBeenCalledTimes(1)
-				expect(mockSessionStore.createSession).toHaveBeenCalledWith({ username: "admin" })
+				expect(mockSessionStore.createSession).toHaveBeenCalledWith(
+					expect.objectContaining({
+						username: "admin",
+						isPersistent: false,
+						ttlSeconds: 86400,
+					}),
+					86400
+				)
 			})
 
 			test("should create unique sessionIds for multiple successful logins", () => {
 				// Mock different session IDs for each call
 				mockSessionStore.createSession.mockReturnValueOnce("session-id-1").mockReturnValueOnce("session-id-2")
 
-				const result1 = authService.login("admin", "Energetic9-Mulch2-Arknight6")
-				const result2 = authService.login("admin", "Energetic9-Mulch2-Arknight6")
+				const result1 = authService.login({
+					username: "admin",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
+				const result2 = authService.login({
+					username: "admin",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
 
 				expect(result1.isOk()).toBe(true)
 				expect(result2.isOk()).toBe(true)
 				if (result1.isOk() && result2.isOk()) {
-					expect(result1.value).toBe("session-id-1")
-					expect(result2.value).toBe("session-id-2")
-					expect(result1.value).not.toBe(result2.value)
+					expect(result1.value.sessionId).toBe("session-id-1")
+					expect(result2.value.sessionId).toBe("session-id-2")
+					expect(result1.value.sessionId).not.toBe(result2.value.sessionId)
 				}
 				expect(mockSessionStore.createSession).toHaveBeenCalledTimes(2)
+			})
+
+			test("should handle rememberMe = true and return 30-day TTL", () => {
+				const result = authService.login({
+					username: "admin",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: true,
+					ip: "127.0.0.1",
+					userAgent: "Mozilla/5.0",
+				})
+
+				expect(result.isOk()).toBe(true)
+				if (result.isOk()) {
+					expect(result.value.sessionId).toBe(mockSessionId)
+					expect(result.value.ttlSeconds).toBe(30 * 24 * 60 * 60)
+				}
+				expect(mockSessionStore.createSession).toHaveBeenCalledWith(
+					expect.objectContaining({
+						username: "admin",
+						ip: "127.0.0.1",
+						userAgent: "Mozilla/5.0",
+						isPersistent: true,
+						ttlSeconds: 30 * 24 * 60 * 60,
+					}),
+					30 * 24 * 60 * 60
+				)
+			})
+
+			test("should sanitize username input", () => {
+				const result = authService.login({
+					username: " <admin> ",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
+
+				expect(result.isOk()).toBe(true)
+				if (result.isOk()) {
+					expect(result.value.sessionId).toBe(mockSessionId)
+				}
+				expect(mockSessionStore.createSession).toHaveBeenCalledWith(
+					expect.objectContaining({
+						username: "admin",
+					}),
+					expect.any(Number)
+				)
 			})
 		})
 
 		describe("Unhappy cases", () => {
 			test("should return error Result on invalid username", () => {
-				const result = authService.login("wronguser", "Energetic9-Mulch2-Arknight6")
+				const result = authService.login({
+					username: "wronguser",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
 
 				expect(result.isErr()).toBe(true)
 				if (result.isErr()) {
@@ -76,7 +155,13 @@ describe("AuthService", () => {
 			})
 
 			test("should return error Result on invalid password", () => {
-				const result = authService.login("admin", "wrong-password")
+				const result = authService.login({
+					username: "admin",
+					password: "wrong-password",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
 
 				expect(result.isErr()).toBe(true)
 				if (result.isErr()) {
@@ -87,7 +172,13 @@ describe("AuthService", () => {
 			})
 
 			test("should return error Result on both invalid username and password", () => {
-				const result = authService.login("wronguser", "wrong-password")
+				const result = authService.login({
+					username: "wronguser",
+					password: "wrong-password",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
 
 				expect(result.isErr()).toBe(true)
 				if (result.isErr()) {
@@ -124,7 +215,16 @@ describe("AuthService", () => {
 	describe("validateSession", () => {
 		describe("Happy cases", () => {
 			test("should return ok with session data when session is valid", () => {
-				const sessionData = { username: "admin" }
+				const sessionData = {
+					username: "admin",
+					ip: "127.0.0.1",
+					userAgent: "Mozilla/5.0",
+					createdAt: new Date(),
+					lastAccessedAt: new Date(),
+					expiresAt: new Date(),
+					isPersistent: false,
+					ttlSeconds: 86400,
+				}
 				mockSessionStore.get.mockReturnValue(sessionData)
 
 				const result = authService.validateSession("valid-session-id")
