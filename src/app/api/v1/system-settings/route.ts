@@ -5,6 +5,7 @@ import { container } from "src/modules/container"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
+import { ResponseBodyError } from "src/app/api/shared/types"
 import { safeParse } from "valibot"
 
 export const dynamic = "force-dynamic"
@@ -30,10 +31,6 @@ export async function GET() {
 	const responseBody = toSystemSettingsResponse(result.value)
 
 	return NextResponse.json(responseBody)
-}
-
-export type ResponseBodyError = {
-	readonly error_message: string
 }
 
 export const PATCH = withAuth(async function PATCH(request: NextRequest): Promise<NextResponse<null | ResponseBodyError>> {

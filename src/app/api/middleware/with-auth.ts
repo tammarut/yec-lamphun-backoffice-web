@@ -3,11 +3,12 @@ import { AuthService } from "src/modules/auth"
 import type { SessionData } from "src/modules/auth/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { ResponseBodyError } from "src/app/api/shared/types"
 
 type RouteHandler<T = unknown> = (request: NextRequest, context: unknown, session: SessionData) => Promise<NextResponse<T>> | NextResponse<T>
 
 export function withAuth<T>(handler: RouteHandler<T>) {
-	return async function authMiddleware(request: NextRequest, context: unknown): Promise<NextResponse<T | { error_message: string }>> {
+	return async function authMiddleware(request: NextRequest, context: unknown): Promise<NextResponse<T | ResponseBodyError>> {
 		const sessionId = request.cookies.get("session_id")?.value
 
 		if (!sessionId) {

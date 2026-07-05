@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { describe, expect, test, vi } from "vitest"
-import { ResponseBodyError } from "../../system-settings/route"
+import { ResponseBodyError } from "src/app/api/shared/types"
 import { POST } from "./route"
 
 // Mock the env configuration

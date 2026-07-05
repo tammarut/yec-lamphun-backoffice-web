@@ -18,8 +18,9 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 
+import { ResponseBodyError } from "src/app/api/shared/types"
 // Import route AFTER mocks
-import { GET, PATCH, ResponseBodyError } from "./route"
+import { GET, PATCH } from "./route"
 
 describe("GET /api/v1/system-settings", () => {
 	let mockService: ReturnType<typeof mock<SystemSettingsService>>
