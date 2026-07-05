@@ -11,25 +11,27 @@ import { ISystemSettingsRepository } from "../interfaces"
 export class SystemSettingsRepository implements ISystemSettingsRepository {
 	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
 
-	async getAllSettings(): Promise<ResultAsync<SystemSettingDomain[], DatabaseError>> {
+	async getAllSettings(): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
 		const dbConn = this.dbClient.getRwConnection()
 
-		const result = await ResultAsync.fromPromise(getAllSettings(dbConn as unknown as Sql), (error) => error as Error)
-
+		const getAllSettingFunc = getAllSettings(dbConn as unknown as Sql)
+		const result = await ResultAsync.fromPromise(getAllSettingFunc, (error) => error as Error)
 		if (result.isErr()) {
 			const error = result.error
 			return err(new DatabaseError(error.message, error.cause))
 		}
 
 		const rows = result.value
-
-		const settings: SystemSettingDomain[] = rows.map((row) => ({
-			feature: row.feature,
-			value: row.value,
-			description: row.description,
-			createdAt: row.createdAt,
-			updatedAt: row.updatedAt,
-		}))
+		const settings: SystemSettingDomain[] = []
+		for (const row of rows) {
+			settings.push({
+				feature: row.feature,
+				value: row.value,
+				description: row.description,
+				createdAt: row.createdAt,
+				updatedAt: row.updatedAt,
+			})
+		}
 
 		return ok(settings)
 	}

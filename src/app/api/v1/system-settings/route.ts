@@ -1,17 +1,17 @@
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "src/app/api/middleware/with-auth"
+import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
-import { ResponseBodyError } from "src/app/api/shared/types"
 import { safeParse } from "valibot"
 
 export const dynamic = "force-dynamic"
 
-function toSystemSettingsResponse(settings: ReadonlyArray<SystemSettingDomain>) {
+function toSystemSettingsResponse(settings: readonly SystemSettingDomain[]) {
 	const response: Record<string, unknown> = {}
 
 	for (const setting of settings) {

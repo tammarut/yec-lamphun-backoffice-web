@@ -12,7 +12,7 @@ export class SystemSettingsService {
 		private repository: ISystemSettingsRepository
 	) {}
 
-	async getAllSettings(): Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>> {
+	async getAllSettings(): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
 		return this.repository.getAllSettings()
 	}
 
