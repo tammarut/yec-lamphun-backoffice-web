@@ -2,6 +2,7 @@ import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "src/app/api/middleware/with-auth"
 import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
@@ -21,7 +22,7 @@ function toSystemSettingsResponse(settings: ReadonlyArray<SystemSettingDomain>) 
 }
 
 export async function GET() {
-	const systemSettingsService = container.resolve(SystemSettingsService)
+	const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
 	const result = await systemSettingsService.getAllSettings()
 
 	if (result.isErr()) {
@@ -48,7 +49,7 @@ export const PATCH = withAuth(async function PATCH(request: NextRequest): Promis
 		return NextResponse.json({ error_message: errorMessage }, { status: 400 })
 	}
 
-	const systemSettingsService = container.resolve(SystemSettingsService)
+	const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
 	const result = await systemSettingsService.updateSettings(validateReqBodyResult.output)
 
 	if (result.isErr()) {
