@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { REGISTER_KEY } from "src/modules/di-tokens"
-import { container } from "src/modules/container"
 import { AuthService } from "src/modules/auth"
 import type { SessionData } from "src/modules/auth/types"
+import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 
-type RouteHandler = (request: NextRequest, context: unknown, session: SessionData) => Promise<NextResponse> | NextResponse
+type RouteHandler<T = unknown> = (request: NextRequest, context: unknown, session: SessionData) => Promise<NextResponse<T>> | NextResponse<T>
 
-export function withAuth(handler: RouteHandler) {
-	return async function authMiddleware(request: NextRequest, context: unknown): Promise<NextResponse> {
+export function withAuth<T>(handler: RouteHandler<T>) {
+	return async function authMiddleware(request: NextRequest, context: unknown): Promise<NextResponse<T | { error_message: string }>> {
 		const sessionId = request.cookies.get("session_id")?.value
 
 		if (!sessionId) {

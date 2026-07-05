@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
 import { ResultAsync } from "neverthrow"
-import { safeParse } from "valibot"
-import { container } from "src/modules/container"
+import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "src/app/api/middleware/with-auth"
+import { container } from "src/modules/container"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
+import { safeParse } from "valibot"
 
 export const dynamic = "force-dynamic"
 
@@ -32,7 +32,11 @@ export async function GET() {
 	return NextResponse.json(responseBody)
 }
 
-export const PATCH = withAuth(async function PATCH(request: NextRequest) {
+export type ResponseBodyError = {
+	readonly error_message: string
+}
+
+export const PATCH = withAuth(async function PATCH(request: NextRequest): Promise<NextResponse<null | ResponseBodyError>> {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseReqBodyResult.isErr()) {
 		return NextResponse.json({ error_message: "Invalid request body" }, { status: 400 })
@@ -55,5 +59,5 @@ export const PATCH = withAuth(async function PATCH(request: NextRequest) {
 		return NextResponse.json({ error_message: "Internal Server Error" }, { status: 500 })
 	}
 
-	return new NextResponse(null, { status: 204 })
+	return new NextResponse<null>(null, { status: 204 })
 })

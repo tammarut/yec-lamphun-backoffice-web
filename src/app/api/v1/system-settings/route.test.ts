@@ -12,14 +12,14 @@ vi.mock("src/modules/container", () => ({
 	},
 }))
 
+import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { AuthService } from "src/modules/auth"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 
 // Import route AFTER mocks
-import { GET, PATCH } from "./route"
+import { GET, PATCH, ResponseBodyError } from "./route"
 
 describe("GET /api/v1/system-settings", () => {
 	let mockService: ReturnType<typeof mock<SystemSettingsService>>
@@ -141,7 +141,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(401)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Unauthorized")
 		})
 
@@ -157,7 +157,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(401)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Unauthorized")
 		})
 
@@ -173,7 +173,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe('Invalid type: Expected boolean but received "not-a-boolean"')
 		})
 
@@ -189,7 +189,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe('Invalid key: Expected "open_membership_renewal" but received undefined')
 		})
 
