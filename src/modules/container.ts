@@ -1,7 +1,5 @@
 import "reflect-metadata"
 import { AuthService } from "src/modules/auth/auth.service"
-import { HealthService } from "src/modules/health/health.service"
-import { HealthRepository } from "src/modules/health/repository/health.repository"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
@@ -30,15 +28,6 @@ container.register(REGISTER_KEY.SESSION_STORE, {
 // We register the class constructor itself as the token to allow direct injection
 container.register(DatabaseClient, {
 	useClass: DatabaseClient,
-})
-
-// 4. Register Health Module
-container.register(REGISTER_KEY.HEALTH_REPOSITORY, {
-	useClass: HealthRepository,
-})
-
-container.register(REGISTER_KEY.HEALTH_SERVICE, {
-	useClass: HealthService,
 })
 
 // 5. Register System Settings Module
