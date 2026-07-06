@@ -246,7 +246,7 @@ describe("AuthService", () => {
 				expect(result.isErr()).toBe(true)
 				if (result.isErr()) {
 					expect(result.error).toBeInstanceOf(Error)
-					expect(result.error.message).toBe("Unauthorized")
+					expect(result.error.message).toBe("Not Found session")
 				}
 				expect(mockSessionStore.get).toHaveBeenCalledWith("invalid-session-id")
 			})
