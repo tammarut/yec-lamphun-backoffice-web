@@ -61,18 +61,4 @@ export class SessionStore {
 		const deleted = this.cache.del(sessionId)
 		return deleted > 0
 	}
-
-	/**
-	 * Check if session exists
-	 */
-	has(sessionId: string): boolean {
-		return this.cache.has(sessionId)
-	}
-
-	/**
-	 * Clear all sessions
-	 */
-	clear(): void {
-		this.cache.flushAll()
-	}
 }
