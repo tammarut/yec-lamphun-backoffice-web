@@ -1,4 +1,5 @@
 import { NodeCache } from "@cacheable/node-cache"
+import type { ISessionStore } from "src/modules/auth"
 import type { SessionData } from "src/modules/auth/types"
 
 /**
@@ -11,7 +12,7 @@ export interface IIdGenerator {
 /**
  * Session store class for managing user sessions
  */
-export class SessionStore {
+export class SessionStore implements ISessionStore {
 	private readonly cache: NodeCache<SessionData>
 	private readonly idGenerator: IIdGenerator
 
