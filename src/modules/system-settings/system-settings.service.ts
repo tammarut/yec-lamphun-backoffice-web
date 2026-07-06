@@ -16,7 +16,9 @@ export class SystemSettingsService {
 		return this.repository.getAllSettings()
 	}
 
-	async updateSettings(settings: Record<string, unknown>): Promise<ResultAsync<void, DatabaseError>> {
+	async updateSettings(settings: Record<string, unknown>): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
+		const updatedSettings: SystemSettingDomain[] = []
+
 		for (const [feature, value] of Object.entries(settings)) {
 			if (value === undefined) {
 				continue
@@ -26,8 +28,10 @@ export class SystemSettingsService {
 			if (result.isErr()) {
 				return errAsync(result.error)
 			}
+
+			updatedSettings.push(result.value)
 		}
 
-		return okAsync()
+		return okAsync(updatedSettings)
 	}
 }

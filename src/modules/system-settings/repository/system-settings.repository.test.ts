@@ -102,12 +102,25 @@ describe("SystemSettingsRepository", () => {
 	describe("updateSetting", () => {
 		describe("Happy cases", () => {
 			it("should update a system setting successfully", async () => {
-				vi.mocked(updateSetting).mockResolvedValueOnce(undefined)
+				const mockRow = {
+					feature: "open_membership_renewal",
+					value: false,
+					description: "desc",
+					createdAt: new Date("2024-01-15T11:30:00+07:00"),
+					updatedAt: new Date("2024-01-15T11:30:00+07:00"),
+				}
+				vi.mocked(updateSetting).mockResolvedValueOnce(mockRow)
 
 				const result = await repository.updateSetting("open_membership_renewal", false)
 
 				expect(result.isOk()).toBe(true)
-				expect(result._unsafeUnwrap()).toBeUndefined()
+				expect(result._unsafeUnwrap()).toEqual({
+					feature: "open_membership_renewal",
+					value: false,
+					description: "desc",
+					createdAt: mockRow.createdAt,
+					updatedAt: mockRow.updatedAt,
+				})
 				expect(updateSetting).toHaveBeenCalledWith(mockSql, {
 					feature: "open_membership_renewal",
 					value: false,
@@ -116,6 +129,16 @@ describe("SystemSettingsRepository", () => {
 		})
 
 		describe("Unhappy cases", () => {
+			it("should return DatabaseError when update setting query returns null (feature not found)", async () => {
+				vi.mocked(updateSetting).mockResolvedValueOnce(null)
+
+				const result = await repository.updateSetting("open_membership_renewal", false)
+
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr().message).toBe("Failed to update setting: feature 'open_membership_renewal' not found")
+				expect(result._unsafeUnwrapErr().code).toBe("DATABASE_ERROR")
+			})
+
 			it("should return DatabaseError when update setting query fails", async () => {
 				vi.mocked(updateSetting).mockRejectedValueOnce(new Error("DB Connection Error"))
 

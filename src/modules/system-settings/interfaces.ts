@@ -4,5 +4,5 @@ import { SystemSettingDomain } from "./domain/system-setting.domain"
 
 export interface ISystemSettingsRepository {
 	getAllSettings(): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>>
-	updateSetting(feature: string, value: unknown): Promise<ResultAsync<void, DatabaseError>>
+	updateSetting(feature: string, value: unknown): Promise<ResultAsync<SystemSettingDomain, DatabaseError>>
 }

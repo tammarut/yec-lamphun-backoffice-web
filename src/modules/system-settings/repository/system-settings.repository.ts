@@ -36,16 +36,28 @@ export class SystemSettingsRepository implements ISystemSettingsRepository {
 		return ok(settings)
 	}
 
-	async updateSetting(feature: string, value: unknown): Promise<ResultAsync<void, DatabaseError>> {
+	async updateSetting(feature: string, value: unknown): Promise<ResultAsync<SystemSettingDomain, DatabaseError>> {
 		const dbConn = this.dbClient.getRwConnection()
 
-		const result = await ResultAsync.fromPromise(updateSetting(dbConn as unknown as Sql, { feature, value: value as never }), (error) => error as Error)
+		const updateSettingFunc = updateSetting(dbConn as unknown as Sql, { feature, value: value as never })
+		const result = await ResultAsync.fromPromise(updateSettingFunc, (error) => error as Error)
 
 		if (result.isErr()) {
 			const error = result.error
 			return err(new DatabaseError(error.message, error.cause))
 		}
 
-		return ok()
+		const row = result.value
+		if (!row) {
+			return err(new DatabaseError(`Failed to update setting: feature '${feature}' not found`))
+		}
+
+		return ok({
+			feature: row.feature,
+			value: row.value,
+			description: row.description,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt,
+		})
 	}
 }

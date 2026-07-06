@@ -49,32 +49,44 @@ describe("SystemSettingsService", () => {
 	})
 
 	describe("updateSettings", () => {
-		it("should return void on successful repository updates", async () => {
-			mockRepository.updateSetting.mockResolvedValue(ok(undefined as unknown as void))
+		it("should return updated settings on successful updates", async () => {
+			const mockSettingAfter: SystemSettingDomain = {
+				feature: "open_membership_renewal",
+				value: false,
+				description: "desc",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			}
+
+			mockRepository.updateSetting.mockResolvedValue(ok(mockSettingAfter))
 
 			const result = await service.updateSettings({ open_membership_renewal: false })
 
 			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toBeUndefined()
+			expect(result._unsafeUnwrap()).toEqual([mockSettingAfter])
 			expect(mockRepository.updateSetting).toHaveBeenCalledWith("open_membership_renewal", false)
+			expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
 		})
 
-		it("should return void when no updates are provided", async () => {
+		it("should return empty array when no updates are provided", async () => {
 			const result = await service.updateSettings({})
 
 			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toBeUndefined()
+			expect(result._unsafeUnwrap()).toEqual([])
 			expect(mockRepository.updateSetting).not.toHaveBeenCalled()
+			expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
 		})
 
-		it("should propagate database error", async () => {
+		it("should propagate database error on updateSetting call", async () => {
 			const dbError = new DatabaseError("DB Error")
-			mockRepository.updateSetting.mockResolvedValue(err(dbError))
+
+			mockRepository.updateSetting.mockResolvedValueOnce(err(dbError))
 
 			const result = await service.updateSettings({ open_membership_renewal: false })
 
 			expect(result.isErr()).toBe(true)
 			expect(result._unsafeUnwrapErr()).toEqual(dbError)
+			expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
 		})
 	})
 })
