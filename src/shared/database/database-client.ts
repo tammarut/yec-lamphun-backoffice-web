@@ -1,5 +1,5 @@
-import { err, ok, Result } from "neverthrow"
 import { SQL } from "bun"
+import { err, ok, Result } from "neverthrow"
 import { envConfig } from "src/shared/config/env"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { singleton } from "tsyringe"

@@ -4,6 +4,7 @@ declare global {
 	namespace NodeJS {
 		interface ProcessEnv extends EnvConfig {
 			NEXT_RUNTIME: "nodejs" | "edge"
+			TZ?: string
 		}
 	}
 }

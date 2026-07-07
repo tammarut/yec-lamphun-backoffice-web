@@ -81,7 +81,7 @@ export class AuthService {
 		const session = this.sessionStore.get(sessionId)
 
 		if (!session) {
-			return neverthrow.err(new AuthError("Unauthorized"))
+			return neverthrow.err(new AuthError("Not Found session"))
 		}
 
 		return neverthrow.ok(session)

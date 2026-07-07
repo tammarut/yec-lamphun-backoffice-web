@@ -1,15 +1,17 @@
-import { NextRequest, NextResponse } from "next/server"
 import { ResultAsync } from "neverthrow"
-import { safeParse } from "valibot"
-import { container } from "src/modules/container"
+import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "src/app/api/middleware/with-auth"
+import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
+import { safeParse } from "valibot"
+import { ResponseBodyError } from "../../shared/types"
 
 export const dynamic = "force-dynamic"
 
-function toSystemSettingsResponse(settings: ReadonlyArray<SystemSettingDomain>) {
+function toSystemSettingsResponse(settings: readonly SystemSettingDomain[]): Record<string, unknown> {
 	const response: Record<string, unknown> = {}
 
 	for (const setting of settings) {
@@ -20,7 +22,7 @@ function toSystemSettingsResponse(settings: ReadonlyArray<SystemSettingDomain>) 
 }
 
 export async function GET() {
-	const systemSettingsService = container.resolve(SystemSettingsService)
+	const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
 	const result = await systemSettingsService.getAllSettings()
 
 	if (result.isErr()) {
@@ -32,7 +34,7 @@ export async function GET() {
 	return NextResponse.json(responseBody)
 }
 
-export const PATCH = withAuth(async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async function PATCH(request: NextRequest): Promise<NextResponse<Record<string, unknown> | ResponseBodyError>> {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseReqBodyResult.isErr()) {
 		return NextResponse.json({ error_message: "Invalid request body" }, { status: 400 })
@@ -47,13 +49,13 @@ export const PATCH = withAuth(async function PATCH(request: NextRequest) {
 		return NextResponse.json({ error_message: errorMessage }, { status: 400 })
 	}
 
-	const systemSettingsService = container.resolve(SystemSettingsService)
+	const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
 	const result = await systemSettingsService.updateSettings(validateReqBodyResult.output)
 
 	if (result.isErr()) {
-		console.error("Failed to update system settings:", result.error)
 		return NextResponse.json({ error_message: "Internal Server Error" }, { status: 500 })
 	}
 
-	return new NextResponse(null, { status: 204 })
+	const responseBody = toSystemSettingsResponse(result.value)
+	return NextResponse.json(responseBody, { status: 200 })
 })

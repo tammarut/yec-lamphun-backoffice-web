@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { describe, expect, test, vi } from "vitest"
+import { ResponseBodyError } from "src/app/api/shared/types"
 import { POST } from "./route"
 
 // Mock the env configuration
@@ -66,7 +67,9 @@ describe("POST /api/v1/auth/login", () => {
 		const res = await POST(req)
 		expect(res.status).toBe(401)
 		const json = await res.json()
-		expect(json.error_message).toBe("Invalid credentials")
+		expect(json).toEqual({
+			error_message: "Invalid credentials",
+		})
 	})
 
 	test("should return 400 on invalid body", async () => {
@@ -81,7 +84,7 @@ describe("POST /api/v1/auth/login", () => {
 
 		const res = await POST(req)
 		expect(res.status).toBe(400)
-		const json = await res.json()
+		const json = (await res.json()) as ResponseBodyError
 		expect(json.error_message).toContain("password")
 	})
 })

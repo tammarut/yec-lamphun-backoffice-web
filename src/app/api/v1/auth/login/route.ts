@@ -5,8 +5,8 @@ import { NextRequest, NextResponse } from "next/server"
 import * as v from "valibot"
 
 import { AuthService } from "src/modules/auth"
-import { REGISTER_KEY } from "src/modules/di-tokens"
 import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { envConfig } from "src/shared/config/env"
 
 export const dynamic = "force-dynamic"
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
 	const { sessionId, ttlSeconds } = loginResult.value
 
-	const response = new NextResponse(null, { status: 204 })
+	const response = new NextResponse<null>(null, { status: 204 })
 
 	// Set-Cookie
 	response.cookies.set("session_id", sessionId, {

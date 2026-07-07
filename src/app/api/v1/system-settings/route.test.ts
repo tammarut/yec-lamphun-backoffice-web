@@ -12,12 +12,13 @@ vi.mock("src/modules/container", () => ({
 	},
 }))
 
+import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { AuthService } from "src/modules/auth"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 
+import { ResponseBodyError } from "src/app/api/shared/types"
 // Import route AFTER mocks
 import { GET, PATCH } from "./route"
 
@@ -112,8 +113,19 @@ describe("PATCH /api/v1/system-settings", () => {
 	})
 
 	describe("Happy cases", () => {
-		it("should return 204 when system settings update is successful", async () => {
-			mockService.updateSettings.mockReturnValue(Promise.resolve(okAsync(undefined as unknown as void)) as unknown as Promise<ResultAsync<void, DatabaseError>>)
+		it("should return 200 and updated settings when system settings update is successful", async () => {
+			const mockUpdatedSettings: SystemSettingDomain[] = [
+				{
+					feature: "open_membership_renewal",
+					value: true,
+					description: "desc",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+			]
+			mockService.updateSettings.mockReturnValue(
+				Promise.resolve(okAsync(mockUpdatedSettings)) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
+			)
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
@@ -125,7 +137,9 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response).toBeInstanceOf(NextResponse)
-			expect(response.status).toBe(204)
+			expect(response.status).toBe(200)
+			const json = await response.json()
+			expect(json).toEqual({ open_membership_renewal: true })
 			expect(mockService.updateSettings).toHaveBeenCalledWith({ open_membership_renewal: true })
 		})
 	})
@@ -141,7 +155,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(401)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Unauthorized")
 		})
 
@@ -157,7 +171,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(401)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Unauthorized")
 		})
 
@@ -173,7 +187,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe('Invalid type: Expected boolean but received "not-a-boolean"')
 		})
 
@@ -189,7 +203,7 @@ describe("PATCH /api/v1/system-settings", () => {
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(400)
-			const json = await response.json()
+			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe('Invalid key: Expected "open_membership_renewal" but received undefined')
 		})
 
@@ -213,7 +227,9 @@ describe("PATCH /api/v1/system-settings", () => {
 
 		it("should return 500 when service fails", async () => {
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
-			mockService.updateSettings.mockReturnValue(Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<void, DatabaseError>>)
+			mockService.updateSettings.mockReturnValue(
+				Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
+			)
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",

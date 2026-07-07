@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 
 import { AuthService } from "src/modules/auth"
-import { REGISTER_KEY } from "src/modules/di-tokens"
 import { container } from "src/modules/container"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 import { envConfig } from "src/shared/config/env"
 
 export const dynamic = "force-dynamic"

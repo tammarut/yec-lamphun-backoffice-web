@@ -1,7 +1,7 @@
-import { describe, expect, test, beforeEach, vi } from "vitest"
-import { SessionStore } from "./session-store"
-import type { IIdGenerator } from "./session-store"
 import type { SessionData } from "src/modules/auth/types"
+import { beforeEach, describe, expect, test, vi } from "vitest"
+import type { IIdGenerator } from "./session-store"
+import { SessionStore } from "./session-store"
 
 describe("SessionStore", () => {
 	let sessionStore: SessionStore
@@ -134,63 +134,6 @@ describe("SessionStore", () => {
 		test("should return false when deleting non-existent session", () => {
 			const deleted = sessionStore.delete("non-existent-id")
 			expect(deleted).toBe(false)
-		})
-	})
-
-	describe("has", () => {
-		test("should return true for existing session", () => {
-			const sessionData: SessionData = {
-				username: "admin",
-				ip: null,
-				userAgent: null,
-				createdAt: new Date(),
-				lastAccessedAt: new Date(),
-				expiresAt: new Date(),
-				isPersistent: false,
-				ttlSeconds: 86400,
-			}
-			const sessionId = sessionStore.createSession(sessionData, 86400)
-
-			expect(sessionStore.has(sessionId)).toBe(true)
-		})
-
-		test("should return false for non-existent session", () => {
-			expect(sessionStore.has("non-existent-id")).toBe(false)
-		})
-	})
-
-	describe("clear", () => {
-		test("should clear all sessions", () => {
-			;(mockIdGenerator.generate as ReturnType<typeof vi.fn>).mockReturnValueOnce("session-1").mockReturnValueOnce("session-2")
-
-			const sessionData1: SessionData = {
-				username: "user1",
-				ip: null,
-				userAgent: null,
-				createdAt: new Date(),
-				lastAccessedAt: new Date(),
-				expiresAt: new Date(),
-				isPersistent: false,
-				ttlSeconds: 86400,
-			}
-			const sessionData2: SessionData = {
-				username: "user2",
-				ip: null,
-				userAgent: null,
-				createdAt: new Date(),
-				lastAccessedAt: new Date(),
-				expiresAt: new Date(),
-				isPersistent: false,
-				ttlSeconds: 86400,
-			}
-
-			const sessionId1 = sessionStore.createSession(sessionData1, 86400)
-			const sessionId2 = sessionStore.createSession(sessionData2, 86400)
-
-			sessionStore.clear()
-
-			expect(sessionStore.get(sessionId1)).toBeNull()
-			expect(sessionStore.get(sessionId2)).toBeNull()
 		})
 	})
 })

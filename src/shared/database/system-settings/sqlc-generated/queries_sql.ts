@@ -22,16 +22,33 @@ export async function getAllSettings(sql: Sql): Promise<GetAllSettingsRow[]> {
 	}))
 }
 
-export const updateSettingQuery = `-- name: UpdateSetting :exec
+export const updateSettingQuery = `-- name: UpdateSetting :one
 UPDATE system_settings
 SET value = to_jsonb($2), updated_at = NOW()
-WHERE feature = $1`
+WHERE feature = $1
+RETURNING feature, value, description, created_at, updated_at`
 
 export interface UpdateSettingArgs {
 	feature: string
 	value: string
 }
 
-export async function updateSetting(sql: Sql, args: UpdateSettingArgs): Promise<void> {
-	await sql.unsafe(updateSettingQuery, [args.feature, args.value])
+export interface UpdateSettingRow {
+	feature: string
+	value: any
+	description: string | null
+	createdAt: Date
+	updatedAt: Date
+}
+
+export async function updateSetting(sql: Sql, args: UpdateSettingArgs): Promise<UpdateSettingRow | null> {
+	return (
+		(await sql.unsafe(updateSettingQuery, [args.feature, args.value]).values()).map((row) => ({
+			feature: row[0],
+			value: row[1],
+			description: row[2],
+			createdAt: row[3],
+			updatedAt: row[4],
+		}))[0] ?? null
+	)
 }
