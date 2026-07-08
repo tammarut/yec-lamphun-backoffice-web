@@ -1,5 +1,7 @@
 import "reflect-metadata"
 import { AuthService } from "src/modules/auth/auth.service"
+import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
+import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
@@ -39,7 +41,16 @@ container.register(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE, {
 	useClass: SystemSettingsService,
 })
 
-// 6. Register Auth Module
+// 6. Register Business Categories Module
+container.register(REGISTER_KEY.BUSINESS_CATEGORIES_REPOSITORY, {
+	useClass: BusinessCategoriesRepository,
+})
+
+container.register(REGISTER_KEY.BUSINESS_CATEGORIES_SERVICE, {
+	useClass: BusinessCategoriesService,
+})
+
+// 7. Register Auth Module
 container.register(REGISTER_KEY.AUTH_SERVICE, {
 	useClass: AuthService,
 })
