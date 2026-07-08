@@ -1,0 +1,4 @@
+CREATE TABLE business_categories (
+    id SMALLSERIAL PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL
+);
