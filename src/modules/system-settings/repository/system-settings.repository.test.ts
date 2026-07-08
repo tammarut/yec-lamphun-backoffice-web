@@ -109,7 +109,7 @@ describe("SystemSettingsRepository", () => {
 					createdAt: new Date("2024-01-15T11:30:00+07:00"),
 					updatedAt: new Date("2024-01-15T11:30:00+07:00"),
 				}
-				vi.mocked(updateSetting).mockResolvedValueOnce(mockRow)
+				vi.mocked(updateSetting).mockResolvedValueOnce([mockRow])
 
 				const result = await repository.updateSetting("open_membership_renewal", false)
 
@@ -130,7 +130,7 @@ describe("SystemSettingsRepository", () => {
 
 		describe("Unhappy cases", () => {
 			it("should return DatabaseError when update setting query returns null (feature not found)", async () => {
-				vi.mocked(updateSetting).mockResolvedValueOnce(null)
+				vi.mocked(updateSetting).mockResolvedValueOnce([])
 
 				const result = await repository.updateSetting("open_membership_renewal", false)
 

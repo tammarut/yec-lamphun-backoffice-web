@@ -22,7 +22,7 @@ export async function getAllSettings(sql: Sql): Promise<GetAllSettingsRow[]> {
 	}))
 }
 
-export const updateSettingQuery = `-- name: UpdateSetting :one
+export const updateSettingQuery = `-- name: UpdateSetting :many
 UPDATE system_settings
 SET value = to_jsonb($2), updated_at = NOW()
 WHERE feature = $1
@@ -41,14 +41,12 @@ export interface UpdateSettingRow {
 	updatedAt: Date
 }
 
-export async function updateSetting(sql: Sql, args: UpdateSettingArgs): Promise<UpdateSettingRow | null> {
-	return (
-		(await sql.unsafe(updateSettingQuery, [args.feature, args.value]).values()).map((row) => ({
-			feature: row[0],
-			value: row[1],
-			description: row[2],
-			createdAt: row[3],
-			updatedAt: row[4],
-		}))[0] ?? null
-	)
+export async function updateSetting(sql: Sql, args: UpdateSettingArgs): Promise<UpdateSettingRow[]> {
+	return (await sql.unsafe(updateSettingQuery, [args.feature, args.value]).values()).map((row) => ({
+		feature: row[0],
+		value: row[1],
+		description: row[2],
+		createdAt: row[3],
+		updatedAt: row[4],
+	}))
 }

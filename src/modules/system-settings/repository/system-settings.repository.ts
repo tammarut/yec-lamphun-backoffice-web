@@ -47,7 +47,8 @@ export class SystemSettingsRepository implements ISystemSettingsRepository {
 			return err(new DatabaseError(error.message, error.cause))
 		}
 
-		const row = result.value
+		const rows = result.value
+		const row = rows[0]
 		if (!row) {
 			return err(new DatabaseError(`Failed to update setting: feature '${feature}' not found`))
 		}
