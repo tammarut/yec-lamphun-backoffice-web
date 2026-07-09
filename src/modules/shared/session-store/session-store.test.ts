@@ -1,6 +1,6 @@
 import type { SessionData } from "src/modules/auth/types"
 import { beforeEach, describe, expect, test, vi } from "vitest"
-import type { IIdGenerator } from "./session-store"
+import type { IIdGenerator } from "src/modules/shared/id-generator"
 import { SessionStore } from "./session-store"
 
 describe("SessionStore", () => {

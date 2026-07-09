@@ -21,7 +21,7 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
-	serverExternalPackages: ["bun"],
+	serverExternalPackages: ["bun", "@aws-sdk/client-s3"],
 	images: {
 		remotePatterns: [
 			{
