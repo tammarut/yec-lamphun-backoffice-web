@@ -1,6 +1,5 @@
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
-import { withAuth } from "src/app/api/middleware/with-auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -13,7 +12,8 @@ import { StorageError } from "src/modules/shared/storage"
 
 export const dynamic = "force-dynamic"
 
-export const POST = withAuth(async function POST(request: NextRequest): Promise<NextResponse<UploadedFilePathResponse | ResponseBodyError>> {
+// Public endpoint — no auth/session required (per the OpenAPI spec).
+export async function POST(request: NextRequest): Promise<NextResponse<UploadedFilePathResponse | ResponseBodyError>> {
 	// 1. Parse multipart/form-data.
 	const parseFormResult = await ResultAsync.fromPromise(request.formData(), (err) => err as Error)
 	if (parseFormResult.isErr()) {
@@ -34,7 +34,7 @@ export const POST = withAuth(async function POST(request: NextRequest): Promise<
 	}
 
 	return NextResponse.json(result.value, { status: 200 })
-})
+}
 
 function convertFormDataToMemberFileInputReq(formData: FormData): readonly MemberFileRequest[] {
 	const memberFileRequests: MemberFileRequest[] = []

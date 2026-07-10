@@ -12,7 +12,6 @@ vi.mock("src/modules/container", () => ({
 	},
 }))
 
-import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { MemberFileValidationError } from "src/modules/members/errors"
@@ -43,52 +42,17 @@ function buildUploadRequest(fields: Record<string, File>): NextRequest {
 
 describe("POST /api/v1/members/file/upload", () => {
 	let mockService: ReturnType<typeof mock<MemberFileService>>
-	let mockAuthService: ReturnType<typeof mock<AuthService>>
-	const mockSessionData = {
-		username: "admin",
-		ip: "127.0.0.1",
-		userAgent: "Mozilla/5.0",
-		createdAt: new Date(),
-		lastAccessedAt: new Date(),
-		expiresAt: new Date(),
-		isPersistent: false,
-		ttlSeconds: 86400,
-	}
 
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockService = mock<MemberFileService>()
-		mockAuthService = mock<AuthService>()
 		vi.mocked(container.resolve).mockImplementation((token) => {
-			if (token === AuthService || token === REGISTER_KEY.AUTH_SERVICE) return mockAuthService
 			if (token === MemberFileService || token === REGISTER_KEY.MEMBER_FILE_SERVICE) return mockService
 			return {}
 		})
 	})
 
-	describe("Unauthenticated", () => {
-		it("returns 401 when session_id cookie is missing", async () => {
-			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })
-			const response = await POST(request, undefined)
-			expect(response.status).toBe(401)
-			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("Unauthorized")
-		})
-
-		it("returns 401 when the session is invalid", async () => {
-			mockAuthService.validateSession.mockReturnValue(err(new Error("nope")))
-			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })
-			request.cookies.set("session_id", "bad")
-			const response = await POST(request, undefined)
-			expect(response.status).toBe(401)
-		})
-	})
-
-	describe("Authenticated - happy cases", () => {
-		beforeEach(() => {
-			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
-		})
-
+	describe("Happy cases", () => {
 		it("returns 200 with all six paths when a single file is uploaded", async () => {
 			const expected: UploadedFilePathResponse = {
 				id_card_image_file_path: null,
@@ -101,8 +65,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			mockService.uploadFiles.mockReturnValue(Promise.resolve(ok(expected)) as unknown as Promise<Result<UploadedFilePathResponse, never>>)
 
 			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })
-			request.cookies.set("session_id", "valid")
-			const response = await POST(request, undefined)
+			const response = await POST(request)
 
 			expect(response.status).toBe(200)
 			expect(response).toBeInstanceOf(NextResponse)
@@ -133,8 +96,7 @@ describe("POST /api/v1/members/file/upload", () => {
 				profile_avatar: makeImageFile("a.png"),
 				not_a_real_field: makeImageFile("b.png"),
 			})
-			request.cookies.set("session_id", "valid")
-			await POST(request, undefined)
+			await POST(request)
 
 			const passedInputs = mockService.uploadFiles.mock.calls[0]![0]
 			expect(passedInputs).toHaveLength(1)
@@ -142,11 +104,7 @@ describe("POST /api/v1/members/file/upload", () => {
 		})
 	})
 
-	describe("Authenticated - unhappy cases", () => {
-		beforeEach(() => {
-			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
-		})
-
+	describe("Unhappy cases", () => {
 		it("returns 400 when no recognized files are provided", async () => {
 			mockService.uploadFiles.mockReturnValue(
 				Promise.resolve(err(new MemberFileValidationError("At least one file must be provided."))) as unknown as Promise<
@@ -155,8 +113,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			)
 
 			const request = buildUploadRequest({})
-			request.cookies.set("session_id", "valid")
-			const response = await POST(request, undefined)
+			const response = await POST(request)
 
 			expect(response.status).toBe(400)
 			const json = (await response.json()) as ResponseBodyError
@@ -171,8 +128,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			)
 
 			const request = buildUploadRequest({ id_card_image: makeImageFile("a.exe") })
-			request.cookies.set("session_id", "valid")
-			const response = await POST(request, undefined)
+			const response = await POST(request)
 
 			expect(response.status).toBe(400)
 			const json = (await response.json()) as ResponseBodyError
@@ -186,8 +142,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
 			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })
-			request.cookies.set("session_id", "valid")
-			const response = await POST(request, undefined)
+			const response = await POST(request)
 
 			expect(response.status).toBe(500)
 			const json = (await response.json()) as ResponseBodyError
@@ -202,9 +157,8 @@ describe("POST /api/v1/members/file/upload", () => {
 				body: JSON.stringify({ not: "multipart" }),
 				headers: { "content-type": "application/json" },
 			})
-			request.cookies.set("session_id", "valid")
 
-			const response = await POST(request, undefined)
+			const response = await POST(request)
 			expect(response.status).toBe(400)
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Invalid request body")
