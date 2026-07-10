@@ -1,5 +1,5 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
-import { ResultAsync, errAsync, okAsync } from "neverthrow"
+import { Result, ResultAsync, err, ok } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
 import { inject, singleton } from "tsyringe"
@@ -39,7 +39,7 @@ export class R2StorageClient implements IStorageClient {
 		return kind === "public" ? this.config.R2_PUBLIC_BUCKET : this.config.R2_PRIVATE_BUCKET
 	}
 
-	async putObject(params: PutObjectParams): Promise<ResultAsync<void, StorageError>> {
+	async putObject(params: PutObjectParams): Promise<Result<void, StorageError>> {
 		const { bucket, key, body, contentType } = params
 
 		const command = new PutObjectCommand({
@@ -50,10 +50,10 @@ export class R2StorageClient implements IStorageClient {
 		})
 		const sendResult = await ResultAsync.fromPromise(this.client.send(command), (err) => err as Error)
 		if (sendResult.isErr()) {
-			const err = sendResult.error
-			return errAsync(new StorageError(`R2 PutObject failed for "${bucket}/${key}"`, err))
+			const error = sendResult.error
+			return err(new StorageError(`R2 PutObject failed for "${bucket}/${key}"`, error))
 		}
 
-		return okAsync(undefined)
+		return ok(undefined)
 	}
 }

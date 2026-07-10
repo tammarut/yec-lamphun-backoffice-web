@@ -1,4 +1,4 @@
-import type { ResultAsync } from "neverthrow"
+import type { Result } from "neverthrow"
 import type { StorageError } from "./errors"
 
 /** Which R2 bucket a field is stored in. */
@@ -20,7 +20,7 @@ export interface PutObjectParams {
  */
 export interface IStorageClient {
 	/** Upload a single object. Resolves ok on success, err on failure. */
-	putObject(params: PutObjectParams): Promise<ResultAsync<void, StorageError>>
+	putObject(params: PutObjectParams): Promise<Result<void, StorageError>>
 	/** Resolve a logical bucket kind to its physical bucket name. */
 	getBucketName(kind: BucketKind): string
 }

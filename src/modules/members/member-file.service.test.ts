@@ -1,14 +1,14 @@
 // @vitest-environment node
-import { okAsync, errAsync } from "neverthrow"
+import { err, ok } from "neverthrow"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
 import type { IIdGenerator } from "src/modules/shared/id-generator"
-import { MemberFileService } from "./member-file.service"
-import { MemberFileValidationError } from "./errors"
 import type { IStorageClient } from "src/modules/shared/storage"
 import { StorageError } from "src/modules/shared/storage"
+import { MemberFileValidationError } from "./errors"
 import { MAX_FILE_SIZE_BYTES } from "./member-file.constants"
+import { MemberFileService } from "./member-file.service"
 
 // Reusable small valid image file.
 function makeImageFile(name: string, size = 1024): File {
@@ -26,7 +26,7 @@ describe("MemberFileService", () => {
 		idGenerator = mock<IIdGenerator>()
 		idGenerator.generate.mockReturnValue("01ULIDTEST000000000000000")
 		storageClient = mock<IStorageClient>()
-		storageClient.putObject.mockResolvedValue(okAsync(undefined) as never)
+		storageClient.putObject.mockResolvedValue(ok(undefined))
 		storageClient.getBucketName.mockImplementation((kind) => (kind === "public" ? "PUBLIC_BUCKET" : "PRIVATE_BUCKET"))
 		service = new MemberFileService(idGenerator, storageClient)
 	})
@@ -133,7 +133,7 @@ describe("MemberFileService", () => {
 
 	describe("uploadFiles - fail-fast on R2 error (no cleanup)", () => {
 		it("aborts on the first storage error and does not upload the rest", async () => {
-			storageClient.putObject.mockResolvedValueOnce(okAsync(undefined) as never).mockResolvedValueOnce(errAsync(new StorageError("boom")) as never)
+			storageClient.putObject.mockResolvedValueOnce(ok(undefined)).mockResolvedValueOnce(err(new StorageError("boom")))
 
 			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
