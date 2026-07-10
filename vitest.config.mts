@@ -8,6 +8,13 @@ export default defineConfig({
 	test: {
 		environment: "jsdom",
 		setupFiles: ["src/test-setup.ts"],
+		// Tests mock envConfig themselves; skip eager env validation so importing
+		// modules that transitively load envConfig (e.g. the R2 storage client)
+		// doesn't fail on missing server secrets in the test process.
+		env: {
+			SKIP_ENV_VALIDATION: "true",
+			NODE_ENV: "test",
+		},
 	},
 	resolve: {
 		alias: {

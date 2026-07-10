@@ -2,6 +2,8 @@ import "reflect-metadata"
 import { AuthService } from "src/modules/auth/auth.service"
 import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
+import { MemberFileService } from "src/modules/members/member-file.service"
+import { R2StorageClient } from "src/modules/shared/storage/r2-storage.client"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
@@ -24,6 +26,11 @@ const sessionStore = new SessionStore(ulidGenerator)
 
 container.register(REGISTER_KEY.SESSION_STORE, {
 	useValue: sessionStore,
+})
+
+// Register the shared ID generator (ULID) so any service needing ULIDs can inject it.
+container.register(REGISTER_KEY.ID_GENERATOR, {
+	useValue: ulidGenerator,
 })
 
 // 3. Register DatabaseClient
@@ -53,6 +60,17 @@ container.register(REGISTER_KEY.BUSINESS_CATEGORIES_SERVICE, {
 // 7. Register Auth Module
 container.register(REGISTER_KEY.AUTH_SERVICE, {
 	useClass: AuthService,
+})
+
+// 8. Register Members File Module
+// The R2 storage client (shared infra adapter) is registered under an interface
+// token so tests can swap in a mock; the member-file service depends on it.
+container.register(REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT, {
+	useClass: R2StorageClient,
+})
+
+container.register(REGISTER_KEY.MEMBER_FILE_SERVICE, {
+	useClass: MemberFileService,
 })
 
 export { container }

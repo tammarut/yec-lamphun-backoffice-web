@@ -10,6 +10,11 @@ export type EnvConfig = {
 	DB_IDLE_TIMEOUT: number
 	DB_CONNECTION_TIMEOUT: number
 	DB_MAX_LIFETIME: number
+	R2_ACCOUNT_ID: string
+	R2_ACCESS_KEY_ID: string
+	R2_SECRET_ACCESS_KEY: string
+	R2_PUBLIC_BUCKET: string
+	R2_PRIVATE_BUCKET: string
 }
 
 export const envConfig = createEnv({
@@ -23,6 +28,13 @@ export const envConfig = createEnv({
 		DB_IDLE_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "30"),
 		DB_CONNECTION_TIMEOUT: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "30"),
 		DB_MAX_LIFETIME: v.optional(v.pipe(v.string(), v.transform(Number), v.integer()), "3600"),
+		// Cloudflare R2 (S3-compatible) — used by the members file upload module.
+		// See docs/adr/0002-r2-two-bucket-public-private-split.md
+		R2_ACCOUNT_ID: v.pipe(v.string(), v.minLength(1, "R2_ACCOUNT_ID is required")),
+		R2_ACCESS_KEY_ID: v.pipe(v.string(), v.minLength(1, "R2_ACCESS_KEY_ID is required")),
+		R2_SECRET_ACCESS_KEY: v.pipe(v.string(), v.minLength(1, "R2_SECRET_ACCESS_KEY is required")),
+		R2_PUBLIC_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PUBLIC_BUCKET is required")),
+		R2_PRIVATE_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PRIVATE_BUCKET is required")),
 	},
 	client: {},
 	runtimeEnv: {
@@ -34,5 +46,10 @@ export const envConfig = createEnv({
 		DB_IDLE_TIMEOUT: process.env["DB_IDLE_TIMEOUT"],
 		DB_CONNECTION_TIMEOUT: process.env["DB_CONNECTION_TIMEOUT"],
 		DB_MAX_LIFETIME: process.env["DB_MAX_LIFETIME"],
+		R2_ACCOUNT_ID: process.env["R2_ACCOUNT_ID"],
+		R2_ACCESS_KEY_ID: process.env["R2_ACCESS_KEY_ID"],
+		R2_SECRET_ACCESS_KEY: process.env["R2_SECRET_ACCESS_KEY"],
+		R2_PUBLIC_BUCKET: process.env["R2_PUBLIC_BUCKET"],
+		R2_PRIVATE_BUCKET: process.env["R2_PRIVATE_BUCKET"],
 	},
 })

@@ -1,13 +1,7 @@
 import { NodeCache } from "@cacheable/node-cache"
 import type { ISessionStore } from "src/modules/auth"
 import type { SessionData } from "src/modules/auth/types"
-
-/**
- * Interface for generating unique identifiers
- */
-export interface IIdGenerator {
-	generate(): string
-}
+import type { IIdGenerator } from "src/modules/shared/id-generator"
 
 /**
  * Session store class for managing user sessions

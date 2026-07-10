@@ -24,6 +24,11 @@ describe("AuthService", () => {
 			DB_IDLE_TIMEOUT: 30,
 			DB_CONNECTION_TIMEOUT: 30,
 			DB_MAX_LIFETIME: 3600,
+			R2_ACCOUNT_ID: "test-account",
+			R2_ACCESS_KEY_ID: "test-key",
+			R2_SECRET_ACCESS_KEY: "test-secret",
+			R2_PUBLIC_BUCKET: "yec-lamphun-public",
+			R2_PRIVATE_BUCKET: "yec-lamphun-private",
 		}
 
 		mockSessionStore = mock<ISessionStore>()

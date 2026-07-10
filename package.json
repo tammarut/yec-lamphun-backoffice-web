@@ -24,6 +24,7 @@
 		]
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1081.0",
 		"@base-ui/react": "^1.0.0",
 		"@cacheable/node-cache": "^1.7.6",
 		"@hookform/resolvers": "^5.2.2",

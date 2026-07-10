@@ -24,11 +24,16 @@ jobs:
       - name: Build
         env:
           NODE_ENV: production
-          DATABASE_URL: "postgres://user:pass@localhost:5432/db"
           ADMIN_USERNAME: "build-username"
           ADMIN_PASSWORD: "build-password"
+          DATABASE_URL: "postgres://user:pass@localhost:5432/db"
           DB_MAX_CONNECTIONS: "10"
           DB_IDLE_TIMEOUT: "30"
           DB_CONNECTION_TIMEOUT: "30"
           DB_MAX_LIFETIME: "3600"
+          R2_ACCOUNT_ID: "r2-account-id"
+          R2_ACCESS_KEY_ID: "r2-access-key-id"
+          R2_SECRET_ACCESS_KEY: "r2-secret-key"
+          R2_PUBLIC_BUCKET: "r2-public-bucket"
+          R2_PRIVATE_BUCKET: "r2-private-bucket"
         run: bun x --bun next build
