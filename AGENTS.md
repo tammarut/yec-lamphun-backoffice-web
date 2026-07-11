@@ -28,9 +28,8 @@ src/
 ├── shared/                # Globally reusable shared components & resources
 │   ├── components/        # Reusable components (ui/shadcn, layout, forms)
 │   ├── core/              # Shared errors (AppError, DatabaseError) and models
-│   ├── database/          # Database client wrapper
 │   ├── config/            # Strict env loading (t3-env)
-│   └── lib/               # Shared libraries (ulid-generator, utils/cn)
+│   └── lib/               # Shared libraries (db/database-client, ulid-generator, utils/cn)
 ```
 
 ---

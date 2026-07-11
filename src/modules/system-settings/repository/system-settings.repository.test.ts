@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
 // Mock the generated queries file BEFORE imports
-vi.mock("src/shared/database/system-settings/sqlc-generated/queries_sql", () => ({
+vi.mock("src/modules/system-settings/repository/sql/sqlc-generated/queries_sql", () => ({
 	getAllSettings: vi.fn(),
 	updateSetting: vi.fn(),
 }))
@@ -13,9 +13,9 @@ vi.mock("bun", () => ({
 	SQL: vi.fn(),
 }))
 
-import { DatabaseClient } from "src/shared/database/database-client"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { SystemSettingsRepository } from "./system-settings.repository"
-import { getAllSettings, updateSetting, type GetAllSettingsRow } from "src/shared/database/system-settings/sqlc-generated/queries_sql"
+import { getAllSettings, updateSetting, type GetAllSettingsRow } from "src/modules/system-settings/repository/sql/sqlc-generated/queries_sql"
 import { SQL } from "bun"
 
 describe("SystemSettingsRepository", () => {

@@ -5,20 +5,20 @@ plugins:
           url: "https://downloads.sqlc.dev/plugin/sqlc-gen-typescript_0.1.3.wasm"
           sha256: "287df8f6cc06377d67ad5ba02c9e0f00c585509881434d15ea8bd9fc751a9368"
 sql:
-    - schema: "src/shared/database/system-settings/schema.sql"
-      queries: "src/shared/database/system-settings/queries.sql"
+    - schema: "src/modules/system-settings/repository/sql/schema.sql"
+      queries: "src/modules/system-settings/repository/sql/queries.sql"
       engine: "postgresql"
       codegen:
-          - out: "src/shared/database/system-settings/sqlc-generated"
+          - out: "src/modules/system-settings/repository/sql/sqlc-generated"
             plugin: ts
             options:
                 runtime: "node"
                 driver: "postgres"
-    - schema: "src/shared/database/business_categories/schema.sql"
-      queries: "src/shared/database/business_categories/queries.sql"
+    - schema: "src/modules/business-categories/repository/sql/schema.sql"
+      queries: "src/modules/business-categories/repository/sql/queries.sql"
       engine: "postgresql"
       codegen:
-          - out: "src/shared/database/business_categories/sqlc-generated"
+          - out: "src/modules/business-categories/repository/sql/sqlc-generated"
             plugin: ts
             options:
                 runtime: "node"

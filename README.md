@@ -79,7 +79,7 @@ Follow these steps to run the project locally for the first time:
 
 3. **Compile Type-Safe Database Queries (`sqlc`):**
 
-   If you modify or create raw SQL schemas (`schema.sql`) or queries (`queries.sql`) under `src/shared/database/[table-name]`, regenerate the type-safe TypeScript database functions:
+   If you modify or create raw SQL schemas (`schema.sql`) or queries (`queries.sql`) under `src/modules/[module-name]/repository/sql/`, regenerate the type-safe TypeScript database functions:
 
    * **Install `sqlc` CLI** (if not already installed):
 
@@ -94,7 +94,7 @@ Follow these steps to run the project locally for the first time:
        sqlc generate
        ```
 
-       The compiled, fully-typed functions are generated under the respective table folder, e.g., `src/shared/database/system-settings/sqlc-generated/queries_sql.ts`.
+       The compiled, fully-typed functions are generated under the respective module's repository folder, e.g., `src/modules/system-settings/repository/sql/sqlc-generated/queries_sql.ts`.
 
 4. **Run the Development Server:**
 
