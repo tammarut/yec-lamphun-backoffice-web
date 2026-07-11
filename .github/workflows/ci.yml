@@ -3,10 +3,20 @@ name: CI
 on:
   pull_request:
     branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test-and-build:
-    name: Test and Build
+  lint-test-build:
+    name: Lint, Test, and Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -16,24 +26,15 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
 
       - name: Run tests
         run: bun run test
 
       - name: Build
         env:
-          NODE_ENV: production
-          ADMIN_USERNAME: "build-username"
-          ADMIN_PASSWORD: "build-password"
-          DATABASE_URL: "postgres://user:pass@localhost:5432/db"
-          DB_MAX_CONNECTIONS: "10"
-          DB_IDLE_TIMEOUT: "30"
-          DB_CONNECTION_TIMEOUT: "30"
-          DB_MAX_LIFETIME: "3600"
-          R2_ACCOUNT_ID: "r2-account-id"
-          R2_ACCESS_KEY_ID: "r2-access-key-id"
-          R2_SECRET_ACCESS_KEY: "r2-secret-key"
-          R2_PUBLIC_BUCKET: "r2-public-bucket"
-          R2_PRIVATE_BUCKET: "r2-private-bucket"
-        run: bun x --bun next build
+          SKIP_ENV_VALIDATION: "true"
+        run: bun run build
