@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
 // Mock the generated queries file BEFORE imports
-vi.mock("src/shared/database/business_categories/sqlc-generated/queries_sql", () => ({
+vi.mock("src/modules/business-categories/repository/sql/sqlc-generated/queries_sql", () => ({
 	getBusinessCategories: vi.fn(),
 }))
 
@@ -12,9 +12,9 @@ vi.mock("bun", () => ({
 	SQL: vi.fn(),
 }))
 
-import { DatabaseClient } from "src/shared/database/database-client"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { BusinessCategoriesRepository } from "./business-categories.repository"
-import { getBusinessCategories, type GetBusinessCategoriesRow } from "src/shared/database/business_categories/sqlc-generated/queries_sql"
+import { getBusinessCategories, type GetBusinessCategoriesRow } from "src/modules/business-categories/repository/sql/sqlc-generated/queries_sql"
 import { SQL } from "bun"
 
 describe("BusinessCategoriesRepository", () => {

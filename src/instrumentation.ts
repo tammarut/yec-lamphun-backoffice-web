@@ -7,7 +7,7 @@ export async function register() {
 			await import("reflect-metadata")
 
 			const { container } = await import("src/modules/container")
-			const { DatabaseClient } = await import("src/shared/database/database-client")
+			const { DatabaseClient } = await import("src/shared/lib/db/database-client")
 
 			// Ensure DatabaseClient is resolved and verifyConnection is called
 			const dbClient = container.resolve(DatabaseClient)
