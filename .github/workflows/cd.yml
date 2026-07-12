@@ -79,5 +79,6 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   package: ${{ github.event.repository.name }}
                   delete-untagged: true
-                  keep-latest: 3
-                  keep-tags: '^v?\d+\.\d+\.\d+$'
+                  keep-n-tagged: 3
+                  exclude-tags: '^v?\d+\.\d+\.\d+$'
+                  use-regex: true

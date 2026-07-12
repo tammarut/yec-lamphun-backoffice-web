@@ -56,7 +56,11 @@ Pushing to GHCR requires an explicit `docker/login-action` step before `build-pu
 
 ## Cleanup
 
-Old image versions are pruned by `dataaxiom/ghcr-cleanup-action`, SHA-pinned to commit `d52806a0dc70b430571a37da1fde39733ffd640f` (tag `v1.2.2`). Configuration: `keep-latest: 3`, `delete-untagged: true`, and `keep-tags: '^v?\d+\.\d+\.\d+$'` to retain all semver releases regardless of recency.
+Old image versions are pruned by `dataaxiom/ghcr-cleanup-action`, SHA-pinned to commit `d52806a0dc70b430571a37da1fde39733ffd640f` (tag `v1.2.2`). Configuration: `keep-n-tagged: 3` (keep the 3 newest tagged images), `delete-untagged: true` (remove images with no tag), and `exclude-tags: '^v?\d+\.\d+\.\d+$'` with `use-regex: true` (never delete semver releases like `1.2.3` or `v1.2.3`, regardless of age).
+
+### Note on input names (API drift)
+
+The blog template that inspired this workflow used `keep-latest` and `keep-tags`, which were inputs in older versions of the action. The pinned version (`v1.2.2`) renamed these: `keep-latest` → `keep-n-tagged`, and `keep-tags` → `exclude-tags`. Additionally, the old `keep-tags` interpreted its value as regex implicitly; the new `exclude-tags` requires `use-regex: true` to be set explicitly, otherwise the value is treated as a wildcard glob and the regex `^v?\d+\.\d+\.\d+$` would not match as intended. When bumping the pinned SHA in future, re-check the action's `action.yml` for further input renames.
 
 ### Why SHA-pinned, not `@v1`
 
