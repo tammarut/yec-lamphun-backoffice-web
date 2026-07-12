@@ -1,0 +1,76 @@
+name: CD
+
+# This workflow builds and publishes the Docker image to GHCR. It does NOT
+# deploy: deployment is handled by Dokploy, which pulls the `:main` image.
+# Whether Dokploy pulls automatically (webhook) or manually is configured in
+# Dokploy, not here. This workflow's job ends when the image is in the registry.
+#
+# CD publishes only after CI has completed successfully. The `workflow_run`
+# trigger fires when the "CI" workflow finishes; the build-and-push job then
+# gates on `workflow_run.conclusion == "success"`, so a failing
+# lint/test/build never produces a publishable image.
+# See docs/adr/0004-cd-image-publishing-via-ghcr.md for the full rationale.
+on:
+    workflow_run:
+        workflows: ["CI"]
+        types: [completed]
+
+permissions:
+    contents: read
+    packages: write
+
+concurrency:
+    # Key on the verified commit. A new push supersedes an in-flight build of
+    # the same commit; distinct commits build independently.
+    group: cd-${{ github.event.workflow_run.head_sha }}
+    cancel-in-progress: true
+
+jobs:
+    build-and-push:
+        name: Build Docker image and push to registry
+        runs-on: ubuntu-latest
+        # Only publish when the CI run that triggered us actually succeeded.
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
+        steps:
+            - name: Checkout (the commit CI verified)
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.workflow_run.head_sha }}
+
+            - name: Docker metadata
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/${{ github.repository }}
+                  tags: |
+                      # main branch → "main" tag (Dokploy tracks and pulls this)
+                      type=ref,event=branch
+                      # git tag v1.2.3 → image tag 1.2.3
+                      type=semver,pattern={{version}}
+
+            - name: Build and push image
+              uses: docker/build-push-action@v5
+              with:
+                  context: .
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+
+    cleanup:
+        name: Cleanup Old Docker Images
+        runs-on: ubuntu-latest
+        needs: build-and-push
+        permissions:
+            packages: write
+        steps:
+            # Pinned to v1.2.2 (commit d52806a). SHA-pinned per GitHub security
+            # guidance: a floating tag (@v1) could be moved to a compromised release.
+            # Bump deliberately by resolving the new tag's SHA and replacing below.
+            - name: Prune stale image versions
+              uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  package: ${{ github.event.repository.name }}
+                  delete-untagged: true
+                  keep-latest: 3
+                  keep-tags: '^v?\d+\.\d+\.\d+$'
