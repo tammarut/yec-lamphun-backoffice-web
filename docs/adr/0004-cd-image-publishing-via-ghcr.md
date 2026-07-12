@@ -41,7 +41,7 @@ GitHub always runs the `cd.yml` definition from the **default branch** (`main`),
 
 ## Tagging
 
-Images are tagged by `docker/metadata-action@v5`:
+Images are tagged by `docker/metadata-action@v6`:
 
 - `type=ref,event=branch` → the branch name. Push to `main` produces `ghcr.io/<owner>/<repo>:main`. **This is the tag Dokploy pulls** — it is mutable and always points at the latest successful-CI build of `main`.
 - `type=semver,pattern={{version}}` → a git tag `v1.2.3` produces image tag `1.2.3`. Immutable, enables pinning and rollback to a known-good version.
@@ -49,6 +49,10 @@ Images are tagged by `docker/metadata-action@v5`:
 The blog template's additional `prod` overlay tag was dropped: with only a `main`-deployed flow, `prod` would be indistinguishable from `:main` and adds a tag without adding information.
 
 The checkout step pins to `github.event.workflow_run.head_sha` — the **exact commit CI verified** — so a fast-forward on `main` between CI start and CD run cannot cause CD to build a different commit than the one CI blessed.
+
+## GHCR authentication
+
+Pushing to GHCR requires an explicit `docker/login-action` step before `build-push-action`. The `GITHUB_TOKEN` is automatically available in every workflow run and already granted `packages: write` via the top-level `permissions:` block, but `build-push-action` does not authenticate on its own — without the login step the push fails with `unauthorized: unauthenticated: User cannot be authenticated with the token provided.` The login step uses `github.actor` (the user who triggered the run) as the username and `secrets.GITHUB_TOKEN` as the password, authenticating against `ghcr.io`.
 
 ## Cleanup
 
