@@ -1,0 +1,1 @@
+/Users/arima/Workspaces/ai-agent-skill/github.com:mattpocock:skills/skills/engineering/to-spec/SKILL.md
