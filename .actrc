@@ -1,6 +1,0 @@
-# act (local GitHub Actions runner) configuration.
-# setup-bun@v2.2.0 bumped its action runtime to node24, which act <0.2.90
-# cannot execute, so ci.yml pins setup-bun to v2.1.3 (node20) for parity.
-# No container-architecture override: let OrbStack run native arm64 containers
-# (forcing linux/amd64 causes arch-mismatch failures in setup-bun's unzip step).
--P ubuntu-latest=catthehacker/ubuntu:act-22.04
