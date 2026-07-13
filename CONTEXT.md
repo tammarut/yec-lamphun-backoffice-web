@@ -23,3 +23,27 @@ _Avoid_: documents bucket, secure storage
 **File Path**:
 The R2 object key returned to the client for a successfully uploaded file, of the form `<bucket-prefix>/<field-or-short-prefix>_<ulid>.<ext>`. The client stores this path as a reference; it is not a public URL.
 _Avoid_: file url, object url
+
+**Position**:
+A role a member holds in the chamber's organization (e.g. President, Secretary, General Member). Each position has a stable `code` (e.g. `PRESIDENT`), display names in Thai and English, and belongs to a hierarchy.
+_Avoid_: title, rank, role
+
+**Position Cardinality**:
+Whether a position admits one active holder or many. `SINGLE` positions (President, Secretary, each VP, etc.) allow exactly one active member at a time; `MULTIPLE` positions (General Member, committee members, advisory board) allow any number.
+_Avoid_: position type, slot count
+
+**Supervisor**:
+The active member currently holding the position directly above another member's position in the hierarchy. A supervisor is DERIVED at read time from the position hierarchy (`positions.parent_position_code`) — it is never stored as a column on a member. The President and General Members have no supervisor.
+_Avoid_: parent, manager, parent member
+
+**Member Document**:
+A formal record attached to a member, of a fixed kind: `ID_CARD`, `COMPANY_CERTIFICATE`, or `PAYMENT_SLIP`. Stored as a file path reference plus a type tag — distinct from a **Member File**, which is the upload artifact before it is associated.
+_Avoid_: attachment, file
+
+**Member Business**:
+The single business record a member is affiliated with. A member has at most one business. Its geographic location is stored as a two-element numeric array in `[longitude, latitude]` order.
+_Avoid_: company, merchant
+
+**ID Card**:
+A member's Thai national ID. Never stored in plaintext: the column `id_card_no` holds AES-256-GCM ciphertext (base64 of IV+ ciphertext+ auth tag); the column `id_card_no_hash` holds an HMAC-SHA256 hex digest used as a blind index for duplicate lookup and uniqueness.
+_Avoid_: citizen id, national id, id number

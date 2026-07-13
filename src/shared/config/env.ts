@@ -15,6 +15,10 @@ export type EnvConfig = {
 	R2_SECRET_ACCESS_KEY: string
 	R2_PUBLIC_BUCKET: string
 	R2_PRIVATE_BUCKET: string
+	// PII crypto keys — see src/modules/shared/crypto/ (AES-256-GCM + HMAC-SHA256).
+	// Both are hex strings: `openssl rand -hex 32` (64 chars / 32 bytes).
+	ID_CARD_AES_KEY: string
+	BLIND_INDEX_HMAC_KEY: string
 }
 
 export const envConfig = createEnv({
@@ -35,6 +39,10 @@ export const envConfig = createEnv({
 		R2_SECRET_ACCESS_KEY: v.pipe(v.string(), v.minLength(1, "R2_SECRET_ACCESS_KEY is required")),
 		R2_PUBLIC_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PUBLIC_BUCKET is required")),
 		R2_PRIVATE_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PRIVATE_BUCKET is required")),
+		// PII crypto keys. AES key validates as base64 decoding to 32 bytes; the
+		// adapter re-checks length at construction time as a defense-in-depth.
+		ID_CARD_AES_KEY: v.pipe(v.string(), v.minLength(1, "ID_CARD_AES_KEY is required")),
+		BLIND_INDEX_HMAC_KEY: v.pipe(v.string(), v.minLength(32, "BLIND_INDEX_HMAC_KEY must be at least 32 chars")),
 	},
 	client: {},
 	runtimeEnv: {
@@ -51,5 +59,7 @@ export const envConfig = createEnv({
 		R2_SECRET_ACCESS_KEY: process.env["R2_SECRET_ACCESS_KEY"],
 		R2_PUBLIC_BUCKET: process.env["R2_PUBLIC_BUCKET"],
 		R2_PRIVATE_BUCKET: process.env["R2_PRIVATE_BUCKET"],
+		ID_CARD_AES_KEY: process.env["ID_CARD_AES_KEY"],
+		BLIND_INDEX_HMAC_KEY: process.env["BLIND_INDEX_HMAC_KEY"],
 	},
 })

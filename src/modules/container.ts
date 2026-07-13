@@ -3,6 +3,10 @@ import { AuthService } from "src/modules/auth/auth.service"
 import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 import { MemberFileService } from "src/modules/members/member-file.service"
+import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
+import { MembersRepository } from "src/modules/members/repository/members.repository"
+import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
+import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
 import { R2StorageClient } from "src/modules/shared/storage/r2-storage.client"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
@@ -71,6 +75,29 @@ container.register(REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT, {
 
 container.register(REGISTER_KEY.MEMBER_FILE_SERVICE, {
 	useClass: MemberFileService,
+})
+
+// 9. Register Shared PII Crypto Services
+// Generic AES-256-GCM encryption and HMAC-SHA256 blind-index adapters, injected
+// under interface tokens so tests can swap in mocks. Used by the members domain
+// layer (IdCard); reusable for any future PII column.
+container.register(REGISTER_KEY.ENCRYPTION_SERVICE, {
+	useClass: AesGcmEncryptionService,
+})
+
+container.register(REGISTER_KEY.BLIND_INDEX_SERVICE, {
+	useClass: HmacBlindIndexService,
+})
+
+// 10. Register Members Module (create-member flow)
+// The repository wraps sqlc-generated queries; the service orchestrates member
+// creation with crypto + position-cardinality checks. See docs/adr/0005-...
+container.register(REGISTER_KEY.MEMBERS_REPOSITORY, {
+	useClass: MembersRepository,
+})
+
+container.register(REGISTER_KEY.CREATE_NEW_MEMBER_SERVICE, {
+	useClass: CreateNewMemberService,
 })
 
 export { container }

@@ -23,3 +23,19 @@ sql:
             options:
                 runtime: "node"
                 driver: "postgres"
+    # The members module owns members, positions, member_documents, and
+    # member_business (see docs/adr/0005-merge-member-business-and-member-document-into-members-module.md).
+    # business_categories is referenced only so its FK resolves during parsing.
+    - schema:
+          - "src/modules/business-categories/repository/sql/schema.sql"
+          - "src/modules/members/repository/sql/schema.sql"
+          - "src/modules/members/repository/member-document/sql/schema.sql"
+          - "src/modules/members/repository/member-business/sql/schema.sql"
+      queries: "src/modules/members/repository/sql/queries.sql"
+      engine: "postgresql"
+      codegen:
+          - out: "src/modules/members/repository/sql/sqlc-generated"
+            plugin: ts
+            options:
+                runtime: "node"
+                driver: "postgres"

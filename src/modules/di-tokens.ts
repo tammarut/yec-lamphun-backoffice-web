@@ -9,4 +9,10 @@ export const REGISTER_KEY = {
 	BUSINESS_CATEGORIES_SERVICE: Symbol("BUSINESS_CATEGORIES_SERVICE"),
 	MEMBER_FILE_STORAGE_CLIENT: Symbol("IStorageClient"),
 	MEMBER_FILE_SERVICE: Symbol("MEMBER_FILE_SERVICE"),
+	// Shared PII crypto services — see src/modules/shared/crypto/
+	ENCRYPTION_SERVICE: Symbol("IEncryptionService"),
+	BLIND_INDEX_SERVICE: Symbol("IBlindIndexService"),
+	// Members module (create-member flow) — see docs/adr/0005-...
+	MEMBERS_REPOSITORY: Symbol("IMemberRepository"),
+	CREATE_NEW_MEMBER_SERVICE: Symbol("CREATE_NEW_MEMBER_SERVICE"),
 } as const
