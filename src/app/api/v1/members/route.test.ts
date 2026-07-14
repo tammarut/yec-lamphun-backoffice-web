@@ -1,6 +1,9 @@
 import { err, ok } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mock } from "vitest-mock-extended"
+
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
@@ -9,8 +12,6 @@ import { MemberConflictError, MemberValidationError } from "src/modules/members/
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { CryptoError } from "src/modules/shared/crypto"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { mock } from "vitest-mock-extended"
 
 // Mock container module BEFORE importing the route
 vi.mock("src/modules/container", () => ({

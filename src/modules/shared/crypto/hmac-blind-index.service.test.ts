@@ -4,7 +4,6 @@ import { describe, expect, test } from "vitest"
 import type { EnvConfig } from "src/shared/config/env"
 import { HmacBlindIndexService } from "./hmac-blind-index.service"
 
-// Default HMAC key: a real 32-byte hex string (matches the production convention).
 function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfig {
 	return {
 		NODE_ENV: "test",
@@ -20,7 +19,7 @@ function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfi
 		R2_SECRET_ACCESS_KEY: "secret",
 		R2_PUBLIC_BUCKET: "public",
 		R2_PRIVATE_BUCKET: "private",
-		ID_CARD_AES_KEY: "x".repeat(32),
+		ID_CARD_AES_KEY: randomBytes(32).toString("hex"),
 		BLIND_INDEX_HMAC_KEY: hmacKey,
 	}
 }
@@ -28,54 +27,64 @@ function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfi
 describe("HmacBlindIndexService", () => {
 	describe("Happy cases", () => {
 		test("hash is deterministic for the same plaintext", () => {
+			// Arrange
 			const service = new HmacBlindIndexService(makeConfig())
-			const a = service.hash("1-2030-12345-67-8")
-			const b = service.hash("1-2030-12345-67-8")
-			if (!a.isOk() || !b.isOk()) {
-				throw new Error("expected ok")
-			}
-			expect(a.value).toBe(b.value)
+
+			// Act
+			const a = service.hash("1-2030-12345-67-8")._unsafeUnwrap()
+			const b = service.hash("1-2030-12345-67-8")._unsafeUnwrap()
+
+			// Assert
+			expect(a).toBe(b)
 		})
 
 		test("hash differs for different plaintexts", () => {
+			// Arrange
 			const service = new HmacBlindIndexService(makeConfig())
-			const a = service.hash("1-2030-12345-67-8")
-			const b = service.hash("1-2030-12345-67-9")
-			if (!a.isOk() || !b.isOk()) {
-				throw new Error("expected ok")
-			}
-			expect(a.value).not.toBe(b.value)
+
+			// Act
+			const a = service.hash("1-2030-12345-67-8")._unsafeUnwrap()
+			const b = service.hash("1-2030-12345-67-9")._unsafeUnwrap()
+
+			// Assert
+			expect(a).not.toBe(b)
 		})
 
 		test("hash matches an independent HMAC-SHA256 computation", () => {
+			// Arrange
 			const key = randomBytes(32).toString("hex")
 			const service = new HmacBlindIndexService(makeConfig(key))
-			const result = service.hash("1-2030-12345-67-8")
-			if (!result.isOk()) {
-				throw new Error("expected ok")
-			}
 
+			// Act
+			const result = service.hash("1-2030-12345-67-8")._unsafeUnwrap()
+
+			// Assert
 			const expected = createHmac("sha256", Buffer.from(key, "hex")).update("1-2030-12345-67-8", "utf8").digest("hex")
-			expect(result.value).toBe(expected)
-			expect(result.value).toHaveLength(64) // 32 bytes hex
+			expect(result).toBe(expected)
+			expect(result).toHaveLength(64)
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		test("hashes with different keys differ", () => {
+			// Arrange
 			const serviceA = new HmacBlindIndexService(makeConfig(randomBytes(32).toString("hex")))
 			const serviceB = new HmacBlindIndexService(makeConfig(randomBytes(32).toString("hex")))
-			const a = serviceA.hash("same-plaintext")
-			const b = serviceB.hash("same-plaintext")
-			if (!a.isOk() || !b.isOk()) {
-				throw new Error("expected ok")
-			}
-			expect(a.value).not.toBe(b.value)
+
+			// Act
+			const a = serviceA.hash("same-plaintext")._unsafeUnwrap()
+			const b = serviceB.hash("same-plaintext")._unsafeUnwrap()
+
+			// Assert
+			expect(a).not.toBe(b)
 		})
 
 		test("constructor throws if the HMAC key decodes to fewer than 32 bytes", () => {
-			// 16 bytes = 32 hex chars — decodes under the 32-byte minimum.
-			expect(() => new HmacBlindIndexService(makeConfig(randomBytes(16).toString("hex")))).toThrow()
+			// Arrange — 16 bytes = 32 hex chars, under the 32-byte minimum
+			const badConfig = makeConfig(randomBytes(16).toString("hex"))
+
+			// Act + Assert
+			expect(() => new HmacBlindIndexService(badConfig)).toThrow()
 		})
 	})
 })

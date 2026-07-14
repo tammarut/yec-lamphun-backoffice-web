@@ -69,30 +69,37 @@ describe("Member.create", () => {
 
 	describe("Happy cases", () => {
 		test("assembles a Member with cipher + defaults + business VO from a valid request", () => {
+			// Arrange
 			const now = new Date("2026-07-13T10:00:00Z")
-			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)
-			expect(result.isOk()).toBe(true)
-			if (!result.isOk()) {
-				return
-			}
-			expect(result.value.idCardNo).toBe("enc-base64")
-			expect(result.value.idCardNoHash).toBe("hash-hex")
-			expect(result.value.status).toBe("ACTIVE")
-			expect(result.value.memberSince).toBe(now)
-			expect(result.value.renewalSuccessfulCount).toBe(0)
+
+			// Act
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+
+			// Assert
+			expect(member.idCardNo).toBe("enc-base64")
+			expect(member.idCardNoHash).toBe("hash-hex")
+			expect(member.status).toBe("ACTIVE")
+			expect(member.memberSince).toBe(now)
+			expect(member.renewalSuccessfulCount).toBe(0)
 		})
 
 		test("builds the business VO with location swapped to [long, lat]", () => {
-			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, new Date())
-			if (!result.isOk()) {
-				throw new Error("expected ok")
-			}
-			// Input was [13.72, 100.55] [lat, long] → VO stores [long, lat]
-			expect(result.value.business.location).toEqual([100.55, 13.72])
+			// Arrange — input location is [lat, long]
+			const now = new Date()
+
+			// Act
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+
+			// Assert — VO stores [long, lat]
+			expect(member.business.location).toEqual([100.55, 13.72])
 		})
 
 		test("collects documents from id_card_image + company_certificate", () => {
-			const result = Member.create(
+			// Arrange
+			const now = new Date()
+
+			// Act
+			const member = Member.create(
 				makeRequest({
 					idCardImage: "members/documents/idcard.jpg",
 					companyCertificate: "members/documents/cert.jpg",
@@ -100,65 +107,75 @@ describe("Member.create", () => {
 				activePosition,
 				mockEncryption,
 				mockBlindIndex,
-				new Date()
-			)
-			if (!result.isOk()) {
-				throw new Error("expected ok")
-			}
-			expect(result.value.documents).toHaveLength(2)
-			expect(result.value.documents[0]?.type).toBe("ID_CARD")
-			expect(result.value.documents[1]?.type).toBe("COMPANY_CERTIFICATE")
+				now
+			)._unsafeUnwrap()
+
+			// Assert
+			expect(member.documents).toHaveLength(2)
+			expect(member.documents[0]?.type).toBe("ID_CARD")
+			expect(member.documents[1]?.type).toBe("COMPANY_CERTIFICATE")
 		})
 
 		test("expires_at is one year after the provided 'now', at end of day", () => {
+			// Arrange
 			const now = new Date(2026, 0, 15, 10, 0, 0)
-			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)
-			if (!result.isOk()) {
-				throw new Error("expected ok")
-			}
-			expect(result.value.expiresAt.getFullYear()).toBe(2027)
-			expect(result.value.expiresAt.getHours()).toBe(23)
+
+			// Act
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+
+			// Assert
+			expect(member.expiresAt.getFullYear()).toBe(2027)
+			expect(member.expiresAt.getHours()).toBe(23)
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		test("returns MemberValidationError when id_card_expiry_date is in the past", () => {
-			const result = Member.create(makeRequest({ idCardExpiryDate: new Date("2020-01-01") }), activePosition, mockEncryption, mockBlindIndex, new Date())
-			expect(result.isErr()).toBe(true)
-			if (!result.isErr()) {
-				return
-			}
-			expect(result.error).toBeInstanceOf(MemberValidationError)
+			// Arrange
+			const now = new Date()
+
+			// Act
+			const result = Member.create(makeRequest({ idCardExpiryDate: new Date("2020-01-01") }), activePosition, mockEncryption, mockBlindIndex, now)
+
+			// Assert
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
 		})
 
 		test("returns MemberValidationError when the position is inactive", () => {
+			// Arrange
 			const inactive: PositionReadModel = { ...activePosition, isActive: false }
-			const result = Member.create(makeRequest(), inactive, mockEncryption, mockBlindIndex, new Date())
-			expect(result.isErr()).toBe(true)
-			if (!result.isErr()) {
-				return
-			}
-			expect(result.error).toBeInstanceOf(MemberValidationError)
-			expect(result.error.message).toContain("not active")
+			const now = new Date()
+
+			// Act
+			const result = Member.create(makeRequest(), inactive, mockEncryption, mockBlindIndex, now)
+
+			// Assert
+			const error = result._unsafeUnwrapErr()
+			expect(error).toBeInstanceOf(MemberValidationError)
+			expect(error.message).toContain("not active")
 		})
 
 		test("returns MemberValidationError when id_card_no is not 13 digits", () => {
-			const result = Member.create(makeRequest({ idCardNo: "123" }), activePosition, mockEncryption, mockBlindIndex, new Date())
-			expect(result.isErr()).toBe(true)
-			if (!result.isErr()) {
-				return
-			}
-			expect(result.error).toBeInstanceOf(MemberValidationError)
+			// Arrange
+			const now = new Date()
+
+			// Act
+			const result = Member.create(makeRequest({ idCardNo: "123" }), activePosition, mockEncryption, mockBlindIndex, now)
+
+			// Assert
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
 		})
 
 		test("returns CryptoError when encryption fails", () => {
+			// Arrange
 			mockEncryption.encrypt.mockReturnValue(err(new CryptoError("aes boom")))
-			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, new Date())
-			expect(result.isErr()).toBe(true)
-			if (!result.isErr()) {
-				return
-			}
-			expect(result.error).toBeInstanceOf(CryptoError)
+			const now = new Date()
+
+			// Act
+			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)
+
+			// Assert
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(CryptoError)
 		})
 	})
 })

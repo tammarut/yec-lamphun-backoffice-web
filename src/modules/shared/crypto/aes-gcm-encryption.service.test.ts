@@ -29,94 +29,97 @@ function makeConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 describe("AesGcmEncryptionService", () => {
 	describe("Happy cases", () => {
 		test("encrypt → decrypt round-trips the plaintext", () => {
+			// Arrange
 			const service = new AesGcmEncryptionService(makeConfig())
 			const plaintext = "1-2030-12345-67-8"
 
-			const enc = service.encrypt(plaintext)
-			expect(enc.isOk()).toBe(true)
-			if (!enc.isOk()) return
+			// Act
+			const ciphertext = service.encrypt(plaintext)._unsafeUnwrap()
+			const decrypted = service.decrypt(ciphertext)._unsafeUnwrap()
 
-			const dec = service.decrypt(enc.value)
-			expect(dec.isOk()).toBe(true)
-			if (!dec.isOk()) return
-			expect(dec.value).toBe(plaintext)
+			// Assert
+			expect(decrypted).toBe(plaintext)
 		})
 
 		test("encrypt is non-deterministic (random IV per call)", () => {
+			// Arrange
 			const service = new AesGcmEncryptionService(makeConfig())
 			const plaintext = "1-2030-12345-67-8"
 
-			const a = service.encrypt(plaintext)
-			const b = service.encrypt(plaintext)
-			if (!a.isOk() || !b.isOk()) {
-				throw new Error("expected ok")
-			}
+			// Act
+			const a = service.encrypt(plaintext)._unsafeUnwrap()
+			const b = service.encrypt(plaintext)._unsafeUnwrap()
+			const da = service.decrypt(a)._unsafeUnwrap()
+			const db = service.decrypt(b)._unsafeUnwrap()
 
-			expect(a.value).not.toBe(b.value)
-
-			// ...but both decrypt to the same plaintext
-			const da = service.decrypt(a.value)
-			const db = service.decrypt(b.value)
-			if (!da.isOk() || !db.isOk()) {
-				throw new Error("expected ok")
-			}
-			expect(da.value).toBe(plaintext)
-			expect(db.value).toBe(plaintext)
+			// Assert
+			expect(a).not.toBe(b)
+			expect(da).toBe(plaintext)
+			expect(db).toBe(plaintext)
 		})
 
 		test("ciphertext is base64 of IV[12] || body || tag[16]", () => {
+			// Arrange
 			const service = new AesGcmEncryptionService(makeConfig())
-			const enc = service.encrypt("hello")
-			if (!enc.isOk()) {
-				throw new Error("expected ok")
-			}
 
-			const blob = Buffer.from(enc.value, "base64")
-			// 12 IV + (5 plaintext bytes) + 16 tag = 33
+			// Act
+			const ciphertext = service.encrypt("hello")._unsafeUnwrap()
+			const blob = Buffer.from(ciphertext, "base64")
+
+			// Assert — 12 IV + 5 plaintext bytes + 16 tag = 33
 			expect(blob.length).toBe(12 + 5 + 16)
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		test("decrypt with a tampered ciphertext fails (auth tag mismatch)", () => {
+			// Arrange
 			const service = new AesGcmEncryptionService(makeConfig())
-			const enc = service.encrypt("secret")
-			if (!enc.isOk()) {
-				throw new Error("expected ok")
-			}
-
-			// Flip a byte in the middle (ciphertext body, not the tag).
-			const blob = Buffer.from(enc.value, "base64")
-			blob[20] = blob[20]! ^ 0xff
+			const ciphertext = service.encrypt("secret")._unsafeUnwrap()
+			const blob = Buffer.from(ciphertext, "base64")
+			blob[20] = blob[20]! ^ 0xff // flip a byte in the ciphertext body
 			const tampered = blob.toString("base64")
 
-			const dec = service.decrypt(tampered)
-			expect(dec.isErr()).toBe(true)
+			// Act
+			const result = service.decrypt(tampered)
+
+			// Assert
+			expect(result.isErr()).toBe(true)
 		})
 
 		test("decrypt with a different key fails", () => {
+			// Arrange
 			const keyA = makeConfig()
 			const keyB = makeConfig({ ID_CARD_AES_KEY: randomBytes(32).toString("hex") })
 			const serviceA = new AesGcmEncryptionService(keyA)
 			const serviceB = new AesGcmEncryptionService(keyB)
+			const ciphertext = serviceA.encrypt("secret")._unsafeUnwrap()
 
-			const enc = serviceA.encrypt("secret")
-			if (!enc.isOk()) {
-				throw new Error("expected ok")
-			}
+			// Act
+			const result = serviceB.decrypt(ciphertext)
 
-			const dec = serviceB.decrypt(enc.value)
-			expect(dec.isErr()).toBe(true)
+			// Assert
+			expect(result.isErr()).toBe(true)
 		})
 
 		test("decrypt rejects too-short ciphertext", () => {
+			// Arrange
 			const service = new AesGcmEncryptionService(makeConfig())
-			const dec = service.decrypt(Buffer.from("short").toString("base64"))
-			expect(dec.isErr()).toBe(true)
+			const tooShort = Buffer.from("short").toString("base64")
+
+			// Act
+			const result = service.decrypt(tooShort)
+
+			// Assert
+			expect(result.isErr()).toBe(true)
 		})
 
 		test("constructor throws if the AES key is not 32 bytes", () => {
-			expect(() => new AesGcmEncryptionService(makeConfig({ ID_CARD_AES_KEY: randomBytes(16).toString("hex") }))).toThrow()
+			// Arrange
+			const badConfig = makeConfig({ ID_CARD_AES_KEY: randomBytes(16).toString("hex") })
+
+			// Act + Assert
+			expect(() => new AesGcmEncryptionService(badConfig)).toThrow()
 		})
 	})
 })
