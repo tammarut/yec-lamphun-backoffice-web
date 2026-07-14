@@ -35,6 +35,7 @@ export class IdCard {
 		if (digits.length !== 13) {
 			return err(new MemberValidationError("id_card_no must contain exactly 13 digits"))
 		}
+
 		return ok(new IdCard(digits))
 	}
 
@@ -52,10 +53,12 @@ export class IdCard {
 		if (enc.isErr()) {
 			return err(enc.error)
 		}
+
 		const hash = blindIndex.hash(this.plaintext)
 		if (hash.isErr()) {
 			return err(hash.error)
 		}
+
 		return ok({ idCardNo: enc.value, idCardNoHash: hash.value })
 	}
 }

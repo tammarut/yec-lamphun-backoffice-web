@@ -7,18 +7,17 @@ import type { Member } from "../domain/member"
 import type { MemberBusiness } from "../domain/member-business"
 import type { MemberDocument } from "../domain/member-document"
 import type { PositionCardinality, PositionReadModel } from "../domain/member-read-models"
-import type { IMemberRepository, SqlHandle } from "../interfaces"
+import type { IMemberRepository } from "../interfaces"
 import { countActiveHolderByPosition, countMemberByIdCardHash, getPositionByCode, insertMember, insertMemberBusiness, insertMemberDocument } from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the members module.
  *
  * Wraps each generated query in {@link ResultAsync.fromPromise} and converts to
- * the AGENTS.md §2B `Promise<Result<T, DatabaseError>>` shape. The insert
- * methods accept domain objects ({@link Member}, {@link MemberBusiness},
- * {@link MemberDocument}) and map their getters to sqlc's generated arg objects
- * internally — so the service passes the aggregate directly with no inline
- * field mapping.
+ * the AGENTS.md §2B `Promise<Result<T, DatabaseError>>` shape. The
+ * {@link create} method owns the transaction and the multi-table insert
+ * (members → documents → business) as a single atomic unit; the individual
+ * inserts are private helpers, invisible to the service.
  */
 @injectable()
 export class MembersRepository implements IMemberRepository {
@@ -67,9 +66,36 @@ export class MembersRepository implements IMemberRepository {
 		return ok(row ? row.count : 0)
 	}
 
-	async insertMember(tx: SqlHandle, member: Member) {
+	async create(member: Member) {
+		// The transaction is scoped to this method: insert member → documents →
+		// business. bun:sql auto-commits on success, auto-rollbacks on any throw.
+		try {
+			const memberId = await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
+				const memberId = await this.doInsertMember(sql, member)
+				if (member.documents.length > 0) {
+					await this.doInsertDocuments(sql, memberId, member.documents)
+				}
+				await this.doInsertBusiness(sql, memberId, member.business)
+
+				return memberId
+			})
+
+			return ok(memberId)
+		} catch (error) {
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Member creation transaction failed", error))
+		}
+	}
+
+	// --- Private insert helpers (run inside create's transaction) ----------
+
+	/** Insert the member row, return the generated id as a number. */
+	private async doInsertMember(sql: Sql, member: Member): Promise<number> {
 		const result = await ResultAsync.fromPromise(
-			insertMember(tx as unknown as Sql, {
+			insertMember(sql, {
 				registrationType: member.registrationType,
 				titleNameTh: member.titleNameTh,
 				firstNameTh: member.firstNameTh,
@@ -97,21 +123,21 @@ export class MembersRepository implements IMemberRepository {
 			(error) => error as Error
 		)
 		if (result.isErr()) {
-			return err(new DatabaseError(result.error.message, result.error.cause))
+			throw new DatabaseError(result.error.message, result.error.cause)
 		}
 		const row = result.value[0]
 		if (!row) {
-			return err(new DatabaseError("insertMember returned no row"))
+			throw new DatabaseError("insertMember returned no row")
 		}
-		// postgres.js returns BIGSERIAL as a string (JS number can't hold all
-		// 64-bit ints); convert at this boundary so the domain uses a real number.
-		return ok(Number(row.id))
+		// postgres.js returns BIGSERIAL as a string; convert at this boundary.
+		return Number(row.id)
 	}
 
-	async insertMemberDocuments(tx: SqlHandle, memberId: number, documents: readonly MemberDocument[]) {
+	/** Insert one row per document value object. */
+	private async doInsertDocuments(sql: Sql, memberId: number, documents: readonly MemberDocument[]): Promise<void> {
 		for (const doc of documents) {
 			const result = await ResultAsync.fromPromise(
-				insertMemberDocument(tx as unknown as Sql, {
+				insertMemberDocument(sql, {
 					memberId: String(memberId),
 					type: doc.type,
 					filePath: doc.filePath,
@@ -119,15 +145,15 @@ export class MembersRepository implements IMemberRepository {
 				(error) => error as Error
 			)
 			if (result.isErr()) {
-				return err(new DatabaseError(result.error.message, result.error.cause))
+				throw new DatabaseError(result.error.message, result.error.cause)
 			}
 		}
-		return ok(undefined)
 	}
 
-	async insertMemberBusiness(tx: SqlHandle, memberId: number, business: MemberBusiness) {
+	/** Insert the business record from its value object. */
+	private async doInsertBusiness(sql: Sql, memberId: number, business: MemberBusiness): Promise<void> {
 		const result = await ResultAsync.fromPromise(
-			insertMemberBusiness(tx as unknown as Sql, {
+			insertMemberBusiness(sql, {
 				memberId: String(memberId),
 				name: business.name,
 				description: business.description,
@@ -143,12 +169,7 @@ export class MembersRepository implements IMemberRepository {
 			(error) => error as Error
 		)
 		if (result.isErr()) {
-			return err(new DatabaseError(result.error.message, result.error.cause))
+			throw new DatabaseError(result.error.message, result.error.cause)
 		}
-		return ok(undefined)
-	}
-
-	async transaction<T>(callback: (tx: SqlHandle) => Promise<T>): Promise<T> {
-		return await this.dbClient.transaction(callback)
 	}
 }

@@ -3,8 +3,8 @@ import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/
 import { CryptoError } from "src/modules/shared/crypto"
 import type { CreateMemberRequest } from "../use-case/create-new-member/create-member.types"
 import { MemberValidationError } from "./errors"
-import { IdCard } from "./id-card"
 import type { IdCardCipher } from "./id-card"
+import { IdCard } from "./id-card"
 import { validateIdCardExpiry } from "./id-card-expiry"
 import { MemberBusiness } from "./member-business"
 import { MemberDocument } from "./member-document"
@@ -139,7 +139,7 @@ export class Member {
 	}
 
 	// --- Factory: New Member Creation ---
-	// Enforces ALL self-invariants. Used by CreateNewMemberService.
+	// Enforces ALL self-invariants
 
 	/**
 	 * Validate and assemble a Member from a request + a fetched position.
@@ -175,13 +175,13 @@ export class Member {
 		}
 
 		// Self-invariant: id_card format, then encrypt + hash.
-		const idCard = IdCard.fromPlaintext(req.idCardNo)
-		if (idCard.isErr()) {
-			return err(idCard.error)
+		const idCardResult = IdCard.fromPlaintext(req.idCardNo)
+		if (idCardResult.isErr()) {
+			return err(idCardResult.error)
 		}
-		const cipher = idCard.value.toCipher(encryption, blindIndex)
-		if (cipher.isErr()) {
-			return err(cipher.error)
+		const cipherIdCardNoResult = idCardResult.value.toCipher(encryption, blindIndex)
+		if (cipherIdCardNoResult.isErr()) {
+			return err(cipherIdCardNoResult.error)
 		}
 
 		// Self-invariant: business VO (owns the location swap).
@@ -221,7 +221,7 @@ export class Member {
 				gender: req.gender,
 				dateOfBirth: req.dateOfBirth,
 				nationality: req.nationality,
-				idCardCipher: cipher.value,
+				idCardCipher: cipherIdCardNoResult.value,
 				idCardExpiryDate: req.idCardExpiryDate,
 				memberSince: now,
 				expiresAt: expiresAt,

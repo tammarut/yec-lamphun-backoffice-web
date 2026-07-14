@@ -1,8 +1,6 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
-import { CryptoError } from "src/modules/shared/crypto"
-import { DatabaseError } from "src/shared/core/errors/app-error"
 import { inject, singleton } from "tsyringe"
 import { Member } from "../../domain/member"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
@@ -11,6 +9,29 @@ import type { CreateMemberError, MemberConflictReason } from "./create-member.er
 import { MemberConflictError, MemberValidationError } from "./create-member.errors"
 import type { CreateMemberRequest } from "./create-member.types"
 
+/**
+ * Use case: create a new member.
+ *
+ * Owns the cross-member rules that need DB queries:
+ *   - duplicate id_card (by blind index) → 409 DUPLICATE_ID_CARD
+ *   - occupied SINGLE position (cardinality-aware, ADR-0006) → 409 POSITION_OCCUPIED
+ *
+ * Delegates the self-invariants (id_card format + expiry, position active,
+ * encryption, defaults, business VO, documents) to {@link Member.create}, which
+ * returns a fully validated Member aggregate. The aggregate is passed directly
+ * to {@link IMemberRepository.create} — the transaction and multi-table insert
+ * are invisible implementation details of the repository.
+ *
+ * Flow:
+ *   1. Fetch the position + check it's not already held (cardinality-aware, ADR-0006).
+ *   2. Member.create() — validate + encrypt + compute defaults + build VOs.
+ *   3. OUTSIDE tx: duplicate id_card check → 409.
+ *   4. repository.create(member) — atomically inserts member + documents + business.
+ *
+ * Returns AGENTS.md §2B single-wrapped `Promise<Result<number, CreateMemberError>>`.
+ * The repository converts all DB errors to DatabaseError internally; the service
+ * never needs try/catch.
+ */
 @singleton()
 export class CreateNewMemberService {
 	constructor(
@@ -55,50 +76,14 @@ export class CreateNewMemberService {
 			return err(this.conflict("DUPLICATE_ID_CARD", "A member with this ID card already exists"))
 		}
 
-		// 5. INSIDE tx: insert member, then documents, then business.
-		// The transaction callback throws on any inner insert failure (rolling
-		// back the tx); we catch here and convert to err() so the service never
-		// throws — per AGENTS.md §2B "no unhandled exceptions in business flows".
-		const newMember = member.value
-		let newMemberId: number
-		try {
-			newMemberId = await this.repository.transaction(async (tx) => {
-				// 5a. Insert the member row, returning the generated id.
-				const insertMemberResult = await this.repository.insertMember(tx, newMember)
-				if (insertMemberResult.isErr()) {
-					throw insertMemberResult.error
-				}
-				const memberId = insertMemberResult.value
-
-				// 5b. Insert documents (if any).
-				if (newMember.documents.length > 0) {
-					const docsResult = await this.repository.insertMemberDocuments(tx, memberId, newMember.documents)
-					if (docsResult.isErr()) {
-						throw docsResult.error
-					}
-				}
-
-				// 5c. Insert business.
-				const bizResult = await this.repository.insertMemberBusiness(tx, memberId, newMember.business)
-				if (bizResult.isErr()) {
-					throw bizResult.error
-				}
-
-				return memberId
-			})
-		} catch (error) {
-			// Re-thrown from the tx callback. If it's already a known error type,
-			// surface it directly; otherwise wrap it so the caller gets a Result.
-			if (error instanceof DatabaseError) {
-				return err(error)
-			}
-			if (error instanceof CryptoError) {
-				return err(error)
-			}
-			return err(new DatabaseError("Member creation transaction failed", error))
+		// 5. Persist — the transaction + multi-table insert is an internal detail
+		//    of the repository. One call, returns ok(id) or err(DatabaseError).
+		const createResult = await this.repository.create(member.value)
+		if (createResult.isErr()) {
+			return err(createResult.error)
 		}
 
-		return ok(newMemberId)
+		return ok(createResult.value)
 	}
 
 	/** Construct a MemberConflictError with a stable message. */

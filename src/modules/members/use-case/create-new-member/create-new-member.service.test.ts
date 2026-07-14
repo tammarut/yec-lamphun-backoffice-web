@@ -36,16 +36,13 @@ describe("CreateNewMemberService", () => {
 		)
 		mockRepo.countMemberByIdCardHash.mockResolvedValue(ok(0))
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
-		mockRepo.transaction.mockImplementation(async (cb) => cb("tx-handle" as never))
-		mockRepo.insertMember.mockResolvedValue(ok(102))
-		mockRepo.insertMemberDocuments.mockResolvedValue(ok(undefined))
-		mockRepo.insertMemberBusiness.mockResolvedValue(ok(undefined))
+		mockRepo.create.mockResolvedValue(ok(102))
 
 		service = new CreateNewMemberService(mockRepo, mockEncryption, mockBlindIndex)
 	})
 
 	describe("Happy cases", () => {
-		test("returns ok(memberId) on a valid request with documents + business", async () => {
+		test("returns ok(memberId) on a valid request", async () => {
 			// Act
 			const result = await service.execute(makeRequest())
 
@@ -53,31 +50,13 @@ describe("CreateNewMemberService", () => {
 			expect(result._unsafeUnwrap()).toBe(102)
 		})
 
-		test("inserts member, then documents, then business — in one transaction", async () => {
+		test("calls repository.create with the validated Member aggregate", async () => {
 			// Act
 			await service.execute(makeRequest())
 
-			// Assert
-			expect(mockRepo.transaction).toHaveBeenCalledTimes(1)
-			expect(mockRepo.insertMember).toHaveBeenCalledTimes(1)
-			expect(mockRepo.insertMemberDocuments).toHaveBeenCalledTimes(1)
-			expect(mockRepo.insertMemberBusiness).toHaveBeenCalledTimes(1)
-		})
-
-		test("swaps business location from [lat,long] to [long,lat] inside the business VO", async () => {
-			// Act
-			await service.execute(makeRequest())
-
-			// Assert — insertMemberBusiness(tx, memberId, business) — business.location is [long, lat]
-			expect(mockRepo.insertMemberBusiness).toHaveBeenCalledWith("tx-handle" as never, 102, expect.objectContaining({ _location: [100.55, 13.72] }))
-		})
-
-		test("skips documents insert when id_card_image and company_certificate are null", async () => {
-			// Act
-			await service.execute(makeRequest({ idCardImage: null, companyCertificate: null }))
-
-			// Assert
-			expect(mockRepo.insertMemberDocuments).not.toHaveBeenCalled()
+			// Assert — the repository owns the transaction + multi-table insert
+			expect(mockRepo.create).toHaveBeenCalledTimes(1)
+			expect(mockRepo.create).toHaveBeenCalledWith(expect.objectContaining({}))
 		})
 
 		test("allows MULTIPLE position even when holders already exist", async () => {
@@ -130,6 +109,21 @@ describe("CreateNewMemberService", () => {
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
 		})
 
+		test("returns POSITION_OCCUPIED conflict when a SINGLE position is already held", async () => {
+			// Arrange
+			mockRepo.getPositionByCode.mockResolvedValue(
+				ok({ code: "PRESIDENT", nameTh: "", nameEn: "", cardinality: "SINGLE", parentPositionCode: null, displayOrder: 100, isActive: true })
+			)
+			mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(1))
+
+			// Act
+			const result = await service.execute(makeRequest({ position: "PRESIDENT" }))
+
+			// Assert
+			const error = result._unsafeUnwrapErr() as MemberConflictError
+			expect(error.reason).toBe("POSITION_OCCUPIED")
+		})
+
 		test("returns MemberValidationError when id_card_expiry_date is in the past", async () => {
 			// Act
 			const result = await service.execute(makeRequest({ idCardExpiryDate: new Date("2020-01-01") }))
@@ -170,35 +164,9 @@ describe("CreateNewMemberService", () => {
 			expect(error.reason).toBe("DUPLICATE_ID_CARD")
 		})
 
-		test("returns POSITION_OCCUPIED conflict when a SINGLE position is already held", async () => {
+		test("returns DatabaseError when repository.create fails", async () => {
 			// Arrange
-			mockRepo.getPositionByCode.mockResolvedValue(
-				ok({ code: "PRESIDENT", nameTh: "", nameEn: "", cardinality: "SINGLE", parentPositionCode: null, displayOrder: 100, isActive: true })
-			)
-			mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(1))
-
-			// Act
-			const result = await service.execute(makeRequest({ position: "PRESIDENT" }))
-
-			// Assert
-			const error = result._unsafeUnwrapErr() as MemberConflictError
-			expect(error.reason).toBe("POSITION_OCCUPIED")
-		})
-
-		test("returns DatabaseError when an insert inside the tx fails (no throw escapes)", async () => {
-			// Arrange
-			mockRepo.insertMember.mockResolvedValue(err(new DatabaseError("insert failed")))
-
-			// Act
-			const result = await service.execute(makeRequest())
-
-			// Assert
-			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
-		})
-
-		test("returns DatabaseError when the business insert fails", async () => {
-			// Arrange
-			mockRepo.insertMemberBusiness.mockResolvedValue(err(new DatabaseError("biz insert failed")))
+			mockRepo.create.mockResolvedValue(err(new DatabaseError("insert failed")))
 
 			// Act
 			const result = await service.execute(makeRequest())
