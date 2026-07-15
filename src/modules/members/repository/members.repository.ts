@@ -105,13 +105,17 @@ export class MembersRepository implements IMemberRepository {
 				lastNameEn: member.lastNameEn,
 				nickname: member.nickname,
 				gender: member.gender,
-				dateOfBirth: member.dateOfBirth,
+				// Bun.SQL serializes Date via toString() → "GMT+0700" which Postgres
+				// rejects; toISOString() → UTC ISO 8601 which Postgres accepts.
+				// Cast through unknown because the sqlc-generated type expects Date,
+				// but the driver actually wants a string here.
+				dateOfBirth: toPgDate(member.dateOfBirth) as unknown as Date,
 				nationality: member.nationality,
 				idCardNo: member.idCardNo,
 				idCardNoHash: member.idCardNoHash,
-				idCardExpiryDate: member.idCardExpiryDate,
-				memberSince: member.memberSince,
-				expiresAt: member.expiresAt,
+				idCardExpiryDate: toPgDate(member.idCardExpiryDate) as unknown as Date,
+				memberSince: toPgDate(member.memberSince) as unknown as Date,
+				expiresAt: toPgDate(member.expiresAt) as unknown as Date,
 				profileAvatar: member.profileAvatar,
 				phoneNo: member.phoneNo,
 				email: member.email,
@@ -160,7 +164,10 @@ export class MembersRepository implements IMemberRepository {
 				juristicRegistrationNo: business.juristicRegistrationNo,
 				categoryId: business.categoryId,
 				address: business.address,
-				location: business.location ? [...business.location] : null,
+				// Bun.SQL serializes JS arrays via toString() → "100.5,13.7" which
+				// Postgres rejects as a malformed array literal. Convert to the
+				// Postgres array literal format "{100.5,13.7}".
+				location: toPgArray(business.location) as unknown as number[] | null,
 				coreBusiness: business.coreBusiness,
 				website: business.website,
 				logoFilePath: business.logoFilePath,
@@ -172,4 +179,37 @@ export class MembersRepository implements IMemberRepository {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
 	}
+}
+
+/**
+ * Convert a JS Date to a Postgres-safe ISO 8601 string.
+ *
+ * Bun.SQL serializes Date objects via Date.toString(), which produces a local-
+ * timezone string like "2026-01-15 10:00:00 GMT+0700". Postgres does not
+ * recognize the "GMT+0700" format and rejects it. Converting to ISO 8601
+ * (UTC, "Z" suffix) makes Postgres accept it for both DATE and TIMESTAMPTZ
+ * columns. Null passes through for nullable date columns.
+ */
+function toPgDate(date: Date | null): string | null {
+	if (date === null) {
+		return null
+	}
+
+	return date.toISOString()
+}
+
+/**
+ * Convert a JS number array to a Postgres array literal string.
+ *
+ * Bun.SQL serializes JS arrays via Array.toString() → "100.5,13.7", which
+ * Postgres rejects as a malformed array literal. The correct format is the
+ * Postgres array literal "{100.5,13.7}". Null passes through for nullable
+ * array columns.
+ */
+function toPgArray(arr: readonly number[] | null): string | null {
+	if (arr === null) {
+		return null
+	}
+
+	return `{${arr.join(",")}}`
 }
