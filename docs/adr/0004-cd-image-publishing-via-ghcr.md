@@ -56,7 +56,11 @@ Pushing to GHCR requires an explicit `docker/login-action` step before `build-pu
 
 ## Cleanup
 
-Old image versions are pruned by `dataaxiom/ghcr-cleanup-action`, SHA-pinned to commit `d52806a0dc70b430571a37da1fde39733ffd640f` (tag `v1.2.2`). Configuration: `keep-latest: 3`, `delete-untagged: true`, and `keep-tags: '^v?\d+\.\d+\.\d+$'` to retain all semver releases regardless of recency.
+Old image versions are pruned by `dataaxiom/ghcr-cleanup-action`, SHA-pinned to commit `d52806a0dc70b430571a37da1fde39733ffd640f` (tag `v1.2.2`). Configuration: `keep-n-tagged: 3` (keep the 3 newest tagged images), `delete-untagged: true` (remove images with no tag), and `exclude-tags: '^v?\d+\.\d+\.\d+$'` with `use-regex: true` (never delete semver releases like `1.2.3` or `v1.2.3`, regardless of age).
+
+### Note on input names (API drift)
+
+The blog template that inspired this workflow used `keep-latest` and `keep-tags`, which were inputs in older versions of the action. The pinned version (`v1.2.2`) renamed these: `keep-latest` → `keep-n-tagged`, and `keep-tags` → `exclude-tags`. Additionally, the old `keep-tags` interpreted its value as regex implicitly; the new `exclude-tags` requires `use-regex: true` to be set explicitly, otherwise the value is treated as a wildcard glob and the regex `^v?\d+\.\d+\.\d+$` would not match as intended. When bumping the pinned SHA in future, re-check the action's `action.yml` for further input renames.
 
 ### Why SHA-pinned, not `@v1`
 
@@ -64,6 +68,7 @@ The cleanup action holds `packages: write` scope — it can **delete** package v
 
 ## Consequences
 
+- **GHCR package ACL (one-time, GitHub UI):** the workflow's `permissions: packages: write` grants the `GITHUB_TOKEN` the *capability* to write packages, but GHCR enforces a separate per-package allowlist deciding *which repos' tokens may touch a given package*. For **user-owned** packages (this repo is owned by the user `tammarut`, not an org), GitHub does **not** auto-grant the source repo access on package creation — the first CD push fails with `permission_denied: write_package` even though the token is correctly authenticated (via the login step) and scoped. The fix is a one-time manual step in the package settings: `github.com/users/<owner>/packages/container/<package>/settings` → "Manage Actions access" → add the `yec-lamphun-backoffice-web` repository with **Write** role. Org-owned packages auto-grant this; the gotcha is specific to user-owned packages. Once granted, re-run the failed CD workflow and the push succeeds.
 - **Dokploy config change (outside this repo):** the Dokploy application must switch from "build from GitHub source" to "pull image `ghcr.io/<owner>/<repo>:main`." This is a Dokploy UI/config change, not something the workflow does.
 - **GHCR package visibility:** the first push creates the package as private by default. Visibility (public vs private) is a separate decision made in the GitHub package settings. The image is built with `SKIP_ENV_VALIDATION=true`, so no secrets are baked in — all real env vars (`DATABASE_URL`, `R2_*`, `ADMIN_*`) are injected by Dokploy at container start.
 - **First-run bootstrap:** the package does not exist in GHCR until the first successful CI→CD cycle on `main` completes. Dokploy cannot pull `:main` until then; the first deploy after merging this workflow must complete the full cycle before Dokploy can switch to image-pull mode.

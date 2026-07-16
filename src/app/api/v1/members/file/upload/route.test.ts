@@ -47,7 +47,9 @@ describe("POST /api/v1/members/file/upload", () => {
 		vi.clearAllMocks()
 		mockService = mock<MemberFileService>()
 		vi.mocked(container.resolve).mockImplementation((token) => {
-			if (token === MemberFileService || token === REGISTER_KEY.MEMBER_FILE_SERVICE) return mockService
+			if (token === MemberFileService || token === REGISTER_KEY.MEMBER_FILE_SERVICE) {
+				return mockService
+			}
 			return {}
 		})
 	})
