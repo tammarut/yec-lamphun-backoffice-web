@@ -39,8 +39,8 @@ export const envConfig = createEnv({
 		R2_SECRET_ACCESS_KEY: v.pipe(v.string(), v.minLength(1, "R2_SECRET_ACCESS_KEY is required")),
 		R2_PUBLIC_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PUBLIC_BUCKET is required")),
 		R2_PRIVATE_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PRIVATE_BUCKET is required")),
-		// PII crypto keys. AES key validates as base64 decoding to 32 bytes; the
-		// adapter re-checks length at construction time as a defense-in-depth.
+		// PII crypto keys — hex-encoded 32-byte values (64 hex chars). Only loosely
+		// checked here; the crypto adapters re-validate the decoded byte length.
 		ID_CARD_AES_KEY: v.pipe(v.string(), v.minLength(1, "ID_CARD_AES_KEY is required")),
 		BLIND_INDEX_HMAC_KEY: v.pipe(v.string(), v.minLength(32, "BLIND_INDEX_HMAC_KEY must be at least 32 chars")),
 	},

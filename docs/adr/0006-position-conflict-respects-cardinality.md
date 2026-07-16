@@ -15,6 +15,6 @@ The check is therefore interpreted as: *an already-held position conflicts only 
 
 ## Consequences
 
-- The duplicate-position check in `MemberCreationService` reads `positions.cardinality` and short-circuits for `MULTIPLE` positions.
+- The duplicate-position check in `CreateNewMemberService` reads `positions.cardinality` and short-circuits for `MULTIPLE` positions.
 - The check is a friendly-error optimization, not the correctness mechanism: the real guard against a second `SINGLE`-position holder is the per-position partial unique index on `members(position_code)` (only `PRESIDENT` is materialized today; the others are enforced in the service layer pending the runtime "create position" flow).
 - Any future edit to the OpenAPI spec should reflect this rule so the spec and implementation agree.
