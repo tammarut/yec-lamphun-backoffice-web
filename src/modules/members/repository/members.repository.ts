@@ -6,9 +6,10 @@ import { inject, injectable } from "tsyringe"
 import type { Member } from "../domain/member"
 import type { MemberBusiness } from "../domain/member-business"
 import type { MemberDocument } from "../domain/member-document"
-import type { PositionCardinality, PositionReadModel } from "../domain/member-read-models"
+import type { MemberBusinessReadModel, MemberDetailReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
 import type { IMemberRepository } from "../interfaces"
 import { countActiveHolderByPosition, countMemberByIdCardHash, getPositionByCode, insertMember, insertMemberBusiness, insertMemberDocument } from "./sql/sqlc-generated/queries_sql"
+import { getMemberDocumentsByMemberId, getMemberWithBusinessById } from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the members module.
@@ -88,6 +89,97 @@ export class MembersRepository implements IMemberRepository {
 			}
 			return err(new DatabaseError("Member creation transaction failed", error))
 		}
+	}
+
+	// --- Reads --------------------------------------------------------------
+
+	/**
+	 * Fetch a member's detail by id: member + 1:1 business (LEFT JOIN'd in one
+	 * query) + latest-wins ID_CARD / COMPANY_CERTIFICATE documents (second query).
+	 *
+	 * Returns `null` for not-found / soft-deleted → 404. A live member whose
+	 * business row is NULL (business_id IS NULL) is treated as corruption →
+	 * `err(DatabaseError)` → 500 (grilling Q6/iii-a).
+	 */
+	async getMemberDetailById(id: number) {
+		// Query 1: member + business.
+		const memberResult = await ResultAsync.fromPromise(getMemberWithBusinessById(this.sql, { id: String(id) }), (error) => error as Error)
+		if (memberResult.isErr()) {
+			return err(new DatabaseError(memberResult.error.message, memberResult.error.cause))
+		}
+		const memberRow = memberResult.value[0]
+		if (!memberRow) {
+			// No live member row → not found / soft-deleted → 404.
+			return ok(null)
+		}
+		if (memberRow.businessId === null) {
+			// Live member with no live business row → corruption → 500.
+			return err(new DatabaseError(`Member ${id} has no live business row (expected 1:1)`))
+		}
+
+		// Query 2: latest-wins documents.
+		const docsResult = await ResultAsync.fromPromise(getMemberDocumentsByMemberId(this.sql, { memberId: String(id) }), (error) => error as Error)
+		if (docsResult.isErr()) {
+			return err(new DatabaseError(docsResult.error.message, docsResult.error.cause))
+		}
+		// ORDER BY type, created_at DESC → the first row of each type is the newest.
+		let idCardImagePath: string | null = null
+		let companyCertificatePath: string | null = null
+		for (const doc of docsResult.value) {
+			if (doc.type === "ID_CARD" && idCardImagePath === null) {
+				idCardImagePath = doc.filePath
+			} else if (doc.type === "COMPANY_CERTIFICATE" && companyCertificatePath === null) {
+				companyCertificatePath = doc.filePath
+			}
+		}
+
+		const business: MemberBusinessReadModel = {
+			id: Number(memberRow.businessId),
+			name: memberRow.businessName!,
+			description: memberRow.businessDescription!,
+			juristicRegistrationNo: memberRow.juristicRegistrationNo!,
+			categoryId: memberRow.categoryId!,
+			address: memberRow.address,
+			location: memberRow.location === null ? null : ([memberRow.location[0]!, memberRow.location[1]!] as readonly [number, number]),
+			coreBusiness: memberRow.coreBusiness,
+			website: memberRow.website,
+			logoFilePath: memberRow.logoFilePath,
+			productFilePath: memberRow.productFilePath,
+			createdAt: memberRow.businessCreatedAt!,
+			updatedAt: memberRow.businessUpdatedAt!,
+		}
+
+		const detail: MemberDetailReadModel = {
+			id: Number(memberRow.id),
+			registrationType: memberRow.registrationType as MemberDetailReadModel["registrationType"],
+			titleNameTh: memberRow.titleNameTh,
+			firstNameTh: memberRow.firstNameTh,
+			lastNameTh: memberRow.lastNameTh,
+			titleNameEn: memberRow.titleNameEn,
+			firstNameEn: memberRow.firstNameEn,
+			lastNameEn: memberRow.lastNameEn,
+			nickname: memberRow.nickname,
+			gender: memberRow.gender as MemberDetailReadModel["gender"],
+			dateOfBirth: memberRow.dateOfBirth,
+			nationality: memberRow.nationality,
+			idCardNo: memberRow.idCardNo,
+			idCardExpiryDate: memberRow.idCardExpiryDate,
+			memberSince: memberRow.memberSince,
+			expiresAt: memberRow.expiresAt,
+			profileAvatar: memberRow.profileAvatar,
+			phoneNo: memberRow.phoneNo,
+			email: memberRow.email,
+			lineId: memberRow.lineId,
+			shirtSize: memberRow.shirtSize,
+			positionCode: memberRow.positionCode,
+			status: memberRow.status as MemberDetailReadModel["status"],
+			createdAt: memberRow.createdAt,
+			updatedAt: memberRow.updatedAt,
+			business,
+			idCardImagePath,
+			companyCertificatePath,
+		}
+		return ok(detail)
 	}
 
 	// --- Private insert helpers (run inside create's transaction) ----------

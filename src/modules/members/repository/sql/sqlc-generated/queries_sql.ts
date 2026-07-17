@@ -206,3 +206,152 @@ export async function insertMemberBusiness(sql: Sql, args: InsertMemberBusinessA
 		args.productFilePath,
 	])
 }
+
+export const getMemberWithBusinessByIdQuery = `-- name: GetMemberWithBusinessById :many
+
+SELECT m.id,
+       m.registration_type,
+       m.title_name_th, m.first_name_th, m.last_name_th,
+       m.title_name_en, m.first_name_en, m.last_name_en,
+       m.nickname,
+       m.gender, m.date_of_birth, m.nationality,
+       m.id_card_no, m.id_card_expiry_date,
+       m.member_since, m.expires_at,
+       m.profile_avatar,
+       m.phone_no, m.email, m.line_id,
+       m.shirt_size,
+       m.position_code, m.status,
+       m.created_at, m.updated_at,
+       b.id            AS business_id,
+       b.name          AS business_name,
+       b.description   AS business_description,
+       b.juristic_registration_no,
+       b.category_id,
+       b.address,
+       b.location,
+       b.core_business,
+       b.website,
+       b.logo_file_path,
+       b.product_file_path,
+       b.created_at    AS business_created_at,
+       b.updated_at    AS business_updated_at
+FROM members m
+LEFT JOIN member_business b
+       ON b.member_id = m.id
+      AND b.deleted_at IS NULL
+WHERE m.id = $1
+  AND m.deleted_at IS NULL`
+
+export interface GetMemberWithBusinessByIdArgs {
+	id: string
+}
+
+export interface GetMemberWithBusinessByIdRow {
+	id: string
+	registrationType: string
+	titleNameTh: string
+	firstNameTh: string
+	lastNameTh: string
+	titleNameEn: string | null
+	firstNameEn: string | null
+	lastNameEn: string | null
+	nickname: string
+	gender: string
+	dateOfBirth: Date
+	nationality: string
+	idCardNo: string
+	idCardExpiryDate: Date
+	memberSince: Date
+	expiresAt: Date | null
+	profileAvatar: string | null
+	phoneNo: string
+	email: string | null
+	lineId: string | null
+	shirtSize: string | null
+	positionCode: string
+	status: string
+	createdAt: Date
+	updatedAt: Date
+	businessId: string | null
+	businessName: string | null
+	businessDescription: string | null
+	juristicRegistrationNo: string | null
+	categoryId: number | null
+	address: string | null
+	location: number[] | null
+	coreBusiness: string | null
+	website: string | null
+	logoFilePath: string | null
+	productFilePath: string | null
+	businessCreatedAt: Date | null
+	businessUpdatedAt: Date | null
+}
+
+export async function getMemberWithBusinessById(sql: Sql, args: GetMemberWithBusinessByIdArgs): Promise<GetMemberWithBusinessByIdRow[]> {
+	return (await sql.unsafe(getMemberWithBusinessByIdQuery, [args.id]).values()).map((row) => ({
+		id: row[0],
+		registrationType: row[1],
+		titleNameTh: row[2],
+		firstNameTh: row[3],
+		lastNameTh: row[4],
+		titleNameEn: row[5],
+		firstNameEn: row[6],
+		lastNameEn: row[7],
+		nickname: row[8],
+		gender: row[9],
+		dateOfBirth: row[10],
+		nationality: row[11],
+		idCardNo: row[12],
+		idCardExpiryDate: row[13],
+		memberSince: row[14],
+		expiresAt: row[15],
+		profileAvatar: row[16],
+		phoneNo: row[17],
+		email: row[18],
+		lineId: row[19],
+		shirtSize: row[20],
+		positionCode: row[21],
+		status: row[22],
+		createdAt: row[23],
+		updatedAt: row[24],
+		businessId: row[25],
+		businessName: row[26],
+		businessDescription: row[27],
+		juristicRegistrationNo: row[28],
+		categoryId: row[29],
+		address: row[30],
+		location: row[31],
+		coreBusiness: row[32],
+		website: row[33],
+		logoFilePath: row[34],
+		productFilePath: row[35],
+		businessCreatedAt: row[36],
+		businessUpdatedAt: row[37],
+	}))
+}
+
+export const getMemberDocumentsByMemberIdQuery = `-- name: GetMemberDocumentsByMemberId :many
+SELECT type, file_path, created_at
+FROM member_documents
+WHERE member_id = $1
+  AND deleted_at IS NULL
+  AND type IN ('ID_CARD', 'COMPANY_CERTIFICATE')
+ORDER BY type, created_at DESC`
+
+export interface GetMemberDocumentsByMemberIdArgs {
+	memberId: string
+}
+
+export interface GetMemberDocumentsByMemberIdRow {
+	type: string
+	filePath: string
+	createdAt: Date
+}
+
+export async function getMemberDocumentsByMemberId(sql: Sql, args: GetMemberDocumentsByMemberIdArgs): Promise<GetMemberDocumentsByMemberIdRow[]> {
+	return (await sql.unsafe(getMemberDocumentsByMemberIdQuery, [args.memberId]).values()).map((row) => ({
+		type: row[0],
+		filePath: row[1],
+		createdAt: row[2],
+	}))
+}

@@ -15,6 +15,12 @@ export type EnvConfig = {
 	R2_SECRET_ACCESS_KEY: string
 	R2_PUBLIC_BUCKET: string
 	R2_PRIVATE_BUCKET: string
+	// File-URL resolution — see docs/adr/0007-file-url-resolution-via-dedicated-resolver-and-policy-service.md
+	// R2_PUBLIC_BASE_URL: external base for public-bucket objects (R2 S3 endpoint
+	//   in DEV; a Cloudflare-proxied custom domain in PROD for edge caching).
+	// PRESIGNED_URL_EXPIRES_IN: seconds a private-bucket presigned URL stays valid.
+	R2_PUBLIC_BASE_URL: string
+	PRESIGNED_URL_EXPIRES_IN: number
 	// PII crypto keys — see src/modules/shared/crypto/ (AES-256-GCM + HMAC-SHA256).
 	// Both are hex strings: `openssl rand -hex 32` (64 chars / 32 bytes).
 	ID_CARD_AES_KEY: string
@@ -39,6 +45,10 @@ export const envConfig = createEnv({
 		R2_SECRET_ACCESS_KEY: v.pipe(v.string(), v.minLength(1, "R2_SECRET_ACCESS_KEY is required")),
 		R2_PUBLIC_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PUBLIC_BUCKET is required")),
 		R2_PRIVATE_BUCKET: v.pipe(v.string(), v.minLength(1, "R2_PRIVATE_BUCKET is required")),
+		// File-URL resolution (ADR-0007). Both required, no defaults — matches the
+		// existing R2 vars; forces explicit config per environment.
+		R2_PUBLIC_BASE_URL: v.pipe(v.string(), v.minLength(1, "R2_PUBLIC_BASE_URL is required")),
+		PRESIGNED_URL_EXPIRES_IN: v.pipe(v.string(), v.transform(Number), v.integer(), v.minValue(1, "PRESIGNED_URL_EXPIRES_IN must be a positive integer")),
 		// PII crypto keys — hex-encoded 32-byte values (64 hex chars). Only loosely
 		// checked here; the crypto adapters re-validate the decoded byte length.
 		ID_CARD_AES_KEY: v.pipe(v.string(), v.minLength(1, "ID_CARD_AES_KEY is required")),
@@ -59,6 +69,8 @@ export const envConfig = createEnv({
 		R2_SECRET_ACCESS_KEY: process.env["R2_SECRET_ACCESS_KEY"],
 		R2_PUBLIC_BUCKET: process.env["R2_PUBLIC_BUCKET"],
 		R2_PRIVATE_BUCKET: process.env["R2_PRIVATE_BUCKET"],
+		R2_PUBLIC_BASE_URL: process.env["R2_PUBLIC_BASE_URL"],
+		PRESIGNED_URL_EXPIRES_IN: process.env["PRESIGNED_URL_EXPIRES_IN"],
 		ID_CARD_AES_KEY: process.env["ID_CARD_AES_KEY"],
 		BLIND_INDEX_HMAC_KEY: process.env["BLIND_INDEX_HMAC_KEY"],
 	},

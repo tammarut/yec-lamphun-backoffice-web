@@ -29,6 +29,8 @@ describe("AuthService", () => {
 			R2_SECRET_ACCESS_KEY: "test-secret",
 			R2_PUBLIC_BUCKET: "yec-lamphun-public",
 			R2_PRIVATE_BUCKET: "yec-lamphun-private",
+			R2_PUBLIC_BASE_URL: "https://test.r2.cloudflarestorage.com/public",
+			PRESIGNED_URL_EXPIRES_IN: 3600,
 			ID_CARD_AES_KEY: "x".repeat(44),
 			BLIND_INDEX_HMAC_KEY: "y".repeat(44),
 		}

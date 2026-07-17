@@ -63,3 +63,58 @@ INSERT INTO member_business (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 );
+
+-- ============================================================================
+-- Read queries (GET /api/v1/members/:id)
+-- ============================================================================
+
+-- name: GetMemberWithBusinessById :many
+-- Fetch a non-deleted member and its 1:1 non-deleted business in one round-trip.
+-- `:many` per ADR-0001; the repository narrows the single row by hand.
+-- business_* columns are NULL when the business row is soft-deleted or absent
+-- (the LEFT JOIN's soft-delete filter lives in the ON clause so a missing
+-- business does not drop the member). The repository treats a live member with
+-- no business row as corruption → DatabaseError → 500 (grilling Q6/iii-a).
+SELECT m.id,
+       m.registration_type,
+       m.title_name_th, m.first_name_th, m.last_name_th,
+       m.title_name_en, m.first_name_en, m.last_name_en,
+       m.nickname,
+       m.gender, m.date_of_birth, m.nationality,
+       m.id_card_no, m.id_card_expiry_date,
+       m.member_since, m.expires_at,
+       m.profile_avatar,
+       m.phone_no, m.email, m.line_id,
+       m.shirt_size,
+       m.position_code, m.status,
+       m.created_at, m.updated_at,
+       b.id            AS business_id,
+       b.name          AS business_name,
+       b.description   AS business_description,
+       b.juristic_registration_no,
+       b.category_id,
+       b.address,
+       b.location,
+       b.core_business,
+       b.website,
+       b.logo_file_path,
+       b.product_file_path,
+       b.created_at    AS business_created_at,
+       b.updated_at    AS business_updated_at
+FROM members m
+LEFT JOIN member_business b
+       ON b.member_id = m.id
+      AND b.deleted_at IS NULL
+WHERE m.id = $1
+  AND m.deleted_at IS NULL;
+
+-- name: GetMemberDocumentsByMemberId :many
+-- Latest-wins documents for a member (grilling Q5/A). Ordered so the first row
+-- of each type is the newest; the repository takes the first per type.
+-- PAYMENT_SLIP is intentionally excluded — out of scope for this endpoint.
+SELECT type, file_path, created_at
+FROM member_documents
+WHERE member_id = $1
+  AND deleted_at IS NULL
+  AND type IN ('ID_CARD', 'COMPANY_CERTIFICATE')
+ORDER BY type, created_at DESC;

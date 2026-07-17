@@ -1,10 +1,10 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 import { err, ok, type Result } from "neverthrow"
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
 import { inject, singleton } from "tsyringe"
-import { CryptoError } from "./errors"
 import type { IEncryptionService } from "./crypto-services.interface"
+import { CryptoError } from "./errors"
 
 const IV_BYTES = 12 // GCM standard nonce length
 const AUTH_TAG_BYTES = 16 // GCM authentication tag length
@@ -52,6 +52,7 @@ export class AesGcmEncryptionService implements IEncryptionService {
 			if (blob.length < IV_BYTES + AUTH_TAG_BYTES) {
 				return err(new CryptoError("Ciphertext too short to contain IV and auth tag"))
 			}
+
 			const iv = blob.subarray(0, IV_BYTES)
 			const authTag = blob.subarray(blob.length - AUTH_TAG_BYTES)
 			const ciphertextBody = blob.subarray(IV_BYTES, blob.length - AUTH_TAG_BYTES)
@@ -59,6 +60,7 @@ export class AesGcmEncryptionService implements IEncryptionService {
 			const decipher = createDecipheriv("aes-256-gcm", this.key, iv)
 			decipher.setAuthTag(authTag)
 			const plaintext = Buffer.concat([decipher.update(ciphertextBody), decipher.final()])
+
 			return ok(plaintext.toString("utf8"))
 		} catch (error) {
 			return err(new CryptoError("AES-256-GCM decryption failed", error))
