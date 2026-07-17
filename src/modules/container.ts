@@ -3,6 +3,8 @@ import { AuthService } from "src/modules/auth/auth.service"
 import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 import { MemberFileService } from "src/modules/members/member-file.service"
+import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
+import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
@@ -67,14 +69,25 @@ container.register(REGISTER_KEY.AUTH_SERVICE, {
 })
 
 // 8. Register Members File Module
-// The R2 storage client (shared infra adapter) is registered under an interface
-// token so tests can swap in a mock; the member-file service depends on it.
+// R2StorageClient is the single R2 adapter: it implements BOTH IStorageClient
+// (write) and IStorageUrlResolver (URL minting) over ONE S3Client connection
+// pool (ADR-0007). Both interface tokens resolve to the same singleton instance
+// — MEMBER_FILE_STORAGE_CLIENT owns it (useClass), STORAGE_URL_RESOLVER aliases
+// to it (useToken) so neither service sees a second S3Client.
 container.register(REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT, {
 	useClass: R2StorageClient,
 })
 
+container.register(REGISTER_KEY.STORAGE_URL_RESOLVER, {
+	useToken: REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT,
+})
+
 container.register(REGISTER_KEY.MEMBER_FILE_SERVICE, {
 	useClass: MemberFileService,
+})
+
+container.register(REGISTER_KEY.MEMBER_FILE_URL_SERVICE, {
+	useClass: MemberFileUrlService,
 })
 
 // 9. Register Shared PII Crypto Services
@@ -98,6 +111,12 @@ container.register(REGISTER_KEY.MEMBERS_REPOSITORY, {
 
 container.register(REGISTER_KEY.CREATE_NEW_MEMBER_SERVICE, {
 	useClass: CreateNewMemberService,
+})
+
+// 10b. Register Members Module (get-member-by-id query) — ADR-0007/0008.
+// Read-only orchestrator over the repository, crypto, and URL service.
+container.register(REGISTER_KEY.GET_MEMBER_BY_ID_SERVICE, {
+	useClass: GetMemberByIdService,
 })
 
 export { container }

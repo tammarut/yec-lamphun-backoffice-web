@@ -24,6 +24,14 @@ _Avoid_: documents bucket, secure storage
 The R2 object key returned to the client for a successfully uploaded file, of the form `<bucket-prefix>/<field-or-short-prefix>_<ulid>.<ext>`. The client stores this path as a reference; it is not a public URL.
 _Avoid_: file url, object url
 
+**Presigned File URL**:
+A time-limited, signed link to a private-bucket File Path, minted server-side via `@aws-sdk/s3-request-presigner`. Used to grant a browser temporary download access to sensitive Member Files (e.g. ID Card image, company certificate) without making the bucket public. Expires after a configured TTL.
+_Avoid_: signed url, temporary url, download link
+
+**Public File URL**:
+A permanent, non-signed link to a public-bucket File Path, formed by concatenating a configured base URL (`R2_PUBLIC_BASE_URL`) with the object key. Used for display-ready Member Files (profile avatar, business logo, business product). Served via Cloudflare's CDN in production for edge caching.
+_Avoid_: public link, cdn url, image url
+
 **Position**:
 A role a member holds in the chamber's organization (e.g. President, Secretary, General Member). Each position has a stable `code` (e.g. `PRESIDENT`), display names in Thai and English, and belongs to a hierarchy.
 _Avoid_: title, rank, role
@@ -47,3 +55,7 @@ _Avoid_: company, merchant
 **ID Card**:
 A member's Thai national ID. Never stored in plaintext: the column `id_card_no` holds AES-256-GCM ciphertext (base64 of IV+ ciphertext+ auth tag); the column `id_card_no_hash` holds an HMAC-SHA256 hex digest used as a blind index for duplicate lookup and uniqueness.
 _Avoid_: citizen id, national id, id number
+
+**Masked ID Card**:
+The display form of an ID Card (e.g. `632XXXXXX1483`): the first three and last four digits of the plaintext, with the middle six replaced by `X`. Staff see this form in the backoffice; the plaintext and ciphertext are never displayed. Derived at read time by decrypting the ID Card ciphertext and applying a pure mask function.
+_Avoid_: masked id number, hidden id, redacted id

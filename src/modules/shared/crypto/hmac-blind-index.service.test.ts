@@ -19,6 +19,8 @@ function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfi
 		R2_SECRET_ACCESS_KEY: "secret",
 		R2_PUBLIC_BUCKET: "public",
 		R2_PRIVATE_BUCKET: "private",
+		R2_PUBLIC_BASE_URL: "https://test.r2.cloudflarestorage.com/public",
+		PRESIGNED_URL_EXPIRES_IN: 3600,
 		ID_CARD_AES_KEY: randomBytes(32).toString("hex"),
 		BLIND_INDEX_HMAC_KEY: hmacKey,
 	}
