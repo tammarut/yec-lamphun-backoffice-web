@@ -2,8 +2,13 @@ export async function register() {
 	const runtime = process.env["NEXT_RUNTIME"]
 	if (runtime === "nodejs") {
 		try {
-			// We need to import 'reflect-metadata' here because this function runs
-			// before other parts of the application where it might be imported.
+			// 1. Logging first — everything below logs through LogTape.
+			//    See docs/adr/0009-structured-logging-via-logtape.md.
+			const { configureLogger } = await import("src/shared/lib/logger/logger")
+			await configureLogger()
+
+			// 2. We need to import 'reflect-metadata' here because this function runs
+			//    before other parts of the application where it might be imported.
 			await import("reflect-metadata")
 
 			const { container } = await import("src/modules/container")

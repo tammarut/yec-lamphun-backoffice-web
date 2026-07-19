@@ -6,10 +6,13 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { PatchSystemSettingsSchema } from "src/modules/system-settings/validators"
+import { createLogger } from "src/shared/lib/logger/logger"
 import { safeParse } from "valibot"
 import { ResponseBodyError } from "../../shared/types"
 
 export const dynamic = "force-dynamic"
+
+const logger = createLogger(["system-settings", "route"])
 
 function toSystemSettingsResponse(settings: readonly SystemSettingDomain[]): Record<string, unknown> {
 	const response: Record<string, unknown> = {}
@@ -26,7 +29,8 @@ export async function GET() {
 	const result = await systemSettingsService.getAllSettings()
 
 	if (result.isErr()) {
-		return NextResponse.json({ message: "Internal Server Error" }, { status: 500 })
+		logger.error("system-settings fetch failed: {errorMessage} (code={code})", { code: result.error.code, errorMessage: result.error.message, cause: result.error.cause })
+		return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 	}
 
 	const responseBody = toSystemSettingsResponse(result.value)
@@ -53,6 +57,7 @@ export const PATCH = withAuth(async function PATCH(request: NextRequest): Promis
 	const result = await systemSettingsService.updateSettings(validateReqBodyResult.output)
 
 	if (result.isErr()) {
+		logger.error("system-settings update failed: {errorMessage} (code={code})", { code: result.error.code, errorMessage: result.error.message, cause: result.error.cause })
 		return NextResponse.json({ error_message: "Internal Server Error" }, { status: 500 })
 	}
 

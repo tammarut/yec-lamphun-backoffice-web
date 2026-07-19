@@ -10,8 +10,11 @@ import { MemberNotFoundError } from "src/modules/members/use-case/get-member-by-
 import type { GetMemberByIdError } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.errors"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
+import { createLogger } from "src/shared/lib/logger/logger"
 
 export const dynamic = "force-dynamic"
+
+const logger = createLogger(["members", "route", "get-by-id"])
 
 // Next 16: dynamic route params are a Promise. We await it before reading id.
 type MemberRouteContext = { params: Promise<{ id: string }> }
@@ -54,6 +57,6 @@ function mapError(error: GetMemberByIdError): NextResponse<ResponseBodyError> {
 	// (presign failure — infra-level) → 500, no leaky details. CryptoError is never
 	// propagated (swallowed to null in the service per ADR-0008), so it is not in
 	// the GetMemberByIdError union.
-	console.error(`[members/get-by-id] error: ${error.message}`, { code: error.code, cause: error.cause })
+	logger.error("members/get-by-id failed: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
 	return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 }

@@ -4,6 +4,7 @@ import { inject, singleton } from "tsyringe"
 import type { IIdGenerator } from "src/modules/shared/id-generator"
 import type { IStorageClient } from "src/modules/shared/storage"
 import { StorageError } from "src/modules/shared/storage"
+import { createLogger } from "src/shared/lib/logger/logger"
 import { REGISTER_KEY } from "../di-tokens"
 import type { MemberFileError } from "./errors"
 import { MemberFileValidationError } from "./errors"
@@ -19,6 +20,8 @@ import {
 import type { MemberFileRequest, UploadedFilePathResponse } from "./member-file.types"
 
 type UploadedObjectKeyMap = Partial<Record<MemberFileFieldName, string>>
+
+const logger = createLogger(["members", "service", "member-file"])
 
 /**
  * Owns the member-file upload workflow: fail-fast validation, then fail-fast
@@ -76,9 +79,16 @@ export class MemberFileService {
 			if (putResult.isErr()) {
 				// Log orphaned uploads so they can be traced. No cleanup, per spec.
 				const orphans = Object.entries(uploadedObjectKeys).map(([f, k]) => `${f}=${k}`)
-				console.error(
-					`[member-file] upload aborted after failure on "${field}": ${putResult.error.message}` + (orphans.length ? ` | orphaned uploads: ${orphans.join(", ")}` : ""),
-					{ cause: putResult.error.cause }
+				logger.error(
+					orphans.length > 0
+						? `upload aborted after failure on "${field}": {errorMessage} | orphaned uploads: {orphanedUploads}`
+						: `upload aborted after failure on "${field}": {errorMessage}`,
+					{
+						field,
+						errorMessage: putResult.error.message,
+						orphanedUploads: orphans,
+						cause: putResult.error.cause,
+					}
 				)
 				return err(putResult.error)
 			}

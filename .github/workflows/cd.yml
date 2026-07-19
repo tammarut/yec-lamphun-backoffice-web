@@ -73,6 +73,26 @@ jobs:
             # Pinned to v1.2.2 (commit d52806a). SHA-pinned per GitHub security
             # guidance: a floating tag (@v1) could be moved to a compromised release.
             # Bump deliberately by resolving the new tag's SHA and replacing below.
+            #
+            # Permission gotcha (learned the hard way): the workflow GITHUB_TOKEN
+            # is a `ghs_` app-installation token, so the action sees
+            # `token owns package = false` and routes DELETEs to
+            # /users/{owner}/packages/... (not /user/packages/...). That endpoint
+            # requires the calling repo to hold the **Admin** role on the package
+            # — `permissions: packages: write` above only grants Write. Without
+            # Admin, every DELETE 404s and the action swallows it as "already
+            # deleted", falsely reporting success while the versions stay put.
+            #
+            # Manual setup (not in version control — redo if the package is
+            # recreated/migrated): Package settings → Manage Actions access →
+            # add this repository (tammarut/yec-lamphun-backoffice-web) with
+            # role Admin.
+            #
+            # If 404s ever return for User-owned packages, the more deterministic
+            # fix is a Classic PAT owned by `tammarut` (scopes write:packages +
+            # delete:packages) passed via a repo secret; that flips
+            # `token owns package = true` and routes to /user/packages/...,
+            # which is reliable for owner-owned packages.
             - name: Prune stale image versions
               uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f
               with:

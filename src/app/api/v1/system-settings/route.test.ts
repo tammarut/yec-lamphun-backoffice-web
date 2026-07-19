@@ -12,6 +12,19 @@ vi.mock("src/modules/container", () => ({
 	},
 }))
 
+// Mock the logger wrapper so route code's logger.error calls don't leak into
+// test output, and so 500-path tests can assert the call happened. Matches the
+// canonical route-test pattern. See docs/adr/0009.
+const { loggerErrorSpy } = vi.hoisted(() => ({ loggerErrorSpy: vi.fn() }))
+vi.mock("src/shared/lib/logger/logger", () => ({
+	createLogger: () => ({
+		error: loggerErrorSpy,
+		warn: vi.fn(),
+		info: vi.fn(),
+		debug: vi.fn(),
+	}),
+}))
+
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -72,16 +85,17 @@ describe("GET /api/v1/system-settings", () => {
 			Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
 		)
 
-		// Suppress console.error for this test
-		const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-
 		const response = await GET()
 
 		expect(response.status).toBe(500)
 		const json = await response.json()
-		expect(json).toEqual({ message: "Internal Server Error" })
-
-		consoleSpy.mockRestore()
+		expect(json).toEqual({ error_message: "Internal Server Error" })
+		// Infra failure is logged with structured detail (ADR-0009).
+		expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			expect.stringContaining("system-settings fetch failed"),
+			expect.objectContaining({ code: "DATABASE_ERROR", errorMessage: "DB Error" })
+		)
 	})
 })
 
@@ -237,8 +251,6 @@ describe("PATCH /api/v1/system-settings", () => {
 			})
 			request.cookies.set("session_id", "valid-session")
 
-			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-
 			const response = await PATCH(request, undefined)
 
 			expect(response.status).toBe(500)
@@ -246,8 +258,12 @@ describe("PATCH /api/v1/system-settings", () => {
 			expect(json).toEqual({
 				error_message: "Internal Server Error",
 			})
-
-			consoleSpy.mockRestore()
+			// Infra failure is logged with structured detail (ADR-0009).
+			expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+			expect(loggerErrorSpy).toHaveBeenCalledWith(
+				expect.stringContaining("system-settings update failed"),
+				expect.objectContaining({ code: "DATABASE_ERROR", errorMessage: "DB Error" })
+			)
 		})
 	})
 })

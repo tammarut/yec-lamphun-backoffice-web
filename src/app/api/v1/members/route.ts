@@ -12,9 +12,12 @@ import type { CreateMemberRequest } from "src/modules/members/use-case/create-ne
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { CryptoError } from "src/modules/shared/crypto"
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import { createLogger } from "src/shared/lib/logger/logger"
 import { CreateMemberSchema, type CreateMemberSchemaOutput } from "./schema"
 
 export const dynamic = "force-dynamic"
+
+const logger = createLogger(["members", "route", "create"])
 
 type CreatedMemberResponse = {
 	readonly id: number
@@ -101,6 +104,6 @@ function mapError(error: MemberValidationError | MemberConflictError | CryptoErr
 		return NextResponse.json({ error_message: error.message } satisfies ResponseBodyError, { status: 409 })
 	}
 	// CryptoError and DatabaseError are infra failures → 500, no leaky details.
-	console.error(`[members/create] error: ${error.message}`, { code: error.code, cause: error.cause })
+	logger.error("members/create failed: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
 	return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 }

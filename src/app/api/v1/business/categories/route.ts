@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server"
+import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
+import { BusinessCategoryDomain } from "src/modules/business-categories/domain/business-category.domain"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { BusinessCategoryDomain } from "src/modules/business-categories/domain/business-category.domain"
-import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
+import { createLogger } from "src/shared/lib/logger/logger"
+import { ResponseBodyError } from "src/app/api/shared/types"
 
 export const dynamic = "force-dynamic"
+
+const logger = createLogger(["business-categories", "route"])
 
 function toBusinessCategoriesResponse(categories: readonly BusinessCategoryDomain[]): { business_categories: { id: number; category_name: string }[] } {
 	return {
@@ -20,8 +24,8 @@ export async function GET() {
 	const result = await businessCategoriesService.getBusinessCategories()
 
 	if (result.isErr()) {
-		console.error(result.error)
-		return NextResponse.json({ message: "Internal Server Error" }, { status: 500 })
+		logger.error("business-categories fetch failed: {errorMessage} (code={code})", { code: result.error.code, errorMessage: result.error.message, cause: result.error.cause })
+		return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 	}
 
 	const responseBody = toBusinessCategoriesResponse(result.value)
