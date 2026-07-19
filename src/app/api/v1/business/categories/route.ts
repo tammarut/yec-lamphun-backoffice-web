@@ -4,6 +4,7 @@ import { BusinessCategoryDomain } from "src/modules/business-categories/domain/b
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { createLogger } from "src/shared/lib/logger/logger"
+import { ResponseBodyError } from "src/app/api/shared/types"
 
 export const dynamic = "force-dynamic"
 
@@ -24,9 +25,7 @@ export async function GET() {
 
 	if (result.isErr()) {
 		logger.error("business-categories fetch failed: {errorMessage} (code={code})", { code: result.error.code, errorMessage: result.error.message, cause: result.error.cause })
-		// NOTE: returns { message: ... }, not the canonical { error_message: ... }
-		// from AGENTS.md §2D. Out of scope for this logging PR — tracked separately.
-		return NextResponse.json({ message: "Internal Server Error" }, { status: 500 })
+		return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 	}
 
 	const responseBody = toBusinessCategoriesResponse(result.value)

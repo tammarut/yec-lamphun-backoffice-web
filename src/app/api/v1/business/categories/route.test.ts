@@ -82,6 +82,6 @@ describe("GET /api/v1/business/categories", () => {
 
 		expect(response.status).toBe(500)
 		const json = await response.json()
-		expect(json).toEqual({ message: "Internal Server Error" })
+		expect(json).toEqual({ error_message: "Internal Server Error" })
 	})
 })
