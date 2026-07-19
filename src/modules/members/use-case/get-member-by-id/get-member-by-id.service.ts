@@ -2,6 +2,7 @@ import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IEncryptionService } from "src/modules/shared/crypto"
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import { createLogger } from "src/shared/lib/logger/logger"
 import { inject, singleton } from "tsyringe"
 import { maskIdCard } from "../../domain/mask-id-card"
 import type { MemberBusinessReadModel, MemberDetailReadModel } from "../../domain/member-read-models"
@@ -10,6 +11,8 @@ import { MemberFileUrlService } from "../../member-file-url.service"
 import type { MemberFileUrls } from "../../member-file-url.types"
 import { MemberNotFoundError, type GetMemberByIdError } from "./get-member-by-id.errors"
 import type { MemberBusinessResponse, MemberDetailResponse } from "./get-member-by-id.types"
+
+const logger = createLogger(["members", "use-case", "get-member-by-id"])
 
 /**
  * Use case (query): get a member's detail by id for a detail/edit view.
@@ -82,13 +85,13 @@ export class GetMemberByIdService {
 	private decryptAndMask(ciphertext: string): string | null {
 		const decrypted = this.encryption.decrypt(ciphertext)
 		if (decrypted.isErr()) {
-			console.error(`[get-member-by-id] id_card decrypt failed: ${decrypted.error.message}`, { cause: decrypted.error.cause })
+			logger.error("id_card decrypt failed: {errorMessage}", { errorMessage: decrypted.error.message, cause: decrypted.error.cause })
 			return null
 		}
 
 		const masked = maskIdCard(decrypted.value)
 		if (masked.isErr()) {
-			console.error(`[get-member-by-id] id_card mask failed: ${masked.error.message}`, { cause: masked.error.cause })
+			logger.error("id_card mask failed: {errorMessage}", { errorMessage: masked.error.message, cause: masked.error.cause })
 			return null
 		}
 

@@ -9,8 +9,11 @@ import { MEMBER_FILE_FIELDS, type MemberFileFieldName } from "src/modules/member
 import { MemberFileService } from "src/modules/members/member-file.service"
 import type { MemberFileRequest, UploadedFilePathResponse } from "src/modules/members/member-file.types"
 import { StorageError } from "src/modules/shared/storage"
+import { createLogger } from "src/shared/lib/logger/logger"
 
 export const dynamic = "force-dynamic"
+
+const logger = createLogger(["members", "route", "upload"])
 
 // Public endpoint — no auth/session required (per the OpenAPI spec).
 export async function POST(request: NextRequest): Promise<NextResponse<UploadedFilePathResponse | ResponseBodyError>> {
@@ -54,7 +57,7 @@ function mapError(error: MemberFileError): NextResponse<ResponseBodyError> {
 	}
 
 	const storageErr = error as StorageError
-	console.error(`[member-file] storage error: ${storageErr.message}`, { code: storageErr.code, cause: storageErr.cause })
+	logger.error("member-file storage error: {errorMessage} (code={code})", { code: storageErr.code, errorMessage: storageErr.message, cause: storageErr.cause })
 
 	return NextResponse.json({ error_message: "Internal Server Error" }, { status: 500 })
 }

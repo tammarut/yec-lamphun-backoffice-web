@@ -12,6 +12,18 @@ vi.mock("src/modules/container", () => ({
 	},
 }))
 
+// Mock the logger wrapper so route code's logger.error calls don't leak into
+// test output. Matches the canonical route-test pattern (mock the seam, not
+// the underlying library). See docs/adr/0009.
+vi.mock("src/shared/lib/logger/logger", () => ({
+	createLogger: () => ({
+		error: vi.fn(),
+		warn: vi.fn(),
+		info: vi.fn(),
+		debug: vi.fn(),
+	}),
+}))
+
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { BusinessCategoryDomain } from "src/modules/business-categories/domain/business-category.domain"
@@ -66,15 +78,10 @@ describe("GET /api/v1/business/categories", () => {
 	it("should return 500 when service returns error", async () => {
 		mockService.getBusinessCategories.mockResolvedValue(err(new DatabaseError("DB Error")))
 
-		// Suppress console.error for this test
-		const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-
 		const response = await GET()
 
 		expect(response.status).toBe(500)
 		const json = await response.json()
 		expect(json).toEqual({ message: "Internal Server Error" })
-
-		consoleSpy.mockRestore()
 	})
 })

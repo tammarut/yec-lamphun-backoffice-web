@@ -3,6 +3,21 @@ import { err, ok } from "neverthrow"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
+// Mock the logger wrapper. Exposes a stable spy on `error` so the orphan-upload
+// test can assert on the structured payload (message + properties object).
+// `vi.hoisted` lifts the spy above `vi.mock`'s automatic hoisting; otherwise
+// the const is in the TDZ when the mock factory runs.
+// See docs/adr/0009-structured-logging-via-logtape.md.
+const { loggerErrorSpy } = vi.hoisted(() => ({ loggerErrorSpy: vi.fn() }))
+vi.mock("src/shared/lib/logger/logger", () => ({
+	createLogger: () => ({
+		error: loggerErrorSpy,
+		warn: vi.fn(),
+		info: vi.fn(),
+		debug: vi.fn(),
+	}),
+}))
+
 import type { IIdGenerator } from "src/modules/shared/id-generator"
 import type { IStorageClient } from "src/modules/shared/storage"
 import { StorageError } from "src/modules/shared/storage"
@@ -29,6 +44,7 @@ describe("MemberFileService", () => {
 		storageClient.putObject.mockResolvedValue(ok(undefined))
 		storageClient.getBucketName.mockImplementation((kind) => (kind === "public" ? "PUBLIC_BUCKET" : "PRIVATE_BUCKET"))
 		service = new MemberFileService(idGenerator, storageClient)
+		loggerErrorSpy.mockClear()
 	})
 
 	describe("uploadFiles - empty input", () => {
@@ -135,8 +151,6 @@ describe("MemberFileService", () => {
 		it("aborts on the first storage error and does not upload the rest", async () => {
 			storageClient.putObject.mockResolvedValueOnce(ok(undefined)).mockResolvedValueOnce(err(new StorageError("boom")))
 
-			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-
 			const result = await service.uploadFiles([
 				{ field: "id_card_image", file: makeImageFile("a.png") },
 				{ field: "profile_avatar", file: makeImageFile("b.png") },
@@ -149,9 +163,21 @@ describe("MemberFileService", () => {
 			}
 			// Only the first two were attempted; the third was never reached.
 			expect(storageClient.putObject).toHaveBeenCalledTimes(2)
-			// Orphan log should mention the first uploaded file.
-			expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("orphaned uploads: id_card_image="), expect.anything())
-			consoleSpy.mockRestore()
+			// Orphan log should mention the first uploaded file. The structured
+			// payload now carries the orphan list as a property (ADR-0009), so we
+			// assert on the second argument's `orphanedUploads` array instead of
+			// scraping a substring out of the message text.
+			expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+			const [message, properties] = loggerErrorSpy.mock.calls[0]!
+			expect(message).toContain("upload aborted after failure")
+			// The aborted field is the second one (the first uploaded successfully
+			// and is therefore an orphan). Field prefixes/path-shapes are covered
+			// by other tests, so we only assert the orphan's field tag here.
+			expect(properties).toMatchObject({
+				field: "profile_avatar",
+				errorMessage: "boom",
+				orphanedUploads: [expect.stringContaining("id_card_image=")],
+			})
 		})
 	})
 
