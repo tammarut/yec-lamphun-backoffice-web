@@ -5,6 +5,7 @@ import { BusinessCategoriesService } from "src/modules/business-categories/busin
 import { MemberFileService } from "src/modules/members/member-file.service"
 import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
+import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
@@ -117,6 +118,13 @@ container.register(REGISTER_KEY.CREATE_NEW_MEMBER_SERVICE, {
 // Read-only orchestrator over the repository, crypto, and URL service.
 container.register(REGISTER_KEY.GET_MEMBER_BY_ID_SERVICE, {
 	useClass: GetMemberByIdService,
+})
+
+// 10c. Register Members Module (get-list-members query) — ADR-0010/0011.
+// Read-only orchestrator over the repository (Bun-SQL keyset pagination) and
+// the URL service (profile_avatar public-bucket concat).
+container.register(REGISTER_KEY.GET_LIST_MEMBERS_SERVICE, {
+	useClass: GetListMembersService,
 })
 
 export { container }

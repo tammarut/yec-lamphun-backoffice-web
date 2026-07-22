@@ -32,6 +32,26 @@ export class MemberFileUrlService {
 	constructor(@inject(REGISTER_KEY.STORAGE_URL_RESOLVER) private readonly resolver: IStorageUrlResolver) {}
 
 	/**
+	 * Resolve a single `profile_avatar` path to its public URL (ADR-0007).
+	 *
+	 * Purpose-built for the list view, which resolves only this one public
+	 * field per row — distinct from {@link resolveMemberFileUrls} (5 mixed
+	 * public/private fields, the detail view). Sync and infallible: public
+	 * concat has no failure mode, so the return is a plain `string | null`
+	 * (no `Result` wrapper — a `Result` would lie about a failure mode that
+	 * cannot happen, mirroring the rationale for `IStorageUrlResolver.publicUrl`
+	 * returning a bare string). Null path → null URL; absence is not failure.
+	 *
+	 * Routing the list through this method (rather than calling
+	 * `resolver.publicUrl` directly from the list service) keeps the
+	 * "profile_avatar is public" assertion in the member-side policy service,
+	 * where ADR-0007 centralized it.
+	 */
+	resolveProfileAvatarUrl(path: string | null): string | null {
+		return this.resolvePublic(path)
+	}
+
+	/**
 	 * Resolve all five file fields to URLs. Public fields synchronously, private
 	 * fields in parallel. A presign failure short-circuits the combine and
 	 * returns `err`; public URL concat is infallible.

@@ -1,4 +1,5 @@
-import { err, ok, ResultAsync } from "neverthrow"
+import { sql } from "bun"
+import { err, ok, type Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
@@ -8,6 +9,8 @@ import type { MemberBusiness } from "../domain/member-business"
 import type { MemberDocument } from "../domain/member-document"
 import type { MemberBusinessReadModel, MemberDetailReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
 import type { IMemberRepository } from "../interfaces"
+import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
+import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import { countActiveHolderByPosition, countMemberByIdCardHash, getPositionByCode, insertMember, insertMemberBusiness, insertMemberDocument } from "./sql/sqlc-generated/queries_sql"
 import { getMemberDocumentsByMemberId, getMemberWithBusinessById } from "./sql/sqlc-generated/queries_sql"
 
@@ -182,6 +185,170 @@ export class MembersRepository implements IMemberRepository {
 		return ok(detail)
 	}
 
+	/**
+	 * Paginated, filtered, sorted list query for GET /api/v1/members.
+	 *
+	 * Uses Bun SQL native — this is a dynamic read whose `WHERE`/`ORDER BY` shape
+	 * varies at runtime; sqlc is the wrong tool for it (ADR-0010). The `sql`
+	 * handle is the native Bun `SQL` instance from `dbClient`, cast to its real
+	 * type (not the postgres.js `Sql` the sqlc call sites use).
+	 *
+	 * Pagination is keyset on `(sort_field, id)` with `id` as the deterministic
+	 * tiebreaker (ADR-0011). Because the cursor wire format is a bare member id,
+	 * building the page-N+1 predicate needs the anchor row's sort-field value,
+	 * fetched here in a cheap PK lookup. A missing anchor (deleted between
+	 * pages) → `err(InvalidCursorError)` → 400. `has_more`/`next_cursor` are
+	 * computed via `LIMIT n+1` so the n+1 logic lives next to the SQL.
+	 *
+	 * Corrupted members (live member, no live business) are silently excluded
+	 * via INNER JOIN — the list renders the page, the invariant-loudness lives
+	 * in `getMemberDetailById` (grilling Q9).
+	 */
+	async getListMembers(filter: ListMembersFilter): Promise<Result<MemberListPage, DatabaseError | InvalidCursorError>> {
+		const db = this.dbClient.getRwConnection()
+
+		// 1. Anchor lookup (only when paginating past page 1).
+		let anchorSortValue: string | number | null = null
+		let hasAnchor = false
+		if (filter.cursor !== null) {
+			const anchorResult = await ResultAsync.fromPromise(
+				db<{ sort_value: string | number | null }[]>`
+					SELECT ${sql(filter.sortBy)} AS sort_value
+					FROM members
+					WHERE id = ${filter.cursor} AND deleted_at IS NULL
+				`,
+				(error) => error as Error
+			)
+			if (anchorResult.isErr()) {
+				return err(new DatabaseError("Anchor lookup failed", anchorResult.error))
+			}
+			const anchorRow = anchorResult.value[0]
+			if (anchorRow === undefined) {
+				// Cursor points at a member that no longer exists (soft- or hard-deleted
+				// since the client's previous page). The keyset predicate needs this
+				// row's sort value; without it, continuing is impossible. → 400.
+				return err(new InvalidCursorError())
+			}
+			anchorSortValue = anchorRow.sort_value
+			hasAnchor = true
+		}
+
+		// 2. Build dynamic fragments. Values go through bound parameters; the
+		//    ORDER BY column/direction come from a closed enum validated by
+		//    Valibot, so we branch into one of three static `sql` fragments per
+		//    sort field — no `sql.unsafe`, no identifier interpolation.
+		const statusFragment = filter.statuses !== null && filter.statuses.length > 0 ? sql`AND m.status IN (${sql(filter.statuses)})` : sql``
+		const searchFragment = filter.search !== null ? this.buildSearchFragment(filter.search) : sql``
+		const cursorFragment = hasAnchor ? this.buildKeysetFragment(filter.sortBy, filter.sortOrder, anchorSortValue, filter.cursor ?? 0) : sql``
+		const orderByFragment = this.buildOrderByFragment(filter.sortBy, filter.sortOrder)
+		const fetchLimit = filter.limit + 1 // n+1 → has_more detection (ADR-0011).
+
+		// 3. Main query.
+		const mainResult = await ResultAsync.fromPromise(
+			db`
+				SELECT m.id, m.registration_type, m.title_name_th, m.first_name_th, m.last_name_th,
+				       m.nickname, m.phone_no, m.email, m.line_id, m.position_code, m.status,
+				       m.profile_avatar,
+				       b.name AS business_name, b.description AS business_description
+				FROM members m
+				INNER JOIN member_business b ON b.member_id = m.id AND b.deleted_at IS NULL
+				WHERE m.deleted_at IS NULL
+					${statusFragment}
+					${searchFragment}
+					${cursorFragment}
+				${orderByFragment}
+				LIMIT ${fetchLimit}
+			`,
+			(error) => error as Error
+		)
+		if (mainResult.isErr()) {
+			return err(new DatabaseError("getListMembers query failed", mainResult.error))
+		}
+
+		const rawRows = mainResult.value as unknown as ReadonlyArray<Record<string, unknown>>
+		const hasMore = rawRows.length > filter.limit
+		const pageRows = hasMore ? rawRows.slice(0, filter.limit) : rawRows
+		const lastRow = pageRows[pageRows.length - 1]
+		const nextCursor = hasMore && lastRow !== undefined ? Number(lastRow["id"]) : null
+
+		return ok({ rows: pageRows.map(rowToMemberListRow), hasMore, nextCursor })
+	}
+
+	/**
+	 * Prefix-ILIKE across first_name_th, phone_no, position_code (grilling Q5).
+	 * Prefix-anchored ('q%') is b-tree-indexable; substring ('%q%') is not.
+	 * `position` is searched as the stored code (no positions JOIN, Q4).
+	 *
+	 * LIKE wildcards in the user input (`%`, `_`) and the escape char (`\`)
+	 * itself are escaped before appending the trailing prefix `%`, so a search
+	 * for a literal `%` or `_` matches itself rather than "anything" / "any one
+	 * char". `ESCAPE '\'` declares the escape char to Postgres. The value is
+	 * still a bound parameter — this is semantic escaping (controlling wildcard
+	 * meaning inside the pattern), not SQL-injection protection.
+	 */
+	private buildSearchFragment(search: string) {
+		const escaped = search.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
+		const pattern = `${escaped}%`
+		return sql`AND (m.first_name_th ILIKE ${pattern} ESCAPE '\\'
+		               OR m.phone_no ILIKE ${pattern} ESCAPE '\\'
+		               OR m.position_code ILIKE ${pattern} ESCAPE '\\')`
+	}
+
+	/**
+	 * Keyset predicate on `(sort_field, id)`, same direction as the sort
+	 * (ADR-0011). Postgres row-value comparison `(a, b) < (x, y)` is the
+	 * total-order form: combined with `id` as the final tiebreaker, there are
+	 * no ties, so pages never overlap or skip rows. NULLS handling on the
+	 * nullable `expires_at` is encoded in `buildOrderByFragment`; the row-value
+	 * predicate's standard NULL semantics are consistent with it because every
+	 * anchor row has a concrete (possibly-NULL) value that sorts to one end.
+	 *
+	 * The operator (`<` for DESC, `>` for ASC) is chosen by branching into one
+	 * of two complete static fragments — never a standalone `sql\`<\`` keyword
+	 * fragment, whose handling by Bun SQL is undocumented. Each branch is a
+	 * fully-formed literal SQL fragment with only values as bound parameters.
+	 */
+	private buildKeysetFragment(sortBy: SortField, sortOrder: SortOrder, anchorSortValue: string | number | null, cursorId: number) {
+		const column = columnFragment(sortBy)
+		if (sortOrder === "desc") {
+			return sql`AND (${column}, m.id) < (${anchorSortValue}, ${cursorId})`
+		}
+		return sql`AND (${column}, m.id) > (${anchorSortValue}, ${cursorId})`
+	}
+
+	/**
+	 * `ORDER BY <column> <dir> <NULLS>, m.id <dir>`. The column and direction
+	 * are emitted as one static fragment per `(sortBy, sortOrder)` combination,
+	 * branched from the Valibot-validated enum — never interpolated from user
+	 * text. NULLS LAST for DESC, NULLS FIRST for ASC so nullable `expires_at`
+	 * rows cluster deterministically at one end of every page sequence.
+	 *
+	 * Like `buildKeysetFragment`, each `(sortBy, sortOrder)` pair branches into
+	 * a complete static fragment rather than composing standalone keyword
+	 * fragments (`sql\`DESC\``, `sql\`NULLS LAST\``).
+	 */
+	private buildOrderByFragment(sortBy: SortField, sortOrder: SortOrder) {
+		// m.id uses the same direction as the sort column — total order, no ties.
+		if (sortOrder === "desc") {
+			switch (sortBy) {
+				case "created_at":
+					return sql`ORDER BY m.created_at DESC NULLS LAST, m.id DESC`
+				case "first_name_th":
+					return sql`ORDER BY m.first_name_th DESC NULLS LAST, m.id DESC`
+				case "expires_at":
+					return sql`ORDER BY m.expires_at DESC NULLS LAST, m.id DESC`
+			}
+		}
+		switch (sortBy) {
+			case "created_at":
+				return sql`ORDER BY m.created_at ASC NULLS FIRST, m.id ASC`
+			case "first_name_th":
+				return sql`ORDER BY m.first_name_th ASC NULLS FIRST, m.id ASC`
+			case "expires_at":
+				return sql`ORDER BY m.expires_at ASC NULLS FIRST, m.id ASC`
+		}
+	}
+
 	// --- Private insert helpers (run inside create's transaction) ----------
 
 	/** Insert the member row, return the generated id as a number. */
@@ -304,4 +471,48 @@ function toPgArray(arr: readonly number[] | null): string | null {
 	}
 
 	return `{${arr.join(",")}}`
+}
+
+/**
+ * Map a validated {@link SortField} enum value to a static column-reference
+ * `sql` fragment. The switch (not `sql.unsafe`) guarantees no user text reaches
+ * the query as an identifier — only the three enum literals can land here, and
+ * each is a hardcoded column reference. This is the ADR-0010 identifier-safety
+ * rule applied to dynamic `ORDER BY`.
+ */
+function columnFragment(sortBy: SortField) {
+	switch (sortBy) {
+		case "created_at":
+			return sql`m.created_at`
+		case "first_name_th":
+			return sql`m.first_name_th`
+		case "expires_at":
+			return sql`m.expires_at`
+	}
+}
+
+/**
+ * Map a raw snake_case DB row (untyped from Bun SQL) to the camelCase
+ * {@link MemberListRow} the service consumes. Casts through `Record<string,
+ * unknown>` because Bun SQL's template returns `any[]` under `@types/bun`;
+ * the explicit index-access + `as` on each field is the typed boundary that
+ * restores type safety (ADR-0010 consequence #1).
+ */
+function rowToMemberListRow(row: Record<string, unknown>): MemberListRow {
+	return {
+		id: Number(row["id"]),
+		registrationType: row["registration_type"] as "INDIVIDUAL" | "JURISTIC_PERSON",
+		titleNameTh: row["title_name_th"] as string,
+		firstNameTh: row["first_name_th"] as string,
+		lastNameTh: row["last_name_th"] as string,
+		nickname: row["nickname"] as string,
+		phoneNo: row["phone_no"] as string,
+		email: (row["email"] as string | null) ?? null,
+		lineId: (row["line_id"] as string | null) ?? null,
+		positionCode: row["position_code"] as string,
+		status: row["status"] as MemberListRow["status"],
+		profileAvatar: (row["profile_avatar"] as string | null) ?? null,
+		businessName: row["business_name"] as string,
+		businessDescription: row["business_description"] as string,
+	}
 }
