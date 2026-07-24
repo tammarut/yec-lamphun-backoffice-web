@@ -15,7 +15,6 @@ import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { envConfig } from "src/shared/config/env"
-import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { ulidGenerator } from "src/shared/lib/ulid-generator"
 import { container } from "tsyringe"
 import { REGISTER_KEY } from "./di-tokens"
@@ -41,10 +40,17 @@ container.register(REGISTER_KEY.ID_GENERATOR, {
 })
 
 // 3. Register DatabaseClient
-// We register the class constructor itself as the token to allow direct injection
-container.register(DatabaseClient, {
-	useClass: DatabaseClient,
-})
+// The `@singleton()` decorator on DatabaseClient already registers it under its
+// own constructor as the token, which is what we want for direct injection via
+// `@inject(DatabaseClient)`. A previous explicit `container.register(..., {
+// useClass: DatabaseClient })` here was HARMFUL: without a `lifecycle` option,
+// tsyringe's `register()` defaults to Transient, overwriting the decorator's
+// Singleton registration. That made every `container.resolve(DatabaseClient)`
+// construct a brand-new SQL connection pool (each `DB_MAX_CONNECTIONS=10`), and
+// the pools were never closed — so every request leaked ~10 connections until
+// Postgres rejected new ones with `53300: remaining connection slots are
+// reserved for roles with the SUPERUSER attribute`. Removing the explicit
+// registration lets the decorator's Singleton win: one DatabaseClient, one pool.
 
 // 5. Register System Settings Module
 container.register(REGISTER_KEY.SYSTEM_SETTINGS_REPOSITORY, {
