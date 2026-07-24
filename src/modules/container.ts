@@ -16,7 +16,7 @@ import { SystemSettingsRepository } from "src/modules/system-settings/repository
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { envConfig } from "src/shared/config/env"
 import { ulidGenerator } from "src/shared/lib/ulid-generator"
-import { container } from "tsyringe"
+import { container, Lifecycle } from "tsyringe"
 import { REGISTER_KEY } from "./di-tokens"
 
 export { REGISTER_KEY } from "./di-tokens"
@@ -57,18 +57,26 @@ container.register(REGISTER_KEY.SYSTEM_SETTINGS_REPOSITORY, {
 	useClass: SystemSettingsRepository,
 })
 
-container.register(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE, {
-	useClass: SystemSettingsService,
-})
+container.register(
+	REGISTER_KEY.SYSTEM_SETTINGS_SERVICE,
+	{
+		useClass: SystemSettingsService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 // 6. Register Business Categories Module
 container.register(REGISTER_KEY.BUSINESS_CATEGORIES_REPOSITORY, {
 	useClass: BusinessCategoriesRepository,
 })
 
-container.register(REGISTER_KEY.BUSINESS_CATEGORIES_SERVICE, {
-	useClass: BusinessCategoriesService,
-})
+container.register(
+	REGISTER_KEY.BUSINESS_CATEGORIES_SERVICE,
+	{
+		useClass: BusinessCategoriesService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 // 7. Register Auth Module
 container.register(REGISTER_KEY.AUTH_SERVICE, {
@@ -81,33 +89,58 @@ container.register(REGISTER_KEY.AUTH_SERVICE, {
 // pool (ADR-0007). Both interface tokens resolve to the same singleton instance
 // — MEMBER_FILE_STORAGE_CLIENT owns it (useClass), STORAGE_URL_RESOLVER aliases
 // to it (useToken) so neither service sees a second S3Client.
-container.register(REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT, {
-	useClass: R2StorageClient,
-})
+// `lifecycle: Singleton` is REQUIRED: without it, tsyringe defaults `useClass`
+// to Transient, and every resolve constructs a new R2StorageClient → new
+// S3Client → new TCP connection pool (same class of bug as DatabaseClient).
+container.register(
+	REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT,
+	{
+		useClass: R2StorageClient,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 container.register(REGISTER_KEY.STORAGE_URL_RESOLVER, {
 	useToken: REGISTER_KEY.MEMBER_FILE_STORAGE_CLIENT,
 })
 
-container.register(REGISTER_KEY.MEMBER_FILE_SERVICE, {
-	useClass: MemberFileService,
-})
+container.register(
+	REGISTER_KEY.MEMBER_FILE_SERVICE,
+	{
+		useClass: MemberFileService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
-container.register(REGISTER_KEY.MEMBER_FILE_URL_SERVICE, {
-	useClass: MemberFileUrlService,
-})
+container.register(
+	REGISTER_KEY.MEMBER_FILE_URL_SERVICE,
+	{
+		useClass: MemberFileUrlService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 // 9. Register Shared PII Crypto Services
 // Generic AES-256-GCM encryption and HMAC-SHA256 blind-index adapters, injected
 // under interface tokens so tests can swap in mocks. Used by the members domain
 // layer (IdCard); reusable for any future PII column.
-container.register(REGISTER_KEY.ENCRYPTION_SERVICE, {
-	useClass: AesGcmEncryptionService,
-})
+// `lifecycle: Singleton` is REQUIRED: these derive crypto keys in their
+// constructors — Transient would re-derive on every resolve.
+container.register(
+	REGISTER_KEY.ENCRYPTION_SERVICE,
+	{
+		useClass: AesGcmEncryptionService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
-container.register(REGISTER_KEY.BLIND_INDEX_SERVICE, {
-	useClass: HmacBlindIndexService,
-})
+container.register(
+	REGISTER_KEY.BLIND_INDEX_SERVICE,
+	{
+		useClass: HmacBlindIndexService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 // 10. Register Members Module (create-member flow)
 // The repository wraps sqlc-generated queries; the service orchestrates member
@@ -116,21 +149,33 @@ container.register(REGISTER_KEY.MEMBERS_REPOSITORY, {
 	useClass: MembersRepository,
 })
 
-container.register(REGISTER_KEY.CREATE_NEW_MEMBER_SERVICE, {
-	useClass: CreateNewMemberService,
-})
+container.register(
+	REGISTER_KEY.CREATE_NEW_MEMBER_SERVICE,
+	{
+		useClass: CreateNewMemberService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 // 10b. Register Members Module (get-member-by-id query) — ADR-0007/0008.
 // Read-only orchestrator over the repository, crypto, and URL service.
-container.register(REGISTER_KEY.GET_MEMBER_BY_ID_SERVICE, {
-	useClass: GetMemberByIdService,
-})
+container.register(
+	REGISTER_KEY.GET_MEMBER_BY_ID_SERVICE,
+	{
+		useClass: GetMemberByIdService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 // 10c. Register Members Module (get-list-members query) — ADR-0010/0011.
 // Read-only orchestrator over the repository (Bun-SQL keyset pagination) and
 // the URL service (profile_avatar public-bucket concat).
-container.register(REGISTER_KEY.GET_LIST_MEMBERS_SERVICE, {
-	useClass: GetListMembersService,
-})
+container.register(
+	REGISTER_KEY.GET_LIST_MEMBERS_SERVICE,
+	{
+		useClass: GetListMembersService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
 
 export { container }
