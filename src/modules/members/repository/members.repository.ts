@@ -237,7 +237,13 @@ export class MembersRepository implements IMemberRepository {
 		//    ORDER BY column/direction come from a closed enum validated by
 		//    Valibot, so we branch into one of three static `sql` fragments per
 		//    sort field — no `sql.unsafe`, no identifier interpolation.
-		const statusFragment = filter.statuses !== null && filter.statuses.length > 0 ? sql`AND m.status IN (${sql(filter.statuses)})` : sql``
+		//
+		//    `sql.array(values, "text")` is the correct Bun-SQL helper for an
+		//    IN-clause value list. The naïve `sql(values)` resolves to the
+		//    object-insert overload and emits a Postgres row/record literal
+		//    `(v1, v2)`, which yields `operator does not exist: varchar = record`.
+		//    `= ANY($1)` is the typed-array equivalent of `IN (...)`.
+		const statusFragment = filter.statuses !== null && filter.statuses.length > 0 ? sql`AND m.status = ANY(${sql.array([...filter.statuses], "text")})` : sql``
 		const searchFragment = filter.search !== null ? this.buildSearchFragment(filter.search) : sql``
 		const cursorFragment = hasAnchor ? this.buildKeysetFragment(filter.sortBy, filter.sortOrder, anchorSortValue, filter.cursor ?? 0) : sql``
 		const orderByFragment = this.buildOrderByFragment(filter.sortBy, filter.sortOrder)
