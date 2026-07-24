@@ -2,6 +2,8 @@ import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { Member } from "./domain/member"
 import type { MemberDetailReadModel, PositionReadModel } from "./domain/member-read-models"
+import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
+import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
 
 export interface IMemberRepository {
 	// --- Check queries (run OUTSIDE the create-member transaction) ----------
@@ -38,4 +40,22 @@ export interface IMemberRepository {
 	 * out-of-band corruption and the route maps it to 500 (grilling Q6/iii-a).
 	 */
 	getMemberDetailById(id: number): Promise<Result<MemberDetailReadModel | null, DatabaseError>>
+
+	/**
+	 * Paginated, filtered, sorted list of members for the backoffice table
+	 * (infinite scroll). Returns one page of rows + `has_more` + `next_cursor`
+	 * (computed via the `LIMIT n+1` trick, ADR-0011). Keyset pagination on
+	 * `(sort_field, id)`; the cursor's anchor-row sort value is fetched in a
+	 * separate cheap lookup, and a missing anchor returns
+	 * `err(InvalidCursorError)` → 400 (grilling Q3b / ADR-0011).
+	 *
+	 * Uses Bun SQL native — this is a dynamic read whose `WHERE`/`ORDER BY`
+	 * shape varies at runtime; see ADR-0010 for the sqlc-vs-Bun-SQL split.
+	 *
+	 * Corrupted members (live member with no live business row) are silently
+	 * excluded via an INNER JOIN — the list's job is to render the page, not
+	 * to assert the 1:1 invariant per-row; that loudness lives in
+	 * `getMemberDetailById` (grilling Q9).
+	 */
+	getListMembers(filter: ListMembersFilter): Promise<Result<MemberListPage, DatabaseError | InvalidCursorError>>
 }

@@ -19,6 +19,22 @@ describe("MemberFileUrlService", () => {
 	})
 
 	describe("Happy cases", () => {
+		test("resolveProfileAvatarUrl returns the concatenated public URL for a non-null path", () => {
+			// Q6: purpose-built single-field resolver for the list view. Sync +
+			// infallible (public concat). No Result wrapper — absence is null, not err.
+			const url = service.resolveProfileAvatarUrl("members/profile_avatars/a.png")
+			expect(url).toBe("https://public.example/key")
+			expect(mockResolver.publicUrl).toHaveBeenCalledTimes(1)
+			expect(mockResolver.publicUrl).toHaveBeenCalledWith("members/profile_avatars/a.png")
+			// Private resolution must NOT happen here.
+			expect(mockResolver.presign).not.toHaveBeenCalled()
+		})
+
+		test("resolveProfileAvatarUrl returns null for a null path without calling the resolver", () => {
+			expect(service.resolveProfileAvatarUrl(null)).toBeNull()
+			expect(mockResolver.publicUrl).not.toHaveBeenCalled()
+		})
+
 		test("presigns private-bucket fields and concatenates public fields", async () => {
 			const result = await service.resolveMemberFileUrls({
 				idCardImage: "members/documents/id.jpg",

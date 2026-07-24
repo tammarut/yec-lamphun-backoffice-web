@@ -21,4 +21,6 @@ export const REGISTER_KEY = {
 	CREATE_NEW_MEMBER_SERVICE: Symbol("CREATE_NEW_MEMBER_SERVICE"),
 	// Members module (get-member-by-id query) — ADR-0007/0008.
 	GET_MEMBER_BY_ID_SERVICE: Symbol("GET_MEMBER_BY_ID_SERVICE"),
+	// Members module (get-list-members query) — ADR-0010/0011.
+	GET_LIST_MEMBERS_SERVICE: Symbol("GET_LIST_MEMBERS_SERVICE"),
 } as const
