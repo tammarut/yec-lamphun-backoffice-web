@@ -1,7 +1,7 @@
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { Member } from "./domain/member"
-import type { MemberDetailReadModel, PositionReadModel } from "./domain/member-read-models"
+import type { MemberDetailReadModel, MemberDocumentType, PositionReadModel } from "./domain/member-read-models"
 import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
 
@@ -26,6 +26,29 @@ export interface IMemberRepository {
 	 * implementation detail — callers see one method.
 	 */
 	create(member: Member): Promise<Result<number, DatabaseError>>
+
+	/**
+	 * Update an existing member atomically inside a single transaction:
+	 *   1. UPDATE members SET ... (mutable columns only; lifecycle columns
+	 *      preserved — see ADR-0012 / grilling Q4)
+	 *   2. UPDATE member_business SET ... (location must arrive already swapped
+	 *      to [long, lat] by the MemberBusiness VO)
+	 *   3. For each type in {@link documentTypesToReplace}: soft-delete the
+	 *      member's existing live rows of that type, then insert the new row(s)
+	 *      from `updated.documents` of that type (grilling Q6).
+	 *
+	 * The caller (update use case) computes {@link documentTypesToReplace} by
+	 * diffing the resolved request against the stored values — the repository
+	 * just executes the policy it's given. The set is a subset of
+	 * `{'ID_CARD', 'COMPANY_CERTIFICATE'}` and may be empty (no document
+	 * replacement this edit).
+	 *
+	 * `id` is the path-param member id; the UPDATE's `WHERE deleted_at IS NULL`
+	 * makes a soft-delete that races the read indistinguishable from not-found
+	 * (the row count is ignored — this endpoint accepts last-writer-wins per
+	 * grilling Q11).
+	 */
+	update(id: number, updated: Member, documentTypesToReplace: readonly MemberDocumentType[]): Promise<Result<void, DatabaseError>>
 
 	// --- Reads --------------------------------------------------------------
 

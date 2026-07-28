@@ -87,6 +87,8 @@ SELECT m.id,
        m.phone_no, m.email, m.line_id,
        m.shirt_size,
        m.position_code, m.status,
+       m.id_card_no_hash,
+       m.renewal_successful_count,
        m.created_at, m.updated_at,
        b.id            AS business_id,
        b.name          AS business_name,
@@ -118,3 +120,60 @@ WHERE member_id = $1
   AND deleted_at IS NULL
   AND type IN ('ID_CARD', 'COMPANY_CERTIFICATE')
 ORDER BY type, created_at DESC;
+
+-- ============================================================================
+-- Update queries (PATCH /api/v1/members/:id)
+-- ============================================================================
+
+-- name: UpdateMemberById :exec
+-- Update a non-deleted member's mutable columns. Deliberately OMITS the
+-- lifecycle columns (status, member_since, expires_at,
+-- renewal_successful_count, latest_renewal_status) — PATCH must not reset
+-- membership tenure or expiry (grilling Q4). updated_at is bumped server-side.
+-- created_at / id / deleted_at are never written here.
+UPDATE members SET
+    registration_type = $2,
+    title_name_th = $3, first_name_th = $4, last_name_th = $5,
+    title_name_en = $6, first_name_en = $7, last_name_en = $8,
+    nickname = $9,
+    gender = $10, date_of_birth = $11, nationality = $12,
+    id_card_no = $13, id_card_no_hash = $14, id_card_expiry_date = $15,
+    profile_avatar = $16,
+    phone_no = $17, email = $18, line_id = $19,
+    shirt_size = $20,
+    position_code = $21,
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;
+
+-- name: UpdateMemberBusinessByMemberId :exec
+-- Update the member's 1:1 non-deleted business row. location must arrive
+-- already swapped to [long, lat] (the MemberBusiness VO owns the swap).
+-- updated_at is bumped server-side.
+UPDATE member_business SET
+    name = $2,
+    description = $3,
+    juristic_registration_no = $4,
+    category_id = $5,
+    address = $6,
+    location = $7,
+    core_business = $8,
+    website = $9,
+    logo_file_path = $10,
+    product_file_path = $11,
+    updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteMemberDocumentsByMemberIdAndTypes :exec
+-- Soft-delete (set deleted_at) the member's non-deleted document rows of the
+-- given type(s), in preparation for inserting replacement rows. Used when a
+-- PATCH provides a non-null id_card_image and/or company_certificate
+-- (grilling Q6: soft-delete preserves version history; the latest-wins read
+-- query already filters deleted_at IS NULL). The service only calls this with
+-- a non-empty types list — the closed set is {'ID_CARD', 'COMPANY_CERTIFICATE'}.
+UPDATE member_documents
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND type = ANY(sqlc.arg('types')::text[])
+  AND deleted_at IS NULL;

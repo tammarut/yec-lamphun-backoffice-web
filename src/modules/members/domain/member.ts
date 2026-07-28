@@ -30,15 +30,26 @@ export type MemberProps = {
 	readonly idCardCipher: IdCardCipher
 	readonly idCardExpiryDate: Date
 	readonly memberSince: Date
-	readonly expiresAt: Date
+	/** Expiry is nullable on the DB (TIMESTAMPTZ, no NOT NULL); preserved verbatim by PATCH. */
+	readonly expiresAt: Date | null
 	readonly profileAvatar: string | null
 	readonly phoneNo: string
 	readonly email: string | null
 	readonly lineId: string | null
 	readonly shirtSize: string | null
 	readonly positionCode: string
-	readonly status: "ACTIVE"
-	readonly renewalSuccessfulCount: 0
+	/**
+	 * Member status. Create always sets "ACTIVE"; PATCH preserves whatever an
+	 * existing member already holds (could be EXPIRED, PENDING_RENEWAL, etc.),
+	 * so the type is the full DB CHECK-constraint union rather than the
+	 * create-only literal.
+	 */
+	readonly status: "ACTIVE" | "EXPIRED" | "PENDING_RENEWAL" | "RESIGNED"
+	/**
+	 * Cached renewal count. Create sets 0; PATCH preserves the existing value,
+	 * so this is `number` rather than the create-only literal `0`.
+	 */
+	readonly renewalSuccessfulCount: number
 	readonly documents: readonly MemberDocument[]
 	readonly business: MemberBusiness
 }
@@ -249,6 +260,122 @@ export class Member {
 		expiresAt.setHours(23, 59, 59, 999)
 
 		return expiresAt
+	}
+
+	// --- Factory: Update Existing Member ---
+	// Re-runs the same self-invariants as create(), but PRESERVES the lifecycle
+	// fields (status, member_since, expires_at, renewal_successful_count) from
+	// the existing member — an edit to contact info must not reset tenure or
+	// extend expiry (grilling Q4).
+
+	/**
+	 * Validate and re-assemble a Member from an edit request + the existing
+	 * member's preserved lifecycle fields.
+	 *
+	 * Owns the SAME self-invariants as {@link create}:
+	 *   - id_card_expiry_date must not be before today
+	 *   - id_card_no must be 13 digits (then re-encrypted + re-hashed)
+	 *   - position must be active
+	 *   - business VO is created (owns the [lat,long]→[long,lat] swap)
+	 *   - documents are collected from the request file paths
+	 *
+	 * Does NOT own cross-member rules (duplicate id_card, occupied SINGLE
+	 * position) — those live in the update use case, same as create.
+	 *
+	 * The caller (update use case) is responsible for the PATCH-semantics
+	 * resolution: by the time `req` reaches here, the five sticky file-path
+	 * fields (profileAvatar, idCardImage, companyCertificate, business.logo,
+	 * business.product) must already be resolved to concrete non-null strings
+	 * (null in the request has been substituted with the existing stored value,
+	 * ADR-0012). This factory treats them as ordinary values.
+	 *
+	 * `preserved` carries the lifecycle fields copied verbatim from the existing
+	 * member; everything else is taken from `req`.
+	 */
+	static update(
+		req: CreateMemberRequest,
+		position: PositionReadModel,
+		encryption: IEncryptionService,
+		blindIndex: IBlindIndexService,
+		now: Date,
+		preserved: {
+			memberSince: Date
+			expiresAt: Date | null
+			status: MemberProps["status"]
+			renewalSuccessfulCount: number
+		}
+	): Result<Member, MemberValidationError | CryptoError> {
+		// Self-invariant: id_card must not already be expired.
+		const expiryCheck = validateIdCardExpiry(req.idCardExpiryDate, now)
+		if (expiryCheck.isErr()) {
+			return err(expiryCheck.error)
+		}
+
+		// Self-invariant: position must be active.
+		if (!position.isActive) {
+			return err(new MemberValidationError(`Position ${position.code} is not active`))
+		}
+
+		// Self-invariant: id_card format, then encrypt + hash.
+		const idCardResult = IdCard.fromPlaintext(req.idCardNo)
+		if (idCardResult.isErr()) {
+			return err(idCardResult.error)
+		}
+		const cipherIdCardNoResult = idCardResult.value.toCipher(encryption, blindIndex)
+		if (cipherIdCardNoResult.isErr()) {
+			return err(cipherIdCardNoResult.error)
+		}
+
+		// Self-invariant: business VO (owns the location swap).
+		const businessResult = MemberBusiness.create({
+			name: req.business.name,
+			description: req.business.description,
+			juristicRegistrationNo: req.business.juristicRegistrationNo,
+			categoryId: req.business.categoryId,
+			address: req.business.address,
+			location: req.business.location,
+			coreBusiness: req.business.coreBusiness,
+			website: req.business.website,
+			logo: req.business.logo,
+			product: req.business.product,
+		})
+		if (businessResult.isErr()) {
+			return err(businessResult.error)
+		}
+
+		// Collect documents: ID_CARD (from id_card_image) + COMPANY_CERTIFICATE.
+		const documents = collectDocuments(req)
+
+		return ok(
+			new Member({
+				registrationType: req.registrationType,
+				titleNameTh: req.titleNameTh,
+				firstNameTh: req.firstNameTh,
+				lastNameTh: req.lastNameTh,
+				titleNameEn: req.titleNameEn,
+				firstNameEn: req.firstNameEn,
+				lastNameEn: req.lastNameEn,
+				nickname: req.nickname,
+				gender: req.gender,
+				dateOfBirth: req.dateOfBirth,
+				nationality: req.nationality,
+				idCardCipher: cipherIdCardNoResult.value,
+				idCardExpiryDate: req.idCardExpiryDate,
+				// Lifecycle fields preserved from the existing member — NOT recomputed.
+				memberSince: preserved.memberSince,
+				expiresAt: preserved.expiresAt,
+				profileAvatar: req.profileAvatar,
+				phoneNo: req.phoneNo,
+				email: req.email,
+				lineId: req.lineId,
+				shirtSize: req.shirtSize,
+				positionCode: req.position,
+				status: preserved.status,
+				renewalSuccessfulCount: preserved.renewalSuccessfulCount,
+				documents: documents,
+				business: businessResult.value,
+			})
+		)
 	}
 
 	// --- Factory: From Database ---

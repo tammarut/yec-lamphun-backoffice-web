@@ -7,6 +7,7 @@ import { MemberFileUrlService } from "src/modules/members/member-file-url.servic
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
+import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
@@ -174,6 +175,17 @@ container.register(
 	REGISTER_KEY.GET_LIST_MEMBERS_SERVICE,
 	{
 		useClass: GetListMembersService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
+
+// 10d. Register Members Module (update-member-by-id command) — ADR-0012.
+// Orchestrator over the repository + crypto: existence check, sticky file-path
+// resolution, conditional duplicate-id + position checks, transactional update.
+container.register(
+	REGISTER_KEY.UPDATE_MEMBER_SERVICE,
+	{
+		useClass: UpdateMemberService,
 	},
 	{ lifecycle: Lifecycle.Singleton }
 )

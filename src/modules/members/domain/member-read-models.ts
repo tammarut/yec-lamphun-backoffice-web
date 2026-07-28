@@ -80,6 +80,19 @@ export interface MemberDetailReadModel {
 	readonly shirtSize: string | null
 	readonly positionCode: string
 	readonly status: "ACTIVE" | "EXPIRED" | "PENDING_RENEWAL" | "RESIGNED"
+	/**
+	 * Blind-index hash of the ID card (HMAC-SHA256 hex). Surfaced on the read
+	 * model so the update use case can compare the stored hash against the
+	 * incoming request's hash and skip the duplicate-id check when the ID card
+	 * is unchanged (spec pseudocode: "Compare member.id_card_no_hash and hashed
+	 * input id_card_no"). Not for display.
+	 */
+	readonly idCardNoHash: string
+	/**
+	 * Cached count of successful renewals. Preserved verbatim by PATCH (grilling
+	 * Q4) — surfaced so the update use case can pass it through to Member.update.
+	 */
+	readonly renewalSuccessfulCount: number
 	readonly createdAt: Date
 	readonly updatedAt: Date
 	/** 1:1 business record; the repository guarantees this is non-null for a live member (else 500). */

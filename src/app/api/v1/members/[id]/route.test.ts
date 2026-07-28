@@ -8,9 +8,11 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { MemberConflictError, MemberValidationError } from "src/modules/members/use-case/create-new-member/create-member.errors"
 import { MemberNotFoundError } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.errors"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
+import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 
 // Mock container module BEFORE importing the route.
@@ -21,7 +23,7 @@ vi.mock("src/modules/container", () => ({
 }))
 
 // Import route AFTER mocks.
-import { GET } from "./route"
+import { GET, PATCH } from "./route"
 
 const mockSessionData = {
 	username: "admin",
@@ -84,6 +86,54 @@ function makeRequest(id: string): { req: NextRequest; ctx: { params: Promise<{ i
 	const req = new NextRequest(`http://localhost/api/v1/members/${id}`, { method: "GET" })
 	req.cookies.set("session_id", "valid-session")
 	return { req, ctx: { params: Promise.resolve({ id }) } }
+}
+
+/** Build a PATCH NextRequest with a JSON body + valid session cookie. */
+function makePatchRequest(id: string, body: unknown): { req: NextRequest; ctx: { params: Promise<{ id: string }> } } {
+	const req = new NextRequest(`http://localhost/api/v1/members/${id}`, {
+		method: "PATCH",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	})
+	req.cookies.set("session_id", "valid-session")
+	return { req, ctx: { params: Promise.resolve({ id }) } }
+}
+
+/** A structurally valid PATCH body (all required fields, valid enums/formats). */
+const validPatchBody = {
+	registration_type: "INDIVIDUAL",
+	company_certificate: "members/documents/cert.jpg",
+	id_card_image: "members/documents/idcard.jpg",
+	profile_avatar: "members/avatars/a.jpg",
+	title_name_th: "นาง",
+	first_name_th: "มาลี",
+	last_name_th: "รักสุข",
+	title_name_en: "Miss",
+	first_name_en: "Malee",
+	last_name_en: "Raksuk",
+	nickname: "malee",
+	gender: "FEMALE",
+	date_of_birth: "1985-08-20",
+	nationality: "Thai",
+	id_card_no: "1234567890123",
+	id_card_expiry_date: "2027-08-19",
+	phone_no: "0812345678",
+	email: "malee@example.com",
+	line_id: "malee.line",
+	shirt_size: "M",
+	position: "GENERAL_MEMBER",
+	business: {
+		name: "V Foods",
+		juristic_registration_no: "105557026729",
+		category_id: 1,
+		address: "Bangkok",
+		location: [13.72, 100.55],
+		description: "desc",
+		core_business: "canned food",
+		website: "https://vfoods.co.th",
+		logo: "members/business/logo.jpg",
+		product: "members/business/product.jpg",
+	},
 }
 
 describe("GET /api/v1/members/:id", () => {
@@ -156,6 +206,115 @@ describe("GET /api/v1/members/:id", () => {
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Internal Server Error")
 			consoleSpy.mockRestore()
+		})
+	})
+})
+
+describe("PATCH /api/v1/members/:id", () => {
+	let mockUpdateService: ReturnType<typeof mock<UpdateMemberService>>
+	let mockAuthService: ReturnType<typeof mock<AuthService>>
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mockUpdateService = mock<UpdateMemberService>()
+		mockAuthService = mock<AuthService>()
+		mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
+
+		vi.mocked(container.resolve).mockImplementation((token) => {
+			if (token === REGISTER_KEY.AUTH_SERVICE) return mockAuthService
+			if (token === REGISTER_KEY.UPDATE_MEMBER_SERVICE) return mockUpdateService
+			return {}
+		})
+	})
+
+	describe("Happy cases", () => {
+		it("returns 204 with no body on a successful update", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response).toBeInstanceOf(NextResponse)
+			expect(response.status).toBe(204)
+			expect(await response.text()).toBe("")
+			// The service receives the parsed integer id + the DTO.
+			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ registrationType: "INDIVIDUAL" }))
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		it("returns 401 when session_id cookie is missing", async () => {
+			const req = new NextRequest("http://localhost/api/v1/members/101", {
+				method: "PATCH",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(validPatchBody),
+			})
+			const response = await PATCH(req, { params: Promise.resolve({ id: "101" }) })
+			expect(response.status).toBe(401)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Unauthorized")
+		})
+
+		it("returns 400 when id is not a valid integer", async () => {
+			const { req, ctx } = makePatchRequest("abc", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("id parameter must be a valid integer")
+		})
+
+		it("returns 400 when the body is not valid JSON", async () => {
+			const req = new NextRequest("http://localhost/api/v1/members/101", {
+				method: "PATCH",
+				headers: { "content-type": "application/json" },
+				body: "{not json",
+			})
+			req.cookies.set("session_id", "valid-session")
+			const response = await PATCH(req, { params: Promise.resolve({ id: "101" }) })
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Invalid request body")
+		})
+
+		it("returns 400 when a required field is missing", async () => {
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, first_name_th: undefined })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 404 when the member is not found", async () => {
+			mockUpdateService.execute.mockResolvedValue(err(new MemberNotFoundError()))
+			const { req, ctx } = makePatchRequest("999", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(404)
+		})
+
+		it("returns 409 on a duplicate-id_card conflict", async () => {
+			mockUpdateService.execute.mockResolvedValue(err(new MemberConflictError("DUPLICATE_ID_CARD", "dup")))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(409)
+		})
+
+		it("returns 409 on a position-occupied conflict", async () => {
+			mockUpdateService.execute.mockResolvedValue(err(new MemberConflictError("POSITION_OCCUPIED", "occupied")))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(409)
+		})
+
+		it("returns 400 on a MemberValidationError", async () => {
+			mockUpdateService.execute.mockResolvedValue(err(new MemberValidationError("bad expiry")))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 500 on a DatabaseError", async () => {
+			mockUpdateService.execute.mockResolvedValue(err(new DatabaseError("tx failed")))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(500)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Internal Server Error")
 		})
 	})
 })

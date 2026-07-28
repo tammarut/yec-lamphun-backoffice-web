@@ -221,6 +221,8 @@ SELECT m.id,
        m.phone_no, m.email, m.line_id,
        m.shirt_size,
        m.position_code, m.status,
+       m.id_card_no_hash,
+       m.renewal_successful_count,
        m.created_at, m.updated_at,
        b.id            AS business_id,
        b.name          AS business_name,
@@ -270,6 +272,8 @@ export interface GetMemberWithBusinessByIdRow {
 	shirtSize: string | null
 	positionCode: string
 	status: string
+	idCardNoHash: string
+	renewalSuccessfulCount: number
 	createdAt: Date
 	updatedAt: Date
 	businessId: string | null
@@ -312,21 +316,23 @@ export async function getMemberWithBusinessById(sql: Sql, args: GetMemberWithBus
 		shirtSize: row[20],
 		positionCode: row[21],
 		status: row[22],
-		createdAt: row[23],
-		updatedAt: row[24],
-		businessId: row[25],
-		businessName: row[26],
-		businessDescription: row[27],
-		juristicRegistrationNo: row[28],
-		categoryId: row[29],
-		address: row[30],
-		location: row[31],
-		coreBusiness: row[32],
-		website: row[33],
-		logoFilePath: row[34],
-		productFilePath: row[35],
-		businessCreatedAt: row[36],
-		businessUpdatedAt: row[37],
+		idCardNoHash: row[23],
+		renewalSuccessfulCount: row[24],
+		createdAt: row[25],
+		updatedAt: row[26],
+		businessId: row[27],
+		businessName: row[28],
+		businessDescription: row[29],
+		juristicRegistrationNo: row[30],
+		categoryId: row[31],
+		address: row[32],
+		location: row[33],
+		coreBusiness: row[34],
+		website: row[35],
+		logoFilePath: row[36],
+		productFilePath: row[37],
+		businessCreatedAt: row[38],
+		businessUpdatedAt: row[39],
 	}))
 }
 
@@ -354,4 +360,133 @@ export async function getMemberDocumentsByMemberId(sql: Sql, args: GetMemberDocu
 		filePath: row[1],
 		createdAt: row[2],
 	}))
+}
+
+export const updateMemberByIdQuery = `-- name: UpdateMemberById :exec
+
+UPDATE members SET
+    registration_type = $2,
+    title_name_th = $3, first_name_th = $4, last_name_th = $5,
+    title_name_en = $6, first_name_en = $7, last_name_en = $8,
+    nickname = $9,
+    gender = $10, date_of_birth = $11, nationality = $12,
+    id_card_no = $13, id_card_no_hash = $14, id_card_expiry_date = $15,
+    profile_avatar = $16,
+    phone_no = $17, email = $18, line_id = $19,
+    shirt_size = $20,
+    position_code = $21,
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface UpdateMemberByIdArgs {
+	id: string
+	registrationType: string
+	titleNameTh: string
+	firstNameTh: string
+	lastNameTh: string
+	titleNameEn: string | null
+	firstNameEn: string | null
+	lastNameEn: string | null
+	nickname: string
+	gender: string
+	dateOfBirth: Date
+	nationality: string
+	idCardNo: string
+	idCardNoHash: string
+	idCardExpiryDate: Date
+	profileAvatar: string | null
+	phoneNo: string
+	email: string | null
+	lineId: string | null
+	shirtSize: string | null
+	positionCode: string
+}
+
+export async function updateMemberById(sql: Sql, args: UpdateMemberByIdArgs): Promise<void> {
+	await sql.unsafe(updateMemberByIdQuery, [
+		args.id,
+		args.registrationType,
+		args.titleNameTh,
+		args.firstNameTh,
+		args.lastNameTh,
+		args.titleNameEn,
+		args.firstNameEn,
+		args.lastNameEn,
+		args.nickname,
+		args.gender,
+		args.dateOfBirth,
+		args.nationality,
+		args.idCardNo,
+		args.idCardNoHash,
+		args.idCardExpiryDate,
+		args.profileAvatar,
+		args.phoneNo,
+		args.email,
+		args.lineId,
+		args.shirtSize,
+		args.positionCode,
+	])
+}
+
+export const updateMemberBusinessByMemberIdQuery = `-- name: UpdateMemberBusinessByMemberId :exec
+UPDATE member_business SET
+    name = $2,
+    description = $3,
+    juristic_registration_no = $4,
+    category_id = $5,
+    address = $6,
+    location = $7,
+    core_business = $8,
+    website = $9,
+    logo_file_path = $10,
+    product_file_path = $11,
+    updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL`
+
+export interface UpdateMemberBusinessByMemberIdArgs {
+	memberId: string
+	name: string
+	description: string
+	juristicRegistrationNo: string
+	categoryId: number
+	address: string | null
+	location: number[] | null
+	coreBusiness: string | null
+	website: string | null
+	logoFilePath: string | null
+	productFilePath: string | null
+}
+
+export async function updateMemberBusinessByMemberId(sql: Sql, args: UpdateMemberBusinessByMemberIdArgs): Promise<void> {
+	await sql.unsafe(updateMemberBusinessByMemberIdQuery, [
+		args.memberId,
+		args.name,
+		args.description,
+		args.juristicRegistrationNo,
+		args.categoryId,
+		args.address,
+		args.location,
+		args.coreBusiness,
+		args.website,
+		args.logoFilePath,
+		args.productFilePath,
+	])
+}
+
+export const softDeleteMemberDocumentsByMemberIdAndTypesQuery = `-- name: SoftDeleteMemberDocumentsByMemberIdAndTypes :exec
+UPDATE member_documents
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND type = ANY($2::text[])
+  AND deleted_at IS NULL`
+
+export interface SoftDeleteMemberDocumentsByMemberIdAndTypesArgs {
+	memberId: string
+	types: string[]
+}
+
+export async function softDeleteMemberDocumentsByMemberIdAndTypes(sql: Sql, args: SoftDeleteMemberDocumentsByMemberIdAndTypesArgs): Promise<void> {
+	await sql.unsafe(softDeleteMemberDocumentsByMemberIdAndTypesQuery, [args.memberId, args.types])
 }
