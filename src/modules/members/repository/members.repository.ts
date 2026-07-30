@@ -559,7 +559,12 @@ export class MembersRepository implements IMemberRepository {
 		const result = await ResultAsync.fromPromise(
 			softDeleteMemberDocumentsByMemberIdAndTypes(sql, {
 				memberId: String(memberId),
-				types: [...types],
+				// Bun.SQL serializes JS arrays via toString() → "ID_CARD,COMPANY_CERTIFICATE",
+				// which Postgres rejects as a malformed array literal. Convert to the
+				// Postgres array-literal form "{...}" — same fix as member_business.location.
+				// The sqlc-generated arg type is string[]; the driver actually wants the
+				// literal string here, hence the `as unknown as` cast.
+				types: toPgArray([...types]) as unknown as string[],
 			}),
 			(error) => error as Error
 		)
@@ -587,19 +592,30 @@ function toPgDate(date: Date | null): string | null {
 }
 
 /**
- * Convert a JS number array to a Postgres array literal string.
+ * Convert a JS array to a Postgres array literal string.
  *
- * Bun.SQL serializes JS arrays via Array.toString() → "100.5,13.7", which
- * Postgres rejects as a malformed array literal. The correct format is the
- * Postgres array literal "{100.5,13.7}". Null passes through for nullable
- * array columns.
+ * Bun.SQL serializes JS arrays via Array.toString() → "100.5,13.7" (numbers)
+ * or "ID_CARD,COMPANY_CERTIFICATE" (strings), which Postgres rejects as a
+ * malformed array literal. The correct format is the Postgres array literal
+ * "{100.5,13.7}" / "{ID_CARD,COMPANY_CERTIFICATE}". Null passes through for
+ * nullable array columns.
+ *
+ * Used for both numeric arrays (member_business.location) and text arrays
+ * (the soft-delete member_documents type list). String elements are wrapped in
+ * double quotes per the Postgres array-literal grammar so a value containing a
+ * comma or brace would still parse correctly.
  */
-function toPgArray(arr: readonly number[] | null): string | null {
+function toPgArray(arr: readonly (number | string)[] | null): string | null {
 	if (arr === null) {
 		return null
 	}
 
-	return `{${arr.join(",")}}`
+	// Postgres array-literal grammar: strings are double-quoted; numbers are bare.
+	// Double-quotes inside a string value are escaped by doubling (""). We
+	// always quote strings (correct for identifiers that could need it; harmless
+	// for plain values like 'ID_CARD').
+	const elements = arr.map((el) => (typeof el === "number" ? String(el) : `"${String(el).replace(/"/g, '""')}"`))
+	return `{${elements.join(",")}}`
 }
 
 /**
