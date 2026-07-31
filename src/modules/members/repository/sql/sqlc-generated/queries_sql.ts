@@ -490,3 +490,60 @@ export interface SoftDeleteMemberDocumentsByMemberIdAndTypesArgs {
 export async function softDeleteMemberDocumentsByMemberIdAndTypes(sql: Sql, args: SoftDeleteMemberDocumentsByMemberIdAndTypesArgs): Promise<void> {
 	await sql.unsafe(softDeleteMemberDocumentsByMemberIdAndTypesQuery, [args.memberId, args.types])
 }
+
+export const softDeleteMemberDocumentsByMemberIdQuery = `-- name: SoftDeleteMemberDocumentsByMemberId :exec
+
+UPDATE member_documents
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL`
+
+export interface SoftDeleteMemberDocumentsByMemberIdArgs {
+	memberId: string
+}
+
+export async function softDeleteMemberDocumentsByMemberId(sql: Sql, args: SoftDeleteMemberDocumentsByMemberIdArgs): Promise<void> {
+	await sql.unsafe(softDeleteMemberDocumentsByMemberIdQuery, [args.memberId])
+}
+
+export const softDeleteMemberBusinessByMemberIdQuery = `-- name: SoftDeleteMemberBusinessByMemberId :exec
+UPDATE member_business
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL`
+
+export interface SoftDeleteMemberBusinessByMemberIdArgs {
+	memberId: string
+}
+
+export async function softDeleteMemberBusinessByMemberId(sql: Sql, args: SoftDeleteMemberBusinessByMemberIdArgs): Promise<void> {
+	await sql.unsafe(softDeleteMemberBusinessByMemberIdQuery, [args.memberId])
+}
+
+export const softDeleteMembershipRenewalsByMemberIdQuery = `-- name: SoftDeleteMembershipRenewalsByMemberId :exec
+UPDATE membership_renewals
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL`
+
+export interface SoftDeleteMembershipRenewalsByMemberIdArgs {
+	memberId: string
+}
+
+export async function softDeleteMembershipRenewalsByMemberId(sql: Sql, args: SoftDeleteMembershipRenewalsByMemberIdArgs): Promise<void> {
+	await sql.unsafe(softDeleteMembershipRenewalsByMemberIdQuery, [args.memberId])
+}
+
+export const softDeleteMemberByIdQuery = `-- name: SoftDeleteMemberById :exec
+UPDATE members
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface SoftDeleteMemberByIdArgs {
+	id: string
+}
+
+export async function softDeleteMemberById(sql: Sql, args: SoftDeleteMemberByIdArgs): Promise<void> {
+	await sql.unsafe(softDeleteMemberByIdQuery, [args.id])
+}

@@ -177,3 +177,44 @@ SET deleted_at = NOW(), updated_at = NOW()
 WHERE member_id = $1
   AND type = ANY(sqlc.arg('types')::text[])
   AND deleted_at IS NULL;
+
+-- ============================================================================
+-- Delete queries (DELETE /api/v1/members/:id) — ADR-0013
+-- Atomic cascade soft-delete in spec order: member_documents → member_business
+-- → membership_renewals → members. All idempotent (deleted_at IS NULL guard),
+-- so an already-deleted member is a 0-row no-op that still returns 204
+-- (grilling Q2: the route is 204 regardless, never 404). The repository runs
+-- these four inside one transaction; order matches the spec's sequence diagram
+-- verbatim (grilling Q4) even though it is semantically irrelevant for a
+-- soft-delete (no RESTRICT FKs, no triggers).
+-- ============================================================================
+
+-- name: SoftDeleteMemberDocumentsByMemberId :exec
+-- 1. member_documents (all types for the member, not just the replaced subset).
+UPDATE member_documents
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteMemberBusinessByMemberId :exec
+-- 2. member_business (the member's 1:1 business record).
+UPDATE member_business
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteMembershipRenewalsByMemberId :exec
+-- 3. membership_renewals (all renewals for the member). The table lives in a
+-- separate module (src/modules/membership-renewals/); its schema is referenced
+-- in the members sqlc block for FK parsing only — no TS cross-import (ADR-0013).
+UPDATE membership_renewals
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE member_id = $1
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteMemberById :exec
+-- 4. members (the member row itself).
+UPDATE members
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;

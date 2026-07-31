@@ -26,11 +26,15 @@ sql:
     # The members module owns members, positions, member_documents, and
     # member_business (see docs/adr/0005-merge-member-business-and-member-document-into-members-module.md).
     # business_categories is referenced only so its FK resolves during parsing.
+    # membership_renewals is likewise referenced only so its FK to members(id)
+    # resolves during parsing — the members repo owns the cascade soft-delete
+    # transaction (ADR-0013); no TS cross-import into membership-renewals/.
     - schema:
           - "src/modules/business-categories/repository/sql/schema.sql"
           - "src/modules/members/repository/sql/schema.sql"
           - "src/modules/members/repository/member-document/sql/schema.sql"
           - "src/modules/members/repository/member-business/sql/schema.sql"
+          - "src/modules/membership-renewals/repository/sql/schema.sql"
       queries: "src/modules/members/repository/sql/queries.sql"
       engine: "postgresql"
       codegen:

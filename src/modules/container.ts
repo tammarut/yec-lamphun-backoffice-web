@@ -7,6 +7,7 @@ import { MemberFileUrlService } from "src/modules/members/member-file-url.servic
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
+import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
@@ -186,6 +187,18 @@ container.register(
 	REGISTER_KEY.UPDATE_MEMBER_SERVICE,
 	{
 		useClass: UpdateMemberService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
+
+// 10e. Register Members Module (delete-member-by-id command) — ADR-0013.
+// Paper-thin DI/test seam over the repository's atomic cascade soft-delete
+// transaction (member_documents → member_business → membership_renewals →
+// members). No existence check, no crypto — idempotent 204 on any valid id.
+container.register(
+	REGISTER_KEY.DELETE_MEMBER_SERVICE,
+	{
+		useClass: DeleteMemberService,
 	},
 	{ lifecycle: Lifecycle.Singleton }
 )

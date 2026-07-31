@@ -11,9 +11,23 @@ import type { MemberBusinessReadModel, MemberDetailReadModel, MemberDocumentType
 import type { IMemberRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
-import { countActiveHolderByPosition, countMemberByIdCardHash, getPositionByCode, insertMember, insertMemberBusiness, insertMemberDocument } from "./sql/sqlc-generated/queries_sql"
-import { getMemberDocumentsByMemberId, getMemberWithBusinessById } from "./sql/sqlc-generated/queries_sql"
-import { softDeleteMemberDocumentsByMemberIdAndTypes, updateMemberBusinessByMemberId, updateMemberById } from "./sql/sqlc-generated/queries_sql"
+import {
+	countActiveHolderByPosition,
+	countMemberByIdCardHash,
+	getMemberDocumentsByMemberId,
+	getMemberWithBusinessById,
+	getPositionByCode,
+	insertMember,
+	insertMemberBusiness,
+	insertMemberDocument,
+	softDeleteMemberBusinessByMemberId,
+	softDeleteMemberById,
+	softDeleteMemberDocumentsByMemberId,
+	softDeleteMemberDocumentsByMemberIdAndTypes,
+	softDeleteMembershipRenewalsByMemberId,
+	updateMemberBusinessByMemberId,
+	updateMemberById,
+} from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the members module.
@@ -131,6 +145,38 @@ export class MembersRepository implements IMemberRepository {
 				return err(error)
 			}
 			return err(new DatabaseError("Member update transaction failed", error))
+		}
+	}
+
+	/**
+	 * Soft-delete a member and its dependent rows atomically inside one
+	 * transaction, in spec order: member_documents → member_business →
+	 * membership_renewals → members (ADR-0013). Mirrors {@link update}'s
+	 * transaction shape. Each UPDATE carries `deleted_at IS NULL`, so the whole
+	 * cascade is idempotent — an already-deleted member affects 0 rows and is a
+	 * no-op (grilling Q2: the route returns 204 regardless). Row counts are
+	 * deliberately ignored, matching {@link update}'s last-writer-wins stance.
+	 */
+	async softDeleteMember(id: number): Promise<Result<void, DatabaseError>> {
+		try {
+			await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
+
+				// Spec sequence diagram order (grilling Q4): children first, then
+				// the member row. Order is semantically irrelevant for a soft-delete
+				// (no RESTRICT FKs, no triggers) but matches the contract verbatim.
+				await this.softDeleteDocuments(sql, id)
+				await this.softDeleteBusiness(sql, id)
+				await this.softDeleteRenewals(sql, id)
+				await this.softDeleteMemberRow(sql, id)
+			})
+
+			return ok(undefined)
+		} catch (error) {
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Member deletion transaction failed", error))
 		}
 	}
 
@@ -568,6 +614,43 @@ export class MembersRepository implements IMemberRepository {
 			}),
 			(error) => error as Error
 		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	// --- Delete helpers (DELETE /api/v1/members/:id) — ADR-0013 ------------
+	// Each wraps its generated soft-delete query and rethrows as DatabaseError on
+	// failure so {@link softDeleteMember}'s transaction auto-rollbacks. The id is
+	// stringified to match sqlc's bigint arg typing, same as {@link doUpdateMember}.
+
+	/** 1. Soft-delete all of the member's live document rows. */
+	private async softDeleteDocuments(sql: Sql, memberId: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(softDeleteMemberDocumentsByMemberId(sql, { memberId: String(memberId) }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	/** 2. Soft-delete the member's 1:1 live business row. */
+	private async softDeleteBusiness(sql: Sql, memberId: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(softDeleteMemberBusinessByMemberId(sql, { memberId: String(memberId) }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	/** 3. Soft-delete the member's live membership-renewal rows. */
+	private async softDeleteRenewals(sql: Sql, memberId: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(softDeleteMembershipRenewalsByMemberId(sql, { memberId: String(memberId) }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	/** 4. Soft-delete the member row itself. */
+	private async softDeleteMemberRow(sql: Sql, id: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(softDeleteMemberById(sql, { id: String(id) }), (error) => error as Error)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
