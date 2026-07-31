@@ -123,9 +123,9 @@ describe("Member.create", () => {
 			// Act
 			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
 
-			// Assert
-			expect(member.expiresAt.getFullYear()).toBe(2027)
-			expect(member.expiresAt.getHours()).toBe(23)
+			// Assert — create always computes a non-null expires_at (computeExpiry).
+			expect(member.expiresAt!.getFullYear()).toBe(2027)
+			expect(member.expiresAt!.getHours()).toBe(23)
 		})
 	})
 

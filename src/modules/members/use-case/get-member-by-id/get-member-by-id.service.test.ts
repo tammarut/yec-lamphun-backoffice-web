@@ -39,6 +39,8 @@ function makeReadModel(overrides: Partial<MemberDetailReadModel> = {}): MemberDe
 		shirtSize: "L",
 		positionCode: "GENERAL_MEMBER",
 		status: "ACTIVE",
+		idCardNoHash: "stored-hmac-hash",
+		renewalSuccessfulCount: 0,
 		createdAt: new Date("2024-01-18T16:00:00.000Z"),
 		updatedAt: new Date("2024-01-18T16:00:00.000Z"),
 		business: {

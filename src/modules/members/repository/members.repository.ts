@@ -7,12 +7,13 @@ import { inject, injectable } from "tsyringe"
 import type { Member } from "../domain/member"
 import type { MemberBusiness } from "../domain/member-business"
 import type { MemberDocument } from "../domain/member-document"
-import type { MemberBusinessReadModel, MemberDetailReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
+import type { MemberBusinessReadModel, MemberDetailReadModel, MemberDocumentType, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
 import type { IMemberRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import { countActiveHolderByPosition, countMemberByIdCardHash, getPositionByCode, insertMember, insertMemberBusiness, insertMemberDocument } from "./sql/sqlc-generated/queries_sql"
 import { getMemberDocumentsByMemberId, getMemberWithBusinessById } from "./sql/sqlc-generated/queries_sql"
+import { softDeleteMemberDocumentsByMemberIdAndTypes, updateMemberBusinessByMemberId, updateMemberById } from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the members module.
@@ -91,6 +92,45 @@ export class MembersRepository implements IMemberRepository {
 				return err(error)
 			}
 			return err(new DatabaseError("Member creation transaction failed", error))
+		}
+	}
+
+	/**
+	 * Update an existing member atomically: UPDATE members → UPDATE
+	 * member_business → (per replaced type) soft-delete old docs + insert new,
+	 * all inside one transaction. Mirrors {@link create}'s transaction shape.
+	 *
+	 * The {@link documentTypesToReplace} policy is decided by the caller; this
+	 * method just executes it. For each type in the set, it soft-deletes the
+	 * member's live rows of that type, then inserts the matching new rows from
+	 * `updated.documents`. Types not in the set are left untouched.
+	 */
+	async update(id: number, updated: Member, documentTypesToReplace: readonly MemberDocumentType[]): Promise<Result<void, DatabaseError>> {
+		try {
+			await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
+
+				await this.doUpdateMember(sql, id, updated)
+				await this.doUpdateBusiness(sql, id, updated.business)
+
+				if (documentTypesToReplace.length > 0) {
+					// Soft-delete the live rows of the replaced type(s) first.
+					await this.doSoftDeleteDocumentsByTypes(sql, id, documentTypesToReplace)
+					// Then insert the new rows from the updated member's documents,
+					// filtered to just the replaced types.
+					const newDocsToInsert = updated.documents.filter((doc) => documentTypesToReplace.includes(doc.type))
+					if (newDocsToInsert.length > 0) {
+						await this.doInsertDocuments(sql, id, newDocsToInsert)
+					}
+				}
+			})
+
+			return ok(undefined)
+		} catch (error) {
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Member update transaction failed", error))
 		}
 	}
 
@@ -176,6 +216,8 @@ export class MembersRepository implements IMemberRepository {
 			shirtSize: memberRow.shirtSize,
 			positionCode: memberRow.positionCode,
 			status: memberRow.status as MemberDetailReadModel["status"],
+			idCardNoHash: memberRow.idCardNoHash,
+			renewalSuccessfulCount: memberRow.renewalSuccessfulCount,
 			createdAt: memberRow.createdAt,
 			updatedAt: memberRow.updatedAt,
 			business,
@@ -444,6 +486,92 @@ export class MembersRepository implements IMemberRepository {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
 	}
+
+	// --- Private update helpers (run inside update's transaction) ----------
+
+	/**
+	 * Update the member row's mutable columns. Lifecycle columns
+	 * (status/member_since/expires_at/renewal_successful_count) are omitted by
+	 * the UPDATE statement itself — they can never be clobbered here.
+	 */
+	private async doUpdateMember(sql: Sql, id: number, member: Member): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateMemberById(sql, {
+				id: String(id),
+				registrationType: member.registrationType,
+				titleNameTh: member.titleNameTh,
+				firstNameTh: member.firstNameTh,
+				lastNameTh: member.lastNameTh,
+				titleNameEn: member.titleNameEn,
+				firstNameEn: member.firstNameEn,
+				lastNameEn: member.lastNameEn,
+				nickname: member.nickname,
+				gender: member.gender,
+				dateOfBirth: toPgDate(member.dateOfBirth) as unknown as Date,
+				nationality: member.nationality,
+				idCardNo: member.idCardNo,
+				idCardNoHash: member.idCardNoHash,
+				idCardExpiryDate: toPgDate(member.idCardExpiryDate) as unknown as Date,
+				profileAvatar: member.profileAvatar,
+				phoneNo: member.phoneNo,
+				email: member.email,
+				lineId: member.lineId,
+				shirtSize: member.shirtSize,
+				positionCode: member.positionCode,
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	/** Update the member's 1:1 business row. Location must already be swapped. */
+	private async doUpdateBusiness(sql: Sql, memberId: number, business: MemberBusiness): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateMemberBusinessByMemberId(sql, {
+				memberId: String(memberId),
+				name: business.name,
+				description: business.description,
+				juristicRegistrationNo: business.juristicRegistrationNo,
+				categoryId: business.categoryId,
+				address: business.address,
+				location: toPgArray(business.location) as unknown as number[] | null,
+				coreBusiness: business.coreBusiness,
+				website: business.website,
+				logoFilePath: business.logoFilePath,
+				productFilePath: business.productFilePath,
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	/**
+	 * Soft-delete (set deleted_at) the member's live document rows of the given
+	 * type(s), in preparation for inserting replacement rows. The types list is
+	 * always non-empty here (the caller guards) and a subset of
+	 * {'ID_CARD', 'COMPANY_CERTIFICATE'}.
+	 */
+	private async doSoftDeleteDocumentsByTypes(sql: Sql, memberId: number, types: readonly MemberDocumentType[]): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			softDeleteMemberDocumentsByMemberIdAndTypes(sql, {
+				memberId: String(memberId),
+				// Bun.SQL serializes JS arrays via toString() → "ID_CARD,COMPANY_CERTIFICATE",
+				// which Postgres rejects as a malformed array literal. Convert to the
+				// Postgres array-literal form "{...}" — same fix as member_business.location.
+				// The sqlc-generated arg type is string[]; the driver actually wants the
+				// literal string here, hence the `as unknown as` cast.
+				types: toPgArray([...types]) as unknown as string[],
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
 }
 
 /**
@@ -464,19 +592,30 @@ function toPgDate(date: Date | null): string | null {
 }
 
 /**
- * Convert a JS number array to a Postgres array literal string.
+ * Convert a JS array to a Postgres array literal string.
  *
- * Bun.SQL serializes JS arrays via Array.toString() → "100.5,13.7", which
- * Postgres rejects as a malformed array literal. The correct format is the
- * Postgres array literal "{100.5,13.7}". Null passes through for nullable
- * array columns.
+ * Bun.SQL serializes JS arrays via Array.toString() → "100.5,13.7" (numbers)
+ * or "ID_CARD,COMPANY_CERTIFICATE" (strings), which Postgres rejects as a
+ * malformed array literal. The correct format is the Postgres array literal
+ * "{100.5,13.7}" / "{ID_CARD,COMPANY_CERTIFICATE}". Null passes through for
+ * nullable array columns.
+ *
+ * Used for both numeric arrays (member_business.location) and text arrays
+ * (the soft-delete member_documents type list). String elements are wrapped in
+ * double quotes per the Postgres array-literal grammar so a value containing a
+ * comma or brace would still parse correctly.
  */
-function toPgArray(arr: readonly number[] | null): string | null {
+function toPgArray(arr: readonly (number | string)[] | null): string | null {
 	if (arr === null) {
 		return null
 	}
 
-	return `{${arr.join(",")}}`
+	// Postgres array-literal grammar: strings are double-quoted; numbers are bare.
+	// Double-quotes inside a string value are escaped by doubling (""). We
+	// always quote strings (correct for identifiers that could need it; harmless
+	// for plain values like 'ID_CARD').
+	const elements = arr.map((el) => (typeof el === "number" ? String(el) : `"${String(el).replace(/"/g, '""')}"`))
+	return `{${elements.join(",")}}`
 }
 
 /**

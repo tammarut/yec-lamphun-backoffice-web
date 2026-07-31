@@ -11,12 +11,14 @@ import { array, check, integer, isoDate, minLength, null_, number, object, optio
  */
 
 // --- Enums (picklist preserves literal union types for the service DTO) ----
-const RegistrationTypeSchema = picklist(["INDIVIDUAL", "JURISTIC_PERSON"])
-const GenderSchema = picklist(["MALE", "FEMALE", "OTHER"])
-const ShirtSizeSchema = picklist(["SSS", "SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"])
-const TitleNameThSchema = picklist(["นาย", "นางสาว", "นาง", "อื่นๆ"])
-const TitleNameEnSchema = picklist(["Mr.", "Mrs.", "Ms.", "Miss"])
-const PositionSchema = picklist([
+// Exported so PATCH can compose the same primitives without duplicating the
+// enum literals (grilling Q9: shared primitives, two distinct schemas).
+export const RegistrationTypeSchema = picklist(["INDIVIDUAL", "JURISTIC_PERSON"])
+export const GenderSchema = picklist(["MALE", "FEMALE", "OTHER"])
+export const ShirtSizeSchema = picklist(["SSS", "SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"])
+export const TitleNameThSchema = picklist(["นาย", "นางสาว", "นาง", "อื่นๆ"])
+export const TitleNameEnSchema = picklist(["Mr.", "Mrs.", "Ms.", "Miss"])
+export const PositionSchema = picklist([
 	"GENERAL_MEMBER",
 	"PRESIDENT",
 	"ADVISORY_BOARD",
@@ -39,11 +41,11 @@ const PositionSchema = picklist([
 ])
 
 // Nullable-string helper: a field that is either a string or JSON null.
-const nullableString = union([string(), null_()])
+export const nullableString = union([string(), null_()])
 
 // ISO date string → Date. string() is the schema; isoDate() validates the ISO
 // 8601 format; transform converts the validated string to a Date for the service.
-const isoDateToDate = pipe(
+export const isoDateToDate = pipe(
 	string(),
 	isoDate(),
 	transform((s) => new Date(s))
@@ -51,13 +53,13 @@ const isoDateToDate = pipe(
 
 // Location: a 2-element array of numbers [lat, long]. Cardinality validated here;
 // the [lat,long]→[long,lat] swap happens in the service.
-const locationSchema = pipe(
+export const locationSchema = pipe(
 	array(number()),
 	check((arr) => arr.length === 2, "location must be a [lat, long] pair"),
 	transform((arr) => [arr[0]!, arr[1]!] as [number, number])
 )
 
-const categoryIdSchema = pipe(
+export const categoryIdSchema = pipe(
 	number(),
 	integer(),
 	check((n) => n > 0, "category_id must be a positive integer")
@@ -100,3 +102,55 @@ export const CreateMemberSchema = object({
 })
 
 export type CreateMemberSchemaOutput = InferOutput<typeof CreateMemberSchema>
+
+/**
+ * Structural request schema for PATCH /api/v1/members/:id.
+ *
+ * Structurally identical to {@link CreateMemberSchema} today — same required
+ * fields, types, enums, formats — composed from the SAME exported primitives
+ * (grilling Q9) so the two cannot drift on enum literals or date/location
+ * transforms. The two schemas are kept distinct so PATCH can loosen a required
+ * field later without touching POST.
+ *
+ * The PATCH-specific semantics (the five file-path fields treat JSON null as
+ * "leave existing value unchanged", ADR-0012) are NOT expressed here — they are
+ * a service-layer concern, not a structural one. The schema's job ends at
+ * types/enums/formats/required-ness, same as POST.
+ */
+export const PatchMemberSchema = object({
+	registration_type: RegistrationTypeSchema,
+	company_certificate: nullableString,
+	id_card_image: nullableString,
+	profile_avatar: nullableString,
+	title_name_th: TitleNameThSchema,
+	first_name_th: pipe(string(), minLength(1, "first_name_th is required")),
+	last_name_th: pipe(string(), minLength(1, "last_name_th is required")),
+	title_name_en: optional(union([TitleNameEnSchema, null_()])),
+	first_name_en: optional(nullableString),
+	last_name_en: optional(nullableString),
+	nickname: pipe(string(), minLength(1, "nickname is required")),
+	gender: GenderSchema,
+	date_of_birth: isoDateToDate,
+	nationality: pipe(string(), minLength(1, "nationality is required")),
+	id_card_no: pipe(string(), minLength(1, "id_card_no is required")),
+	id_card_expiry_date: isoDateToDate,
+	phone_no: pipe(string(), minLength(1, "phone_no is required")),
+	email: optional(nullableString),
+	line_id: optional(nullableString),
+	shirt_size: optional(ShirtSizeSchema),
+	position: PositionSchema,
+	business: object({
+		name: pipe(string(), minLength(1, "business.name is required")),
+		juristic_registration_no: pipe(string(), minLength(1, "business.juristic_registration_no is required")),
+		category_id: categoryIdSchema,
+		address: optional(nullableString),
+		location: optional(union([locationSchema, null_()])),
+		description: pipe(string(), minLength(1, "business.description is required")),
+		core_business: optional(nullableString),
+		website: optional(nullableString),
+		logo: optional(nullableString),
+		product: optional(nullableString),
+	}),
+})
+
+export type PatchMemberSchemaOutput = InferOutput<typeof PatchMemberSchema>
