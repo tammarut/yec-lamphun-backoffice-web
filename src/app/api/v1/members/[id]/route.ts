@@ -1,7 +1,7 @@
-import { integer, minValue, pipe, safeParse, string, transform } from "valibot"
-import { NextRequest, NextResponse } from "next/server"
 import { ResultAsync } from "neverthrow"
+import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
+import { integer, minValue, pipe, safeParse, string, transform } from "valibot"
 
 import { withAuth } from "src/app/api/middleware/with-auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
@@ -9,10 +9,12 @@ import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { MemberConflictError, MemberValidationError } from "src/modules/members/use-case/create-new-member/create-member.errors"
 import type { CreateMemberRequest } from "src/modules/members/use-case/create-new-member/create-member.types"
-import { MemberNotFoundError } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.errors"
+import type { DeleteMemberError } from "src/modules/members/use-case/delete-member/delete-member.errors"
+import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
 import type { GetMemberByIdError } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.errors"
-import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
+import { MemberNotFoundError } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.errors"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
+import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 import type { UpdateMemberError } from "src/modules/members/use-case/update-member/update-member.errors"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { createLogger } from "src/shared/lib/logger/logger"
@@ -22,6 +24,7 @@ export const dynamic = "force-dynamic"
 
 const logger = createLogger(["members", "route", "get-by-id"])
 const patchLogger = createLogger(["members", "route", "update-by-id"])
+const deleteLogger = createLogger(["members", "route", "delete-by-id"])
 
 // Next 16: dynamic route params are a Promise. We await it before reading id.
 type MemberRouteContext = { params: Promise<{ id: string }> }
@@ -106,6 +109,44 @@ export const PATCH = withAuth<ResponseBodyError>(async function PATCH(request: N
 	return new NextResponse(null, { status: 204 })
 })
 
+// ============================================================================
+// DELETE /api/v1/members/:id — soft-delete a member and its dependent rows
+// (ADR-0013). Staff-only (withAuth), overriding the spec's `security: []`
+// (grilling Q7 — every write route here is withAuth; the spec's empty security
+// is a copy-paste artifact contradicted by its own 401 response).
+//
+// Idempotent (grilling Q2): a syntactically valid id ALWAYS returns 204,
+// whether the member is active, already soft-deleted, or never existed. The
+// cascade (member_documents → member_business → membership_renewals → members)
+// runs atomically in one transaction in the repository; each UPDATE carries
+// `deleted_at IS NULL`, so an already-deleted member is a 0-row no-op. No
+// existence pre-check, no 404 path, no row-count inspection. R2 files are left
+// untouched (grilling Q5).
+//
+// Success → 204 No Content. The only failure is a DB/transaction error → 500.
+// ============================================================================
+export const DELETE = withAuth<ResponseBodyError>(async function DELETE(_request, context): Promise<NextResponse<ResponseBodyError>> {
+	const ctx = context as MemberRouteContext
+	const { id: rawId } = await ctx.params
+
+	// 1. Validate the path-param id (same rule as GET/PATCH — reused verbatim).
+	const idParsed = safeParse(IdParamSchema, rawId)
+	if (!idParsed.success) {
+		return NextResponse.json({ error_message: "id parameter must be a valid integer" } satisfies ResponseBodyError, { status: 400 })
+	}
+
+	// 2. Hand the id to the use case. No body to parse (DELETE is bodyless).
+	const service = container.resolve<DeleteMemberService>(REGISTER_KEY.DELETE_MEMBER_SERVICE)
+	const memberId = idParsed.output
+	const result = await service.execute(memberId)
+	if (result.isErr()) {
+		return mapDeleteError(result.error)
+	}
+
+	// 3. 204 No Content — idempotent success with no body, per spec.
+	return new NextResponse(null, { status: 204 })
+})
+
 /** Map a GetMemberByIdError to its HTTP status + body. */
 function mapGetError(error: GetMemberByIdError): NextResponse<ResponseBodyError> {
 	if (error instanceof MemberNotFoundError) {
@@ -133,6 +174,16 @@ function mapPatchError(error: UpdateMemberError): NextResponse<ResponseBodyError
 	}
 	// CryptoError and DatabaseError are infra failures → 500, no leaky details.
 	patchLogger.error("members/update-by-id failed: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
+	return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
+}
+
+/**
+ * Map a DeleteMemberError to its HTTP status + body. DELETE is idempotent with
+ * no 404 path (grilling Q2), so the only branch is the database/transaction
+ * failure → 500. No leaky details in the body.
+ */
+function mapDeleteError(error: DeleteMemberError): NextResponse<ResponseBodyError> {
+	deleteLogger.error("members/delete-by-id failed: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
 	return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 }
 

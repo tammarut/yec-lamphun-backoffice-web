@@ -50,6 +50,17 @@ export interface IMemberRepository {
 	 */
 	update(id: number, updated: Member, documentTypesToReplace: readonly MemberDocumentType[]): Promise<Result<void, DatabaseError>>
 
+	/**
+	 * Soft-delete a member and its dependent rows atomically in one transaction,
+	 * in spec order: member_documents → member_business → membership_renewals →
+	 * members (ADR-0013). Idempotent — every UPDATE carries `deleted_at IS NULL`,
+	 * so an already-deleted member is a 0-row no-op (grilling Q2: the route
+	 * returns 204 regardless, never 404). No existence pre-check, no row-count
+	 * inspection; the membership_renewals soft-delete is generated in this
+	 * module's sqlc block (its schema is a parse-time DDL reference only).
+	 */
+	softDeleteMember(id: number): Promise<Result<void, DatabaseError>>
+
 	// --- Reads --------------------------------------------------------------
 
 	/**

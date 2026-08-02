@@ -1,0 +1,109 @@
+{
+	"openapi": "3.0.1",
+	"info": {
+		"title": "Default module",
+		"description": "API for managing members.",
+		"version": "1.0.0"
+	},
+	"tags": [
+		{
+			"name": "module_member"
+		}
+	],
+	"paths": {
+		"/api/v1/members/{id}": {
+			"delete": {
+				"summary": "Delete member by id (/api/v1/members/{id})",
+				"deprecated": false,
+				"description": "# Delete member by id and related all resource\n\n## ✍️Pseudocode\n**Soft delete record each table in order:**\n1. member_documents\n2. member_business\n3. membership_renewals\n4. members\n\n:::highlight yellow 📌\nIf record has been deleted, it should not delete again (no update column `updated_at`, `deleted_at`)\n-- **API is idempotent**\n:::\n\n> Execute under the same DB transaction\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: DELETE /api/v1/members/:id\n\n    nextjsapi ->> nextjsapi: Validate path param\n\n    break Invalid id (missing or <= 0)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction (Atomic Soft Delete)\n        \n        nextjsapi->>database: BEGIN TRANSACTION\n\n        Note over nextjsapi,database: 1. Soft delete documents (Idempotent: skips if already deleted)\n        nextjsapi->>database: UPDATE member_documents <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE member_id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi,database: 2. Soft delete business record\n        nextjsapi->>database: UPDATE member_business <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE member_id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi,database: 3. Soft delete renewals\n        nextjsapi->>database: UPDATE membership_renewals <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE member_id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi,database: 4. Soft delete member\n        nextjsapi->>database: UPDATE members <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        nextjsapi->>database: COMMIT\n        database-->>nextjsapi: Success\n    end\n\n    Note over nextjsapi: Returns 200 OK regardless of whether <br/>rows were actually updated or already deleted.<br/>This guarantees idempotency.\n    nextjsapi-->>browser: 204 No Content\n```",
+				"tags": ["module_member"],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": false,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "id",
+						"in": "path",
+						"description": "member.id from table members",
+						"required": true,
+						"example": 1,
+						"schema": {
+							"type": "integer",
+							"format": "uint"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "",
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed (invalid id)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"ErrorResponse": {
+				"type": "object",
+				"properties": {
+					"error_message": {
+						"type": "string",
+						"example": "Invalid credentials"
+					}
+				}
+			}
+		},
+		"responses": {},
+		"securitySchemes": {}
+	},
+	"servers": [],
+	"security": []
+}
