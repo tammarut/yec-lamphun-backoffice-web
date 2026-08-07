@@ -43,3 +43,21 @@ sql:
             options:
                 runtime: "node"
                 driver: "postgres"
+    # The membership-renewals module owns renewal create/update/reads. Its
+    # sqlc block references members/repository/sql/schema.sql ONLY so the FK to
+    # members(id) and the members columns it UPDATEs resolve during parsing — no
+    # TS cross-import. This is the symmetric mirror of ADR-0013, where the
+    # members block references membership-renewals/repository/sql/schema.sql for
+    # the cascade soft-delete. The renewals repo owns the cross-table create
+    # transaction (ADR-0014).
+    - schema:
+          - "src/modules/members/repository/sql/schema.sql"
+          - "src/modules/membership-renewals/repository/sql/schema.sql"
+      queries: "src/modules/membership-renewals/repository/sql/queries.sql"
+      engine: "postgresql"
+      codegen:
+          - out: "src/modules/membership-renewals/repository/sql/sqlc-generated"
+            plugin: ts
+            options:
+                runtime: "node"
+                driver: "postgres"
