@@ -27,4 +27,9 @@ export const REGISTER_KEY = {
 	UPDATE_MEMBER_SERVICE: Symbol("UPDATE_MEMBER_SERVICE"),
 	// Members module (delete-member-by-id command) — ADR-0013.
 	DELETE_MEMBER_SERVICE: Symbol("DELETE_MEMBER_SERVICE"),
+	// Membership-renewals module (create-renewal command) — ADR-0014. The renewals
+	// repo owns the cross-table create transaction (INSERT renewal + UPDATE member
+	// cache columns); the service runs the status pre-check.
+	MEMBERSHIP_RENEWALS_REPOSITORY: Symbol("MEMBERSHIP_RENEWALS_REPOSITORY"),
+	CREATE_RENEWAL_SERVICE: Symbol("CREATE_RENEWAL_SERVICE"),
 } as const

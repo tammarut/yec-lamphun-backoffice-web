@@ -1,19 +1,21 @@
 import "reflect-metadata"
 import { AuthService } from "src/modules/auth/auth.service"
-import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
-import { MemberFileService } from "src/modules/members/member-file.service"
+import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
 import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
-import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
-import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
+import { MemberFileService } from "src/modules/members/member-file.service"
+import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
+import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
+import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
-import { MembersRepository } from "src/modules/members/repository/members.repository"
+import { MembershipRenewalsRepository } from "src/modules/membership-renewals/repository/membership-renewals.repository"
+import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
-import { R2StorageClient } from "src/modules/shared/storage/r2-storage.client"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
+import { R2StorageClient } from "src/modules/shared/storage/r2-storage.client"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { envConfig } from "src/shared/config/env"
@@ -195,12 +197,18 @@ container.register(
 // Paper-thin DI/test seam over the repository's atomic cascade soft-delete
 // transaction (member_documents → member_business → membership_renewals →
 // members). No existence check, no crypto — idempotent 204 on any valid id.
-container.register(
-	REGISTER_KEY.DELETE_MEMBER_SERVICE,
-	{
-		useClass: DeleteMemberService,
-	},
-	{ lifecycle: Lifecycle.Singleton }
-)
+container.register(REGISTER_KEY.DELETE_MEMBER_SERVICE, { useClass: DeleteMemberService }, { lifecycle: Lifecycle.Singleton })
+
+// 10f. Register Membership-Renewals Module (create-renewal command) — ADR-0014.
+// The renewals repo owns the cross-table create transaction: INSERT renewal +
+// UPDATE member cache columns in one tx, catching pg 23505 on the INSERT. The
+// service runs the member-status pre-check (404/403/409). The repository is
+// Transient (stateless wrapper around the singleton DatabaseClient, matching
+// MembersRepository); the service is Singleton (matching the other use cases).
+container.register(REGISTER_KEY.MEMBERSHIP_RENEWALS_REPOSITORY, {
+	useClass: MembershipRenewalsRepository,
+})
+
+container.register(REGISTER_KEY.CREATE_RENEWAL_SERVICE, { useClass: CreateRenewalService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }

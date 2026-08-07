@@ -59,3 +59,32 @@ _Avoid_: citizen id, national id, id number
 **Masked ID Card**:
 The display form of an ID Card (e.g. `632XXXXXX1483`): the first three and last four digits of the plaintext, with the middle six replaced by `X`. Staff see this form in the backoffice; the plaintext and ciphertext are never displayed. Derived at read time by decrypting the ID Card ciphertext and applying a pure mask function.
 _Avoid_: masked id number, hidden id, redacted id
+
+## Membership Renewal
+
+**Membership Renewal**:
+A member's request to extend their membership tenure, submitted with a payment slip as proof of payment. Each renewal has an independent lifecycle (a review state machine with reviewer and `reviewed_at`) separate from the member who filed it. Unlike the 1:1 `member_business` child, a member accumulates many renewal rows over time — at most one of them live (non-deleted) in `PENDING_REVIEW` at any moment.
+_Avoid_: renewal, extension, membership extension, renewal record
+
+**Renewal Submission**:
+The act of creating a Membership Renewal. The create-renewal endpoint is public: any caller may submit on behalf of a member_id. The Renewal Status assigned at submission depends on WHO submits — see **Public Submission** and **Admin Submission**.
+
+**Public Submission**:
+A Renewal Submission made without a valid staff session cookie. The renewal enters the review pipeline at Renewal Status `PENDING_REVIEW`, and the member's Member Status moves to `PENDING_RENEWAL`. A member may have at most one live `PENDING_REVIEW` renewal (enforced by a partial unique index).
+_Avoid_: anonymous submission, member submission
+
+**Admin Submission** (a.k.a. Admin Instant Approval):
+A Renewal Submission made with a valid staff session cookie. The renewal skips the review pipeline: it is created directly at Renewal Status `APPROVED`, and the member's Member Status moves to `ACTIVE`. Because the member lands on `ACTIVE` (not `PENDING_RENEWAL`), the one-pending-renewal guard does not block a subsequent submission — so an admin may create multiple `APPROVED` renewals for the same member. This is accepted behavior; the rule is "valid staff session ⟹ bypass review," not "one approved renewal per member."
+_Avoid_: instant renewal, auto-approval, staff submission
+
+**Renewal Status**:
+The review state machine of a single Membership Renewal: `PENDING_REVIEW` → (`APPROVED` | `REJECTED`). The status assigned at submission is `PENDING_REVIEW` for a Public Submission or `APPROVED` for an Admin Submission. Stored on `membership_renewals.status`; enforced by a database CHECK constraint.
+_Avoid_: renewal state, review status
+
+**Member Status**:
+The lifecycle state of a member's membership itself: `ACTIVE`, `EXPIRED`, `PENDING_RENEWAL`, `RESIGNED`. Distinct from a single renewal's Renewal Status — it summarizes the member's overall standing. Stored on `members.status`. Filing a renewal moves it to `PENDING_RENEWAL` (Public Submission) or `ACTIVE` (Admin Submission).
+_Avoid_: account status, membership state
+
+**Renewal Cache Columns**:
+Two denormalized columns on `members` — `status` (the Member Status) and `latest_renewal_status` (the Renewal Status of the member's most recent renewal) — kept in sync with the renewal's own state to avoid a JOIN on every member read. The create-renewal flow writes both atomically inside the renewal's transaction; the update-member PATCH deliberately never touches them (they are lifecycle columns, owned by the renewal flow).
+_Avoid_: cached fields, denormalized status
