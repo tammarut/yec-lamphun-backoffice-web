@@ -24,16 +24,22 @@ export interface IMembershipRenewalRepository {
 
 	/**
 	 * Atomically create a renewal and update the member's Renewal Cache Columns
-	 * in one transaction (ADR-0014):
-	 *   1. INSERT INTO membership_renewals (... 'PENDING_REVIEW') RETURNING id
-	 *   2. UPDATE members SET status='PENDING_RENEWAL',
-	 *      latest_renewal_status='PENDING_REVIEW' WHERE id AND deleted_at IS NULL
+	 * in one transaction (ADR-0014). The status values are passed in (not
+	 * hardcoded) so one method serves both submission kinds (ADR-0015):
+	 *   1. INSERT INTO membership_renewals (..., $renewalStatus) RETURNING id
+	 *   2. UPDATE members SET status=$memberStatus,
+	 *      latest_renewal_status=$renewalStatus WHERE id AND deleted_at IS NULL
 	 *
-	 * The partial unique index idx_one_pending_renewal_per_member may reject the
-	 * INSERT with Postgres code 23505 under a race that beats the service's
-	 * pre-check; this method catches that code and returns
-	 * `err(PendingRenewalExistsError)` (→ 409). All other DB failures map to
-	 * `err(DatabaseError)`. On success returns `ok(newRenewalId)`.
+	 * The caller (service) selects the pair from the submission kind:
+	 *   public  -> renewalStatus='PENDING_REVIEW', memberStatus='PENDING_RENEWAL'
+	 *   admin   -> renewalStatus='APPROVED',       memberStatus='ACTIVE'
+	 *
+	 * The partial unique index idx_one_pending_renewal_per_member covers
+	 * status='PENDING_REVIEW' ONLY, so a public insert may hit Postgres code
+	 * 23505 under a race that beats the pre-check; this method catches that code
+	 * and returns `err(PendingRenewalExistsError)` (→ 409). An admin insert
+	 * ('APPROVED') is excluded from the index and cannot 23505. All other DB
+	 * failures map to `err(DatabaseError)`. On success returns `ok(newRenewalId)`.
 	 */
-	createRenewal(memberId: number, paymentSlipFilePath: string): Promise<Result<number, PendingRenewalExistsError | DatabaseError>>
+	createRenewal(memberId: number, paymentSlipFilePath: string, renewalStatus: string, memberStatus: string): Promise<Result<number, PendingRenewalExistsError | DatabaseError>>
 }

@@ -43,14 +43,17 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		return ok(row ? row.status : null)
 	}
 
-	async createRenewal(memberId: number, paymentSlipFilePath: string) {
+	async createRenewal(memberId: number, paymentSlipFilePath: string, renewalStatus: string, memberStatus: string) {
 		// The transaction is scoped to this method: insert renewal → update member
 		// cache columns. bun:sql auto-commits on success, auto-rollbacks on throw.
+		// The status values flow straight through to sqlc — they were selected by
+		// the service from the submission kind (ADR-0015); the repo does not
+		// interpret them.
 		try {
 			const renewalId = await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
-				const newId = await this.doInsertRenewal(sql, memberId, paymentSlipFilePath)
-				await this.doUpdateMemberStatus(sql, memberId)
+				const newId = await this.doInsertRenewal(sql, memberId, paymentSlipFilePath, renewalStatus)
+				await this.doUpdateMemberStatus(sql, memberId, memberStatus, renewalStatus)
 				return newId
 			})
 
@@ -75,18 +78,21 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	 * Insert the renewal row and return the generated id. Throws
 	 * {@link PendingRenewalExistsError} on Postgres unique_violation (code 23505)
 	 * from idx_one_pending_renewal_per_member — the partial unique index that
-	 * enforces one PENDING_REVIEW renewal per member. Throwing inside the tx
-	 * triggers bun:sql's auto-rollback. Any other failure → DatabaseError.
+	 * enforces one PENDING_REVIEW renewal per member. The index covers
+	 * status='PENDING_REVIEW' ONLY, so this only fires on the public path; an
+	 * admin insert ('APPROVED') is excluded and cannot 23505. Throwing inside the
+	 * tx triggers bun:sql's auto-rollback. Any other failure → DatabaseError.
 	 *
 	 * This is the only place in the codebase that inspects a Postgres error code;
 	 * the inspection is sealed inside this helper so the pg-error-detail pattern
 	 * does not leak into the service layer.
 	 */
-	private async doInsertRenewal(sql: Sql, memberId: number, paymentSlipFilePath: string): Promise<number> {
+	private async doInsertRenewal(sql: Sql, memberId: number, paymentSlipFilePath: string, renewalStatus: string): Promise<number> {
 		try {
 			const result = await insertMembershipRenewal(sql, {
 				memberId: String(memberId),
 				paymentSlipFilePath,
+				status: renewalStatus,
 			})
 			const row = result[0]
 			if (!row) {
@@ -111,11 +117,15 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 
 	/**
 	 * Update the member's Renewal Cache Columns (status, latest_renewal_status)
-	 * inside the same transaction. Carries `deleted_at IS NULL` (encoded in the
-	 * generated SQL) matching every other members write query.
+	 * inside the same transaction. latest_renewal_status mirrors the renewal's own
+	 * status. Carries `deleted_at IS NULL` (encoded in the generated SQL) matching
+	 * every other members write query.
 	 */
-	private async doUpdateMemberStatus(sql: Sql, memberId: number): Promise<void> {
-		const result = await ResultAsync.fromPromise(updateMemberStatusOnRenewal(sql, { id: String(memberId) }), (error) => error as Error)
+	private async doUpdateMemberStatus(sql: Sql, memberId: number, memberStatus: string, renewalStatus: string): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateMemberStatusOnRenewal(sql, { id: String(memberId), status: memberStatus, latestRenewalStatus: renewalStatus }),
+			(error) => error as Error
+		)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}

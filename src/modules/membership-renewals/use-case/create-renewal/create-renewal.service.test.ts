@@ -22,38 +22,53 @@ describe("CreateRenewalService", () => {
 		service = new CreateRenewalService(mockRepo)
 	})
 
-	const validReq: CreateRenewalRequest = {
+	const baseReq = (overrides: Partial<CreateRenewalRequest> = {}): CreateRenewalRequest => ({
 		memberId: 15,
 		paymentSlip: "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg",
-	}
+		isAdmin: false,
+		...overrides,
+	})
 
 	describe("Happy cases", () => {
-		test("returns ok(renewalId) for an ACTIVE member", async () => {
+		test("PUBLIC: ACTIVE member -> ok(renewalId) with PENDING_REVIEW / PENDING_RENEWAL", async () => {
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq({ isAdmin: false }))
 
 			// Assert
 			expect(result._unsafeUnwrap()).toBe(71)
+			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, baseReq().paymentSlip, "PENDING_REVIEW", "PENDING_RENEWAL")
 		})
 
-		test("allows an EXPIRED member to file a renewal", async () => {
+		test("PUBLIC: EXPIRED member can file a renewal", async () => {
 			// Arrange — EXPIRED is the expected path back to ACTIVE.
 			mockRepo.getMemberStatusForRenewal.mockResolvedValue(ok("EXPIRED"))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq({ isAdmin: false }))
 
 			// Assert
 			expect(result.isOk()).toBe(true)
 		})
 
-		test("calls repository.createRenewal with memberId + paymentSlip", async () => {
+		test("ADMIN: ACTIVE member -> ok(renewalId) with APPROVED / ACTIVE (instant approval)", async () => {
 			// Act
-			await service.execute(validReq)
+			const result = await service.execute(baseReq({ isAdmin: true }))
 
-			// Assert — the repository owns the cross-table transaction (ADR-0014).
-			expect(mockRepo.createRenewal).toHaveBeenCalledTimes(1)
-			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, validReq.paymentSlip)
+			// Assert — admin bypass: status pair flips to APPROVED / ACTIVE.
+			expect(result._unsafeUnwrap()).toBe(71)
+			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, baseReq().paymentSlip, "APPROVED", "ACTIVE")
+		})
+
+		test("ADMIN: EXPIRED member -> instant approval (APPROVED / ACTIVE)", async () => {
+			// Arrange
+			mockRepo.getMemberStatusForRenewal.mockResolvedValue(ok("EXPIRED"))
+
+			// Act
+			const result = await service.execute(baseReq({ isAdmin: true }))
+
+			// Assert
+			expect(result._unsafeUnwrap()).toBe(71)
+			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, baseReq().paymentSlip, "APPROVED", "ACTIVE")
 		})
 	})
 
@@ -63,7 +78,7 @@ describe("CreateRenewalService", () => {
 			mockRepo.getMemberStatusForRenewal.mockResolvedValue(ok(null))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq())
 
 			// Assert — the write path is never reached.
 			expect(result.isErr()).toBe(true)
@@ -76,7 +91,7 @@ describe("CreateRenewalService", () => {
 			mockRepo.getMemberStatusForRenewal.mockResolvedValue(ok("RESIGNED"))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(ResignedMemberError)
@@ -88,20 +103,20 @@ describe("CreateRenewalService", () => {
 			mockRepo.getMemberStatusForRenewal.mockResolvedValue(ok("PENDING_RENEWAL"))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(PendingRenewalExistsError)
 			expect(mockRepo.createRenewal).not.toHaveBeenCalled()
 		})
 
-		test("propagates PendingRenewalExistsError from the repository (23505 race-catch)", async () => {
+		test("propagates PendingRenewalExistsError from the repository (23505 race-catch, public path)", async () => {
 			// Arrange — the pre-check passed but a concurrent request inserted the
 			// renewal first; the unique index rejected this INSERT with pg 23505.
 			mockRepo.createRenewal.mockResolvedValue(err(new PendingRenewalExistsError()))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq({ isAdmin: false }))
 
 			// Assert — same domain fact, same error class as the pre-check path.
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(PendingRenewalExistsError)
@@ -112,7 +127,7 @@ describe("CreateRenewalService", () => {
 			mockRepo.getMemberStatusForRenewal.mockResolvedValue(err(new DatabaseError("boom")))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
@@ -124,7 +139,7 @@ describe("CreateRenewalService", () => {
 			mockRepo.createRenewal.mockResolvedValue(err(new DatabaseError("tx failed")))
 
 			// Act
-			const result = await service.execute(validReq)
+			const result = await service.execute(baseReq())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)

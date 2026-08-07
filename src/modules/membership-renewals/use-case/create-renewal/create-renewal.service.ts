@@ -20,6 +20,12 @@ import type { CreateRenewalRequest } from "./create-renewal.types"
  * (INSERT renewal + UPDATE member cache columns, ADR-0014) and catches the pg
  * 23505 unique_violation as a race-condition net that maps to the same 409.
  *
+ * The submission kind (public vs admin, ADR-0015) selects the status pair
+ * written by the repository — admin approval lands the renewal on APPROVED and
+ * the member on ACTIVE (skipping review); public submission lands the renewal on
+ * PENDING_REVIEW and the member on PENDING_RENEWAL. The pre-check is UNIFORM for
+ * both kinds; only the written status values differ.
+ *
  * The member.status values ACTIVE / EXPIRED both proceed to renewal creation —
  * an EXPIRED member filing a renewal is the expected path back to ACTIVE.
  *
@@ -48,10 +54,17 @@ export class CreateRenewalService {
 		}
 		// ACTIVE / EXPIRED proceed.
 
-		// 2. Persist atomically — the transaction + the 23505 race-catch are
+		// 2. Select the status pair from the submission kind (ADR-0015). The repo
+		//    writes these verbatim into the INSERT and UPDATE; the partial unique
+		//    index covers 'PENDING_REVIEW' only, so the 23505 race-catch only fires
+		//    on the public path (an APPROVED admin insert cannot 23505).
+		const renewalStatus = req.isAdmin ? "APPROVED" : "PENDING_REVIEW"
+		const memberStatus = req.isAdmin ? "ACTIVE" : "PENDING_RENEWAL"
+
+		// 3. Persist atomically — the transaction + the 23505 race-catch are
 		//    internal details of the repository. One call, returns ok(id) or
 		//    err(PendingRenewalExistsError | DatabaseError).
-		const createResult = await this.repository.createRenewal(req.memberId, req.paymentSlip)
+		const createResult = await this.repository.createRenewal(req.memberId, req.paymentSlip, renewalStatus, memberStatus)
 		if (createResult.isErr()) {
 			return err(createResult.error)
 		}

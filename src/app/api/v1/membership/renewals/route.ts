@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { safeParse } from "valibot"
 
-import { withAuth } from "src/app/api/middleware/with-auth"
+import { AuthService } from "src/modules/auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -28,20 +28,26 @@ type CreatedRenewalResponse = {
 
 // ============================================================================
 // POST /api/v1/membership/renewals — create a new renewal request.
-// Staff-only (withAuth), overriding the spec's `security: []` (grilling Q7 —
-// every write route in this codebase is withAuth; the spec's empty security is
-// treated as a copy-paste artifact, contradicted by its own session_id cookie).
+//
+// PUBLIC route (ADR-0015) — NOT wrapped in withAuth. The session_id cookie is
+// OPTIONAL: it selects the submission kind via an inline soft check.
+//   - no cookie / invalid cookie -> Public Submission -> PENDING_REVIEW / PENDING_RENEWAL
+//   - valid cookie               -> Admin Submission -> APPROVED / ACTIVE (instant approval)
+// This is the first non-withAuth write route whose behavior forks on the cookie
+// (the file-upload route is public but cookie-agnostic). There is NO 401 path:
+// a present-but-invalid cookie is treated identically to no cookie (invalid ≡
+// absent). The soft check resolves AuthService from the container inline, the
+// same way withAuth does, but never returns 401.
 //
 // Flow:
 //   1. Parse + structurally validate the JSON body (member_id, payment_slip).
-//   2. Hand the DTO to the use case, which runs the status pre-check (404/403/409)
+//   2. Resolve isAdmin (inline soft session check, no 401).
+//   3. Hand the DTO to the use case, which runs the status pre-check (404/403/409)
 //      then the atomic cross-table write (INSERT renewal + UPDATE member cache
 //      columns, ADR-0014).
 // Success → 201 { id }. Errors → { error_message } with the matching status.
 // ============================================================================
-export const POST = withAuth<CreatedRenewalResponse | ResponseBodyError>(async function POST(
-	request: NextRequest
-): Promise<NextResponse<CreatedRenewalResponse | ResponseBodyError>> {
+export async function POST(request: NextRequest): Promise<NextResponse<CreatedRenewalResponse | ResponseBodyError>> {
 	// 1. Parse JSON body.
 	const parseBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseBodyResult.isErr()) {
@@ -58,11 +64,24 @@ export const POST = withAuth<CreatedRenewalResponse | ResponseBodyError>(async f
 		return NextResponse.json(responseBodyError, { status: 400 })
 	}
 
-	// 3. Hand the validated DTO to the use case.
+	// 3. Resolve isAdmin via an inline soft session check (ADR-0015). The cookie is
+	//    OPTIONAL: absent or invalid -> isAdmin=false (no 401); valid -> isAdmin=true.
+	//    Mirrors withAuth's container.resolve(AuthService) call but never rejects.
+	const sessionId = request.cookies.get("session_id")?.value
+	let isAdmin = false
+	if (sessionId) {
+		const authService = container.resolve<AuthService>(REGISTER_KEY.AUTH_SERVICE)
+		const sessionResult = authService.validateSession(sessionId)
+		isAdmin = sessionResult.isOk()
+	}
+
+	// 4. Hand the validated DTO to the use case. The service selects the status
+	//    pair (PENDING_REVIEW/PENDING_RENEWAL vs APPROVED/ACTIVE) from isAdmin.
 	const service = container.resolve<CreateRenewalService>(REGISTER_KEY.CREATE_RENEWAL_SERVICE)
 	const createRenewalReq: CreateRenewalRequest = {
 		memberId: parsed.output.member_id,
 		paymentSlip: parsed.output.payment_slip,
+		isAdmin,
 	}
 	const result = await service.execute(createRenewalReq)
 	if (result.isErr()) {
@@ -71,7 +90,7 @@ export const POST = withAuth<CreatedRenewalResponse | ResponseBodyError>(async f
 
 	const createdRenewalResponse: CreatedRenewalResponse = { id: result.value }
 	return NextResponse.json(createdRenewalResponse, { status: 201 })
-})
+}
 
 /**
  * Map a CreateRenewalError to its HTTP status + body. Each branch is a distinct
