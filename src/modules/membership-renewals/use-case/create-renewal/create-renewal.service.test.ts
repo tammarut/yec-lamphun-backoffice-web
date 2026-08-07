@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import type { MembershipRenewal } from "../../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../../interfaces"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError } from "./create-renewal.errors"
 import { CreateRenewalService } from "./create-renewal.service"
@@ -29,14 +30,18 @@ describe("CreateRenewalService", () => {
 		...overrides,
 	})
 
+	/** The single MembershipRenewal aggregate passed to repo.createRenewal, if any. */
+	const passedRenewal = (): MembershipRenewal | undefined => mockRepo.createRenewal.mock.calls[0]?.[0]
+
 	describe("Happy cases", () => {
 		test("PUBLIC: ACTIVE member -> ok(renewalId) with PENDING_REVIEW / PENDING_RENEWAL", async () => {
 			// Act
 			const result = await service.execute(baseReq({ isAdmin: false }))
 
-			// Assert
+			// Assert — the service built an aggregate carrying the PUBLIC status pair.
 			expect(result._unsafeUnwrap()).toBe(71)
-			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, baseReq().paymentSlip, "PENDING_REVIEW", "PENDING_RENEWAL")
+			expect(passedRenewal()?.status).toBe("PENDING_REVIEW")
+			expect(passedRenewal()?.memberStatusOnRenewal).toBe("PENDING_RENEWAL")
 		})
 
 		test("PUBLIC: EXPIRED member can file a renewal", async () => {
@@ -54,9 +59,10 @@ describe("CreateRenewalService", () => {
 			// Act
 			const result = await service.execute(baseReq({ isAdmin: true }))
 
-			// Assert — admin bypass: status pair flips to APPROVED / ACTIVE.
+			// Assert — admin bypass: aggregate carries the APPROVED / ACTIVE pair.
 			expect(result._unsafeUnwrap()).toBe(71)
-			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, baseReq().paymentSlip, "APPROVED", "ACTIVE")
+			expect(passedRenewal()?.status).toBe("APPROVED")
+			expect(passedRenewal()?.memberStatusOnRenewal).toBe("ACTIVE")
 		})
 
 		test("ADMIN: EXPIRED member -> instant approval (APPROVED / ACTIVE)", async () => {
@@ -68,7 +74,19 @@ describe("CreateRenewalService", () => {
 
 			// Assert
 			expect(result._unsafeUnwrap()).toBe(71)
-			expect(mockRepo.createRenewal).toHaveBeenCalledWith(15, baseReq().paymentSlip, "APPROVED", "ACTIVE")
+			expect(passedRenewal()?.status).toBe("APPROVED")
+			expect(passedRenewal()?.memberStatusOnRenewal).toBe("ACTIVE")
+		})
+
+		test("aggregate stamps paymentDateAt at server-now and carries memberId + paymentSlip", async () => {
+			// Act
+			await service.execute(baseReq({ memberId: 42, isAdmin: false }))
+
+			// Assert — the aggregate is persistence-ready: fields flow through getters.
+			const renewal = passedRenewal()
+			expect(renewal?.memberId).toBe(42)
+			expect(renewal?.paymentSlipFilePath).toBe(baseReq().paymentSlip)
+			expect(renewal?.paymentDateAt).toBeInstanceOf(Date)
 		})
 	})
 

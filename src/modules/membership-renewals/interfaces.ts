@@ -1,5 +1,6 @@
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
+import type { MembershipRenewal } from "./domain/membership-renewal"
 import type { PendingRenewalExistsError } from "./use-case/create-renewal/create-renewal.errors"
 
 /**
@@ -8,8 +9,10 @@ import type { PendingRenewalExistsError } from "./use-case/create-renewal/create
  * The create-renewal flow is split across two methods mirroring the create-member
  * convention (grilling Q2): a cheap READ for the service-side status pre-check
  * (outside the transaction), and a WRITE that owns the cross-table transaction
- * (ADR-0014). The service orchestrates the 404/403/409 domain decisions; the
- * repository owns atomicity and the Postgres 23505 catch.
+ * (ADR-0014). The service orchestrates the 404/403/409 domain decisions and
+ * assembles the {@link MembershipRenewal} aggregate; the repository owns
+ * atomicity and the Postgres 23505 catch, reading the status pair from the
+ * aggregate's getters.
  */
 export interface IMembershipRenewalRepository {
 	/**
@@ -24,15 +27,12 @@ export interface IMembershipRenewalRepository {
 
 	/**
 	 * Atomically create a renewal and update the member's Renewal Cache Columns
-	 * in one transaction (ADR-0014). The status values are passed in (not
-	 * hardcoded) so one method serves both submission kinds (ADR-0015):
-	 *   1. INSERT INTO membership_renewals (..., $renewalStatus) RETURNING id
-	 *   2. UPDATE members SET status=$memberStatus,
-	 *      latest_renewal_status=$renewalStatus WHERE id AND deleted_at IS NULL
-	 *
-	 * The caller (service) selects the pair from the submission kind:
-	 *   public  -> renewalStatus='PENDING_REVIEW', memberStatus='PENDING_RENEWAL'
-	 *   admin   -> renewalStatus='APPROVED',       memberStatus='ACTIVE'
+	 * in one transaction (ADR-0014). Status values are read from the aggregate's
+	 * getters (resolved by the service from the submission kind, ADR-0015):
+	 *   1. INSERT INTO membership_renewals (member_id, payment_slip_file_path,
+	 *      payment_date_at, renewal.status) RETURNING id
+	 *   2. UPDATE members SET status=renewal.memberStatusOnRenewal,
+	 *      latest_renewal_status=renewal.status WHERE id AND deleted_at IS NULL
 	 *
 	 * The partial unique index idx_one_pending_renewal_per_member covers
 	 * status='PENDING_REVIEW' ONLY, so a public insert may hit Postgres code
@@ -41,5 +41,5 @@ export interface IMembershipRenewalRepository {
 	 * ('APPROVED') is excluded from the index and cannot 23505. All other DB
 	 * failures map to `err(DatabaseError)`. On success returns `ok(newRenewalId)`.
 	 */
-	createRenewal(memberId: number, paymentSlipFilePath: string, renewalStatus: string, memberStatus: string): Promise<Result<number, PendingRenewalExistsError | DatabaseError>>
+	createRenewal(renewal: MembershipRenewal): Promise<Result<number, PendingRenewalExistsError | DatabaseError>>
 }

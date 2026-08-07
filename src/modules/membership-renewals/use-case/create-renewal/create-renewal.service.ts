@@ -1,6 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { inject, singleton } from "tsyringe"
+import { MembershipRenewal } from "../../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../../interfaces"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError, type CreateRenewalError } from "./create-renewal.errors"
 import type { CreateRenewalRequest } from "./create-renewal.types"
@@ -16,18 +17,17 @@ import type { CreateRenewalRequest } from "./create-renewal.types"
  *
  * These run as a cheap pre-check READ outside the transaction, mirroring how
  * {@link CreateNewMemberService} runs its duplicate-id_card / position checks
- * before the atomic write. The repository then owns the cross-table transaction
- * (INSERT renewal + UPDATE member cache columns, ADR-0014) and catches the pg
- * 23505 unique_violation as a race-condition net that maps to the same 409.
+ * before the atomic write. Once the member is eligible, the service assembles a
+ * {@link MembershipRenewal} aggregate via its factory — the aggregate owns the
+ * submission-kind → status-pair rule (ADR-0015) and stamps `paymentDateAt` — and
+ * passes it to the repository, which owns the cross-table transaction (INSERT
+ * renewal + UPDATE member cache columns, ADR-0014) and catches the pg 23505
+ * unique_violation as a race-condition net that maps to the same 409.
  *
- * The submission kind (public vs admin, ADR-0015) selects the status pair
- * written by the repository — admin approval lands the renewal on APPROVED and
- * the member on ACTIVE (skipping review); public submission lands the renewal on
- * PENDING_REVIEW and the member on PENDING_RENEWAL. The pre-check is UNIFORM for
- * both kinds; only the written status values differ.
- *
- * The member.status values ACTIVE / EXPIRED both proceed to renewal creation —
- * an EXPIRED member filing a renewal is the expected path back to ACTIVE.
+ * The pre-check is UNIFORM for both submission kinds; only the aggregate's
+ * resolved status values differ. The member.status values ACTIVE / EXPIRED both
+ * proceed to renewal creation — an EXPIRED member filing a renewal is the
+ * expected path back to ACTIVE.
  *
  * Returns AGENTS.md §2B single-wrapped `Promise<Result<number, CreateRenewalError>>`.
  */
@@ -54,17 +54,27 @@ export class CreateRenewalService {
 		}
 		// ACTIVE / EXPIRED proceed.
 
-		// 2. Select the status pair from the submission kind (ADR-0015). The repo
-		//    writes these verbatim into the INSERT and UPDATE; the partial unique
-		//    index covers 'PENDING_REVIEW' only, so the 23505 race-catch only fires
-		//    on the public path (an APPROVED admin insert cannot 23505).
-		const renewalStatus = req.isAdmin ? "APPROVED" : "PENDING_REVIEW"
-		const memberStatus = req.isAdmin ? "ACTIVE" : "PENDING_RENEWAL"
+		// 2. Assemble the aggregate. The factory owns the submission-kind →
+		//    status-pair rule (ADR-0015) and stamps paymentDateAt at server-now.
+		//    It returns ok unconditionally today (no self-invariant can fail); the
+		//    Result shape leaves room for the future review API's transition checks.
+		const renewalResult = MembershipRenewal.create({
+			memberId: req.memberId,
+			paymentSlipFilePath: req.paymentSlip,
+			isAdmin: req.isAdmin,
+			now: new Date(),
+		})
+		// Unwrap is safe today — create() never errs. Written out (not ._unsafeUnwrap)
+		// so the future err branch is a one-line change here.
+		if (renewalResult.isErr()) {
+			return err(renewalResult.error)
+		}
+		const renewal = renewalResult.value
 
 		// 3. Persist atomically — the transaction + the 23505 race-catch are
 		//    internal details of the repository. One call, returns ok(id) or
 		//    err(PendingRenewalExistsError | DatabaseError).
-		const createResult = await this.repository.createRenewal(req.memberId, req.paymentSlip, renewalStatus, memberStatus)
+		const createResult = await this.repository.createRenewal(renewal)
 		if (createResult.isErr()) {
 			return err(createResult.error)
 		}

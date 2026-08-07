@@ -3,6 +3,7 @@ import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
+import type { MembershipRenewal } from "../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../interfaces"
 import { PendingRenewalExistsError } from "../use-case/create-renewal/create-renewal.errors"
 import { getMemberStatusForRenewal, insertMembershipRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
@@ -43,17 +44,17 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		return ok(row ? row.status : null)
 	}
 
-	async createRenewal(memberId: number, paymentSlipFilePath: string, renewalStatus: string, memberStatus: string) {
+	async createRenewal(renewal: MembershipRenewal) {
 		// The transaction is scoped to this method: insert renewal → update member
 		// cache columns. bun:sql auto-commits on success, auto-rollbacks on throw.
-		// The status values flow straight through to sqlc — they were selected by
-		// the service from the submission kind (ADR-0015); the repo does not
-		// interpret them.
+		// The status values are read from the aggregate's getters — they were
+		// resolved by MembershipRenewal.create() from the submission kind (ADR-0015);
+		// the repo does not interpret them.
 		try {
 			const renewalId = await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
-				const newId = await this.doInsertRenewal(sql, memberId, paymentSlipFilePath, renewalStatus)
-				await this.doUpdateMemberStatus(sql, memberId, memberStatus, renewalStatus)
+				const newId = await this.doInsertRenewal(sql, renewal)
+				await this.doUpdateMemberStatus(sql, renewal)
 				return newId
 			})
 
@@ -87,12 +88,12 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	 * the inspection is sealed inside this helper so the pg-error-detail pattern
 	 * does not leak into the service layer.
 	 */
-	private async doInsertRenewal(sql: Sql, memberId: number, paymentSlipFilePath: string, renewalStatus: string): Promise<number> {
+	private async doInsertRenewal(sql: Sql, renewal: MembershipRenewal): Promise<number> {
 		try {
 			const result = await insertMembershipRenewal(sql, {
-				memberId: String(memberId),
-				paymentSlipFilePath,
-				status: renewalStatus,
+				memberId: String(renewal.memberId),
+				paymentSlipFilePath: renewal.paymentSlipFilePath,
+				status: renewal.status,
 			})
 			const row = result[0]
 			if (!row) {
@@ -118,12 +119,17 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	/**
 	 * Update the member's Renewal Cache Columns (status, latest_renewal_status)
 	 * inside the same transaction. latest_renewal_status mirrors the renewal's own
-	 * status. Carries `deleted_at IS NULL` (encoded in the generated SQL) matching
-	 * every other members write query.
+	 * status; member status is the aggregate's memberStatusOnRenewal. Carries
+	 * `deleted_at IS NULL` (encoded in the generated SQL) matching every other
+	 * members write query.
 	 */
-	private async doUpdateMemberStatus(sql: Sql, memberId: number, memberStatus: string, renewalStatus: string): Promise<void> {
+	private async doUpdateMemberStatus(sql: Sql, renewal: MembershipRenewal): Promise<void> {
 		const result = await ResultAsync.fromPromise(
-			updateMemberStatusOnRenewal(sql, { id: String(memberId), status: memberStatus, latestRenewalStatus: renewalStatus }),
+			updateMemberStatusOnRenewal(sql, {
+				id: String(renewal.memberId),
+				status: renewal.memberStatusOnRenewal,
+				latestRenewalStatus: renewal.status,
+			}),
 			(error) => error as Error
 		)
 		if (result.isErr()) {
