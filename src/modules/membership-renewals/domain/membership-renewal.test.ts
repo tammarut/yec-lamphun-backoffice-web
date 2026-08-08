@@ -59,3 +59,46 @@ describe("MembershipRenewal.create", () => {
 		})
 	})
 })
+
+describe("MembershipRenewal.createManual", () => {
+	describe("Happy cases", () => {
+		test("manual submission is always APPROVED / ACTIVE (staff instant approval)", () => {
+			const result = MembershipRenewal.createManual({ ...baseInput })
+
+			expect(result.isOk()).toBe(true)
+			const renewal = result._unsafeUnwrap()
+			expect(renewal.status).toBe("APPROVED")
+			expect(renewal.memberStatusOnRenewal).toBe("ACTIVE")
+		})
+
+		test("carries memberId + paymentSlip and stamps paymentDateAt from server-now", () => {
+			const now = new Date("2030-01-15T09:30:00Z")
+			const result = MembershipRenewal.createManual({ memberId: 42, paymentSlipFilePath: "slip.webp", now })
+
+			const renewal = result._unsafeUnwrap()
+			expect(renewal.memberId).toBe(42)
+			expect(renewal.paymentSlipFilePath).toBe("slip.webp")
+			expect(renewal.paymentDateAt).toBe(now)
+		})
+
+		test("does NOT expose expiresAt on the public factory output", () => {
+			// The public create() must stay unaffected: no expiresAt.
+			const result = MembershipRenewal.create({ ...baseInput, isAdmin: true })
+
+			expect(result._unsafeUnwrap().expiresAt).toBeUndefined()
+		})
+	})
+
+	describe("Membership Expiry rule (ADR-0016)", () => {
+		// The shared end-of-next-year formula, pinned across calendar-year edges.
+		test.each([
+			{ now: new Date("2026-06-15T10:00:00Z"), expected: "2027-12-31T23:59:59.999Z", label: "mid-2026" },
+			{ now: new Date("2026-12-31T23:00:00Z"), expected: "2027-12-31T23:59:59.999Z", label: "last day of 2026" },
+			{ now: new Date("2027-01-01T00:00:00Z"), expected: "2028-12-31T23:59:59.999Z", label: "first day of 2027" },
+		])("expiresAt for $label -> $expected", ({ now, expected }) => {
+			const renewal = MembershipRenewal.createManual({ ...baseInput, now })._unsafeUnwrap()
+
+			expect(renewal.expiresAt?.toISOString()).toBe(expected)
+		})
+	})
+})

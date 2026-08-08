@@ -11,6 +11,7 @@ import { GetListMembersService } from "src/modules/members/use-case/get-list-mem
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { MembershipRenewalsRepository } from "src/modules/membership-renewals/repository/membership-renewals.repository"
+import { CreateManualRenewalService } from "src/modules/membership-renewals/use-case/create-renewal-manual/create-renewal-manual.service"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
@@ -210,5 +211,12 @@ container.register(REGISTER_KEY.MEMBERSHIP_RENEWALS_REPOSITORY, {
 })
 
 container.register(REGISTER_KEY.CREATE_RENEWAL_SERVICE, { useClass: CreateRenewalService }, { lifecycle: Lifecycle.Singleton })
+
+// 10g. Register the manual create-renewal service (ADR-0016). Reuses the same
+// MEMBERSHIP_RENEWALS_REPOSITORY above (registered once); only this new service
+// is registered. The manual service is a staff-only sibling: withAuth at the
+// route proves staff, the service reuses the shared status pre-check, and its
+// repo method advances the membership clock (expires_at + renewal_successful_count).
+container.register(REGISTER_KEY.CREATE_MANUAL_RENEWAL_SERVICE, { useClass: CreateManualRenewalService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }

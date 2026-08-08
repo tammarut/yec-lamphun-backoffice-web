@@ -53,3 +53,31 @@ SET status = $2,
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL;
+
+-- ============================================================================
+-- Manual create renewal (POST /api/v1/membership/renewals/manual) — ADR-0016
+-- A staff-only sibling of the public create-renewal flow. The repo reuses the
+-- same InsertMembershipRenewal (status here is always 'APPROVED', which is
+-- EXCLUDED from idx_one_pending_renewal_per_member, so this INSERT can never
+-- raise 23505) but writes a DIFFERENT member UPDATE: the manual flow advances
+-- the membership clock — it sets expires_at (end of next year, computed by the
+-- shared computeMembershipExpiry util and passed as $2) and increments
+-- renewal_successful_count. The two status columns are LITERALS (always ACTIVE
+-- / APPROVED for a staff manual submission) rather than parameters, because the
+-- manual route's withAuth contract already fixes them — there is no submission-
+-- kind fork here.
+-- ============================================================================
+
+-- name: UpdateMemberOnManualRenewal :exec
+-- The MANUAL member cache write — four columns (vs the public path's two).
+-- $2 is the new expires_at (ISO 8601 string; the repo converts the aggregate's
+-- Date so Bun.SQL's Date.toString() quirk does not reject it). Statuses are
+-- literals per ADR-0016. Carries `deleted_at IS NULL` like every members write.
+UPDATE members
+SET status = 'ACTIVE',
+    latest_renewal_status = 'APPROVED',
+    expires_at = $2,
+    renewal_successful_count = renewal_successful_count + 1,
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;

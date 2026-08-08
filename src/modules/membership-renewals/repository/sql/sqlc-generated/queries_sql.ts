@@ -60,3 +60,22 @@ export interface UpdateMemberStatusOnRenewalArgs {
 export async function updateMemberStatusOnRenewal(sql: Sql, args: UpdateMemberStatusOnRenewalArgs): Promise<void> {
 	await sql.unsafe(updateMemberStatusOnRenewalQuery, [args.id, args.status, args.latestRenewalStatus])
 }
+
+export const updateMemberOnManualRenewalQuery = `-- name: UpdateMemberOnManualRenewal :exec
+UPDATE members
+SET status = 'ACTIVE',
+    latest_renewal_status = 'APPROVED',
+    expires_at = $2,
+    renewal_successful_count = renewal_successful_count + 1,
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface UpdateMemberOnManualRenewalArgs {
+	id: string
+	expiresAt: string
+}
+
+export async function updateMemberOnManualRenewal(sql: Sql, args: UpdateMemberOnManualRenewalArgs): Promise<void> {
+	await sql.unsafe(updateMemberOnManualRenewalQuery, [args.id, args.expiresAt])
+}

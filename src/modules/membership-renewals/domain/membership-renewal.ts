@@ -1,4 +1,5 @@
 import { ok, type Result } from "neverthrow"
+import { computeMembershipExpiry } from "src/modules/shared/membership/membership-expiry"
 
 /**
  * The Renewal Status of a single Membership Renewal.
@@ -36,6 +37,14 @@ export type MembershipRenewalProps = {
 	readonly status: RenewalStatus
 	/** The member cache-column value to write alongside this renewal. */
 	readonly memberStatusOnRenewal: MemberStatusOnRenewal
+	/**
+	 * The new `members.expires_at` to write, present ONLY on a Manual Renewal
+	 * Submission (created via {@link MembershipRenewal.createManual}). Absent on
+	 * the public path — the public create-renewal flow deliberately does not
+	 * touch `expires_at` (ADR-0015); ADR-0016 assigns the clock-advancing write
+	 * to the manual endpoint. Undefined here means "not applicable".
+	 */
+	readonly expiresAt?: Date
 }
 
 /**
@@ -81,6 +90,15 @@ export class MembershipRenewal {
 	get memberStatusOnRenewal() {
 		return this.props.memberStatusOnRenewal
 	}
+	/**
+	 * The new `members.expires_at` for a Manual Renewal Submission. `undefined`
+	 * on an aggregate built by the public {@link create} factory; always set on
+	 * one built by {@link createManual}. The repository reads this ONLY on the
+	 * manual write path.
+	 */
+	get expiresAt(): Date | undefined {
+		return this.props.expiresAt
+	}
 
 	// --- Factory: New Renewal Creation ---
 
@@ -112,6 +130,43 @@ export class MembershipRenewal {
 				paymentDateAt: input.now,
 				status,
 				memberStatusOnRenewal,
+			})
+		)
+	}
+
+	// --- Factory: Manual Renewal Creation (staff) ---
+
+	/**
+	 * Resolve a persistence-ready Membership Renewal for a MANUAL (staff)
+	 * submission via `POST /api/v1/membership/renewals/manual` (ADR-0016).
+	 *
+	 * A Manual Renewal Submission is always an Admin Submission — the route is
+	 * wrapped in `withAuth`, so by the time this runs the caller is proven
+	 * staff — so the status pair is fixed to APPROVED / ACTIVE. There is no
+	 * `isAdmin` input here (unlike {@link create}): the manual route's auth
+	 * contract *is* the proof.
+	 *
+	 * DISTINCT from a plain Admin Submission on the public endpoint: a manual
+	 * renewal ALSO advances the membership clock. This factory computes the new
+	 * `expires_at` via the shared Membership Expiry rule
+	 * (`computeMembershipExpiry` = end of next year), exposed via
+	 * {@link expiresAt} so the manual repository write can set it and bump
+	 * `renewal_successful_count` in the same transaction. The public path
+	 * leaves both untouched (ADR-0015).
+	 *
+	 * Returns `ok` unconditionally today — the `Result` shape mirrors
+	 * {@link create} so a future transition-validation can fail here without a
+	 * signature change.
+	 */
+	static createManual(input: { memberId: number; paymentSlipFilePath: string; now: Date }): Result<MembershipRenewal, never> {
+		return ok(
+			new MembershipRenewal({
+				memberId: input.memberId,
+				paymentSlipFilePath: input.paymentSlipFilePath,
+				paymentDateAt: input.now,
+				status: "APPROVED",
+				memberStatusOnRenewal: "ACTIVE",
+				expiresAt: computeMembershipExpiry(input.now),
 			})
 		)
 	}
