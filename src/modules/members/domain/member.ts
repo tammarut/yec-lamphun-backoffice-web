@@ -1,6 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
 import { CryptoError } from "src/modules/shared/crypto"
+import { computeMembershipExpiry } from "src/modules/shared/membership/membership-expiry"
 import type { CreateMemberRequest } from "../use-case/create-new-member/create-member.types"
 import { MemberValidationError } from "./errors"
 import type { IdCardCipher } from "./id-card"
@@ -251,15 +252,17 @@ export class Member {
 	}
 
 	/**
-	 * expires_at = end of the day exactly one calendar year after `now`.
-	 * "now + 1 year (end of day)": add one year, then set time to 23:59:59.999.
+	 * The shared Membership Expiry rule (CONTEXT.md): the last instant of the
+	 * NEXT calendar year after `now` — `${now.year+1}-12-31T23:59:59.999`. One
+	 * rule, applied at BOTH member creation (here) and manual renewal
+	 * (MembershipRenewal). Delegated to the shared `computeMembershipExpiry`
+	 * util so the members module does not own the formula and the renewals
+	 * module does not need to import from members (AGENTS.md §1/§2A). See
+	 * ADR-0016 for why this superseded the prior `now + 1 year (end of day)`
+	 * member-creation formula.
 	 */
 	private static computeExpiry(now: Date): Date {
-		const expiresAt = new Date(now)
-		expiresAt.setFullYear(expiresAt.getFullYear() + 1)
-		expiresAt.setHours(23, 59, 59, 999)
-
-		return expiresAt
+		return computeMembershipExpiry(now)
 	}
 
 	// --- Factory: Update Existing Member ---

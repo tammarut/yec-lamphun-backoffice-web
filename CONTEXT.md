@@ -67,7 +67,7 @@ A member's request to extend their membership tenure, submitted with a payment s
 _Avoid_: renewal, extension, membership extension, renewal record
 
 **Renewal Submission**:
-The act of creating a Membership Renewal. The create-renewal endpoint is public: any caller may submit on behalf of a member_id. The Renewal Status assigned at submission depends on WHO submits — see **Public Submission** and **Admin Submission**.
+The act of creating a Membership Renewal. There are two submission channels: the public create-renewal endpoint (any caller may submit on behalf of a member_id; the Renewal Status assigned depends on WHO submits — see **Public Submission** and **Admin Submission**), and the manual create endpoint (staff-only, always an Admin Submission — see **Manual Renewal Submission**).
 
 **Public Submission**:
 A Renewal Submission made without a valid staff session cookie. The renewal enters the review pipeline at Renewal Status `PENDING_REVIEW`, and the member's Member Status moves to `PENDING_RENEWAL`. A member may have at most one live `PENDING_REVIEW` renewal (enforced by a partial unique index).
@@ -76,6 +76,14 @@ _Avoid_: anonymous submission, member submission
 **Admin Submission** (a.k.a. Admin Instant Approval):
 A Renewal Submission made with a valid staff session cookie. The renewal skips the review pipeline: it is created directly at Renewal Status `APPROVED`, and the member's Member Status moves to `ACTIVE`. Because the member lands on `ACTIVE` (not `PENDING_RENEWAL`), the one-pending-renewal guard does not block a subsequent submission — so an admin may create multiple `APPROVED` renewals for the same member. This is accepted behavior; the rule is "valid staff session ⟹ bypass review," not "one approved renewal per member."
 _Avoid_: instant renewal, auto-approval, staff submission
+
+**Manual Renewal Submission**:
+A Renewal Submission made by staff via `POST /api/v1/membership/renewals/manual`, which requires a valid staff session cookie (enforced by `withAuth`, unlike the public create-renewal endpoint's optional cookie). It is always an Admin Submission: the renewal is created at Renewal Status `APPROVED` and the member's Member Status moves to `ACTIVE`. Unlike a plain Admin Submission on the public endpoint, a Manual Renewal Submission ALSO advances the member's membership clock — it bumps `renewal_successful_count` by one and sets `expires_at` to the **Membership Expiry**. The public endpoint deliberately does neither (ADR-0015, ADR-0016).
+_Avoid_: manual renewal, backoffice renewal, staff-created renewal
+
+**Membership Expiry**:
+The single business rule for the `members.expires_at` value: the last instant of the *next* calendar year after the reference date — `${currentYear + 1}-12-31T23:59:59.999` (e.g. a 2026 reference → `2027-12-31T23:59:59.999Z`). Implemented once as a shared pure function (`computeMembershipExpiry` in `src/modules/shared/membership/`) and applied at BOTH member creation (via `Member`) and on every Manual Renewal Submission (via `MembershipRenewal`); the two modules never import each other (AGENTS.md §1/§2A). Aligning members to a calendar-year cycle (rather than a rolling one-year-from-today term) is the accepted rule (ADR-0016). NOTE: this supersedes the earlier member-creation formula (`now + 1 calendar year, end of that day`); a member created mid-2026 now expires at the end of 2027, not ~2027-08.
+_Avoid_: renewal end date, creation expiry, rolling expiry, new expiry
 
 **Renewal Status**:
 The review state machine of a single Membership Renewal: `PENDING_REVIEW` → (`APPROVED` | `REJECTED`). The status assigned at submission is `PENDING_REVIEW` for a Public Submission or `APPROVED` for an Admin Submission. Stored on `membership_renewals.status`; enforced by a database CHECK constraint.
@@ -86,5 +94,5 @@ The lifecycle state of a member's membership itself: `ACTIVE`, `EXPIRED`, `PENDI
 _Avoid_: account status, membership state
 
 **Renewal Cache Columns**:
-Two denormalized columns on `members` — `status` (the Member Status) and `latest_renewal_status` (the Renewal Status of the member's most recent renewal) — kept in sync with the renewal's own state to avoid a JOIN on every member read. The create-renewal flow writes both atomically inside the renewal's transaction; the update-member PATCH deliberately never touches them (they are lifecycle columns, owned by the renewal flow).
+Denormalized columns on `members` kept in sync with the renewal's own state to avoid a JOIN on every member read. The pair `status` (the Member Status) and `latest_renewal_status` (the Renewal Status of the member's most recent renewal) is written by every Renewal Submission atomically inside the renewal's transaction. The two further columns `expires_at` and `renewal_successful_count` are written ONLY by a Manual Renewal Submission — the public create-renewal flow deliberately leaves them untouched (ADR-0015 deferred them; ADR-0016 assigns them to the manual endpoint). The update-member PATCH never touches any of them (they are lifecycle columns, owned by the renewal flow).
 _Avoid_: cached fields, denormalized status

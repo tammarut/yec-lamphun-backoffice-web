@@ -116,16 +116,30 @@ describe("Member.create", () => {
 			expect(member.documents[1]?.type).toBe("COMPANY_CERTIFICATE")
 		})
 
-		test("expires_at is one year after the provided 'now', at end of day", () => {
-			// Arrange
-			const now = new Date(2026, 0, 15, 10, 0, 0)
+		test("expires_at is end of next year (Membership Expiry rule)", () => {
+			// Arrange — a mid-year `now`. The shared Membership Expiry rule pins
+			// expires_at to the last instant of the NEXT calendar year, regardless of
+			// the day/month of `now` (ADR-0016 supersedes the old "+1 year end-of-day").
+			const now = new Date(Date.UTC(2026, 5, 15, 10, 0, 0))
 
 			// Act
 			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
 
-			// Assert — create always computes a non-null expires_at (computeExpiry).
-			expect(member.expiresAt!.getFullYear()).toBe(2027)
-			expect(member.expiresAt!.getHours()).toBe(23)
+			// Assert — exact instant, not just year/hours (the prior loose assertions
+			// passed coincidentally under both the old and new formulas).
+			expect(member.expiresAt!.toISOString()).toBe("2027-12-31T23:59:59.999Z")
+		})
+
+		test("expires_at is the NEXT calendar year even when `now` is late in the year", () => {
+			// Arrange — Dec 31 2026. A "+365 days" or "end-of-year-of-now" reading
+			// could wrongly yield 2026-12-31; the rule must land on the NEXT year.
+			const now = new Date(Date.UTC(2026, 11, 31, 23, 0, 0))
+
+			// Act
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+
+			// Assert
+			expect(member.expiresAt!.toISOString()).toBe("2027-12-31T23:59:59.999Z")
 		})
 	})
 

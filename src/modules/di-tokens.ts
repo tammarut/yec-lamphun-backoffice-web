@@ -32,4 +32,8 @@ export const REGISTER_KEY = {
 	// cache columns); the service runs the status pre-check.
 	MEMBERSHIP_RENEWALS_REPOSITORY: Symbol("MEMBERSHIP_RENEWALS_REPOSITORY"),
 	CREATE_RENEWAL_SERVICE: Symbol("CREATE_RENEWAL_SERVICE"),
+	// Membership-renewals module (manual create-renewal command) — ADR-0016. A
+	// staff-only sibling that reuses the same repo + pre-check but ALSO advances
+	// the membership clock (expires_at + renewal_successful_count).
+	CREATE_MANUAL_RENEWAL_SERVICE: Symbol("CREATE_MANUAL_RENEWAL_SERVICE"),
 } as const

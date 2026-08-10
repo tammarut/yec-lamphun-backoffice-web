@@ -13,15 +13,22 @@ import type { PendingRenewalExistsError } from "./use-case/create-renewal/create
  * assembles the {@link MembershipRenewal} aggregate; the repository owns
  * atomicity and the Postgres 23505 catch, reading the status pair from the
  * aggregate's getters.
+ *
+ * The MANUAL create-renewal flow (ADR-0016) reuses the same READ for its
+ * pre-check and adds its own WRITE — {@link createManualRenewal} — because the
+ * manual write advances the membership clock (`expires_at` +
+ * `renewal_successful_count`) on top of the shared status/`latest_renewal_status`
+ * cache-column write.
  */
 export interface IMembershipRenewalRepository {
 	/**
 	 * Pre-check read (runs OUTSIDE the create-renewal transaction): fetch the
 	 * member's current status for the service's 404/403/409 early-exit branches.
 	 *
-	 * Returns `null` when the member does not exist or is soft-deleted (the two
-	 * are indistinguishable to the client → 404). Returns the status string
-	 * otherwise (e.g. "ACTIVE", "RESIGNED", "PENDING_RENEWAL").
+	 * Shared by the public and manual flows. Returns `null` when the member does
+	 * not exist or is soft-deleted (the two are indistinguishable to the client
+	 * → 404). Returns the status string otherwise (e.g. "ACTIVE", "RESIGNED",
+	 * "PENDING_RENEWAL").
 	 */
 	getMemberStatusForRenewal(memberId: number): Promise<Result<string | null, DatabaseError>>
 
@@ -42,4 +49,31 @@ export interface IMembershipRenewalRepository {
 	 * failures map to `err(DatabaseError)`. On success returns `ok(newRenewalId)`.
 	 */
 	createRenewal(renewal: MembershipRenewal): Promise<Result<number, PendingRenewalExistsError | DatabaseError>>
+
+	/**
+	 * Atomically create a MANUAL renewal and advance the member's membership
+	 * clock in one transaction (ADR-0016). Reads status values AND the computed
+	 * expiresAt from the aggregate (built by the service via
+	 * `MembershipRenewal.createManual`, which fixes APPROVED/ACTIVE and computes
+	 * the end-of-next-year expiry):
+	 *   1. INSERT INTO membership_renewals (member_id, payment_slip_file_path,
+	 *      payment_date_at, status='APPROVED') RETURNING id
+	 *   2. UPDATE members SET status='ACTIVE', latest_renewal_status='APPROVED',
+	 *      expires_at=renewal.expiresAt,
+	 *      renewal_successful_count=renewal_successful_count+1
+	 *      WHERE id AND deleted_at IS NULL
+	 *
+	 * Distinct from {@link createRenewal} because the manual flow writes FOUR
+	 * member cache columns (the public flow writes two and deliberately leaves
+	 * expires_at / renewal_successful_count untouched — ADR-0015 deferred them;
+	 * ADR-0016 assigns them here).
+	 *
+	 * The INSERT here is always status='APPROVED', which is EXCLUDED from the
+	 * partial unique index idx_one_pending_renewal_per_member, so this method
+	 * can NEVER raise Postgres 23505 — its error type is just `DatabaseError`.
+	 * (The only PendingRenewalExistsError on the manual path comes from the
+	 * service pre-check, `member.status === PENDING_RENEWAL`, never from here.)
+	 * On success returns `ok(newRenewalId)`.
+	 */
+	createManualRenewal(renewal: MembershipRenewal): Promise<Result<number, DatabaseError>>
 }

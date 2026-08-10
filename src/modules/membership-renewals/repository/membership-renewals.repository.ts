@@ -6,7 +6,7 @@ import { inject, injectable } from "tsyringe"
 import type { MembershipRenewal } from "../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../interfaces"
 import { PendingRenewalExistsError } from "../use-case/create-renewal/create-renewal.errors"
-import { getMemberStatusForRenewal, insertMembershipRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
+import { getMemberStatusForRenewal, insertMembershipRenewal, updateMemberOnManualRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the membership-renewals module.
@@ -73,6 +73,34 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		}
 	}
 
+	async createManualRenewal(renewal: MembershipRenewal) {
+		// Same transaction shape as createRenewal: insert renewal → update member.
+		// The manual write ALSO sets expires_at and bumps renewal_successful_count
+		// (the clock-advancing write, ADR-0016) via a dedicated member UPDATE
+		// query. The status values and expiresAt are read from the aggregate's
+		// getters — built by MembershipRenewal.createManual() (APPROVED/ACTIVE +
+		// end-of-next-year expiry); the repo does not interpret them.
+		//
+		// Unlike createRenewal there is NO PendingRenewalExistsError catch here:
+		// the manual INSERT is status='APPROVED', excluded from the partial unique
+		// index, so it can never raise Postgres 23505.
+		try {
+			const renewalId = await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
+				const newId = await this.doInsertRenewal(sql, renewal)
+				await this.doUpdateMemberOnManualRenewal(sql, renewal)
+				return newId
+			})
+
+			return ok(renewalId)
+		} catch (error) {
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Create manual renewal transaction failed", error))
+		}
+	}
+
 	// --- Private helpers (run inside createRenewal's transaction) ----------
 
 	/**
@@ -136,6 +164,33 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
 	}
+
+	/**
+	 * The MANUAL member cache write — runs inside createManualRenewal's
+	 * transaction. Sets ALL four Renewal Cache Columns for the manual flow
+	 * (ADR-0016): the two the public write touches (status, latest_renewal_status,
+	 * here fixed to ACTIVE / APPROVED literals by the sqlc query) PLUS the two
+	 * clock columns the manual flow advances — `expires_at` (bound from the
+	 * aggregate's computed value) and `renewal_successful_count` (incremented
+	 * inline). The generated query carries `deleted_at IS NULL` like every other
+	 * members write.
+	 *
+	 * `expiresAt` must be bound as an ISO string, NOT a Date: Bun.SQL serializes
+	 * Date via `toString()` (→ "GMT+0700"), which Postgres rejects (same quirk
+	 * MembersRepository.toPgDate works around). The conversion is isolated here.
+	 */
+	private async doUpdateMemberOnManualRenewal(sql: Sql, renewal: MembershipRenewal): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateMemberOnManualRenewal(sql, {
+				id: String(renewal.memberId),
+				expiresAt: toPgDate(renewal.expiresAt),
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
 }
 
 /**
@@ -149,4 +204,20 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
  */
 function isUniqueViolation(error: unknown): boolean {
 	return typeof error === "object" && error !== null && "code" in error && (error as { code: unknown }).code === "23505"
+}
+
+/**
+ * Convert the manual renewal's expiresAt Date to a Postgres-safe ISO 8601 string.
+ *
+ * Same Bun.SQL quirk MembersRepository.toPgDate works around: Date.toString()
+ * yields a local-tz string ("GMT+0700") that Postgres rejects; toISOString()
+ * ("Z" suffix) is accepted for TIMESTAMPTZ. The manual aggregate always sets
+ * expiresAt (createManual), so a missing value is a programmer error — throw
+ * rather than silently write NULL.
+ */
+function toPgDate(date: Date | undefined): string {
+	if (date === undefined) {
+		throw new DatabaseError("Manual renewal aggregate is missing expiresAt")
+	}
+	return date.toISOString()
 }
