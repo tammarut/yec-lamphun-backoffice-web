@@ -7,6 +7,7 @@ import { MemberFileService } from "src/modules/members/member-file.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
+import { GetLatestRenewalByMemberIdService } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
@@ -179,6 +180,18 @@ container.register(
 	REGISTER_KEY.GET_LIST_MEMBERS_SERVICE,
 	{
 		useClass: GetListMembersService,
+	},
+	{ lifecycle: Lifecycle.Singleton }
+)
+
+// 10d. Register Members Module (get-latest-renewal-by-member-id query) —
+// ADR-0007/0010/0013. Read-only orchestrator over the repository (composite
+// member + business + latest renewal row) and the URL service (avatar public
+// concat + slip presign). Serves GET /api/v1/membership/renewals/:member_id.
+container.register(
+	REGISTER_KEY.GET_LATEST_RENEWAL_BY_MEMBER_ID_SERVICE,
+	{
+		useClass: GetLatestRenewalByMemberIdService,
 	},
 	{ lifecycle: Lifecycle.Singleton }
 )

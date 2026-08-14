@@ -35,6 +35,20 @@ describe("MemberFileUrlService", () => {
 			expect(mockResolver.publicUrl).not.toHaveBeenCalled()
 		})
 
+		test("resolvePaymentSlipUrl presigns a private-bucket slip path", async () => {
+			// payment_slip is a private-bucket field → presign (ADR-0007), never public concat.
+			const result = await service.resolvePaymentSlipUrl("members/documents/payment_slip.png")
+			expect(result._unsafeUnwrap()).toBe("https://presigned.example/key")
+			expect(mockResolver.presign).toHaveBeenCalledTimes(1)
+			expect(mockResolver.presign).toHaveBeenCalledWith("members/documents/payment_slip.png")
+			expect(mockResolver.publicUrl).not.toHaveBeenCalled()
+		})
+
+		test("resolvePaymentSlipUrl returns ok(null) for a null path without presigning", async () => {
+			expect((await service.resolvePaymentSlipUrl(null))._unsafeUnwrap()).toBeNull()
+			expect(mockResolver.presign).not.toHaveBeenCalled()
+		})
+
 		test("presigns private-bucket fields and concatenates public fields", async () => {
 			const result = await service.resolveMemberFileUrls({
 				idCardImage: "members/documents/id.jpg",
@@ -115,6 +129,15 @@ describe("MemberFileUrlService", () => {
 				product: null,
 			})
 			expect(result.isErr()).toBe(true)
+		})
+
+		test("resolvePaymentSlipUrl propagates a presign failure as err(StorageError)", async () => {
+			// Same infra-level failure policy as resolveMemberFileUrls: a presign
+			// failure is systemic, so propagate → 500 rather than degrade to null.
+			mockResolver.presign.mockResolvedValue(err(new StorageError("R2 unreachable")))
+			const result = await service.resolvePaymentSlipUrl("members/documents/payment_slip.png")
+			expect(result.isErr()).toBe(true)
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(StorageError)
 		})
 	})
 })

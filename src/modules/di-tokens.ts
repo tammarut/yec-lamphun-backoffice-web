@@ -23,6 +23,10 @@ export const REGISTER_KEY = {
 	GET_MEMBER_BY_ID_SERVICE: Symbol("GET_MEMBER_BY_ID_SERVICE"),
 	// Members module (get-list-members query) — ADR-0010/0011.
 	GET_LIST_MEMBERS_SERVICE: Symbol("GET_LIST_MEMBERS_SERVICE"),
+	// Members module (get-latest-renewal-by-member-id query) — ADR-0007/0010/0013.
+	// A member-centric read (member identity + business + newest renewal); the
+	// members repo owns this first READ of membership_renewals (ADR-0013 was a write).
+	GET_LATEST_RENEWAL_BY_MEMBER_ID_SERVICE: Symbol("GET_LATEST_RENEWAL_BY_MEMBER_ID_SERVICE"),
 	// Members module (update-member-by-id command) — ADR-0012.
 	UPDATE_MEMBER_SERVICE: Symbol("UPDATE_MEMBER_SERVICE"),
 	// Members module (delete-member-by-id command) — ADR-0013.

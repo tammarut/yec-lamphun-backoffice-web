@@ -547,3 +547,65 @@ export interface SoftDeleteMemberByIdArgs {
 export async function softDeleteMemberById(sql: Sql, args: SoftDeleteMemberByIdArgs): Promise<void> {
 	await sql.unsafe(softDeleteMemberByIdQuery, [args.id])
 }
+
+export const getLatestRenewalByMemberIdQuery = `-- name: GetLatestRenewalByMemberId :many
+SELECT
+  m.id,
+  m.profile_avatar,
+  m.title_name_th,
+  m.first_name_th,
+  m.last_name_th,
+  m.nickname,
+  m.phone_no,
+  m.position_code,
+  mb.name AS business_name,
+  mr.id AS renewal_id,
+  mr.payment_date_at AS renewal_payment_date_at,
+  mr.payment_slip_file_path AS renewal_payment_slip_file_path
+FROM members m
+JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL
+LEFT JOIN LATERAL (
+  SELECT id, payment_date_at, payment_slip_file_path
+  FROM membership_renewals
+  WHERE member_id = m.id AND deleted_at IS NULL
+  ORDER BY id DESC
+  LIMIT 1
+) mr ON true
+WHERE m.id = $1
+  AND m.deleted_at IS NULL`
+
+export interface GetLatestRenewalByMemberIdArgs {
+	id: string
+}
+
+export interface GetLatestRenewalByMemberIdRow {
+	id: string
+	profileAvatar: string | null
+	titleNameTh: string
+	firstNameTh: string
+	lastNameTh: string
+	nickname: string
+	phoneNo: string
+	positionCode: string
+	businessName: string
+	renewalId: string
+	renewalPaymentDateAt: Date
+	renewalPaymentSlipFilePath: string
+}
+
+export async function getLatestRenewalByMemberId(sql: Sql, args: GetLatestRenewalByMemberIdArgs): Promise<GetLatestRenewalByMemberIdRow[]> {
+	return (await sql.unsafe(getLatestRenewalByMemberIdQuery, [args.id]).values()).map((row) => ({
+		id: row[0],
+		profileAvatar: row[1],
+		titleNameTh: row[2],
+		firstNameTh: row[3],
+		lastNameTh: row[4],
+		nickname: row[5],
+		phoneNo: row[6],
+		positionCode: row[7],
+		businessName: row[8],
+		renewalId: row[9],
+		renewalPaymentDateAt: row[10],
+		renewalPaymentSlipFilePath: row[11],
+	}))
+}

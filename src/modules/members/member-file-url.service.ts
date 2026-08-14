@@ -52,6 +52,23 @@ export class MemberFileUrlService {
 	}
 
 	/**
+	 * Resolve a single `payment_slip` path to its presigned URL (ADR-0007).
+	 *
+	 * Purpose-built for the latest-renewal single-view (GET
+	 * /api/v1/membership/renewals/:member_id), which resolves only this one
+	 * private field per row — distinct from {@link resolveMemberFileUrls} (5
+	 * mixed fields, the detail view). `payment_slip` is a private-bucket Member
+	 * File (`members/documents/`), so it is served via presign like
+	 * `id_card_image` / `company_certificate` — never a public concatenated URL.
+	 * A null path (no slip on file) passes through as `null` without touching the
+	 * network; a presign failure is infra-level and propagates as
+	 * `err(StorageError)` (→ 500), consistent with {@link resolveMemberFileUrls}.
+	 */
+	async resolvePaymentSlipUrl(path: string | null): Promise<Result<string | null, StorageError>> {
+		return this.resolvePrivate(path)
+	}
+
+	/**
 	 * Resolve all five file fields to URLs. Public fields synchronously, private
 	 * fields in parallel. A presign failure short-circuits the combine and
 	 * returns `err`; public URL concat is infallible.

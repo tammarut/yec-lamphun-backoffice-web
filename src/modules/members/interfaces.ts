@@ -1,7 +1,7 @@
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { Member } from "./domain/member"
-import type { MemberDetailReadModel, MemberDocumentType, PositionReadModel } from "./domain/member-read-models"
+import type { MemberDetailReadModel, MemberLatestRenewalReadModel, MemberDocumentType, PositionReadModel } from "./domain/member-read-models"
 import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
 
@@ -74,6 +74,22 @@ export interface IMemberRepository {
 	 * out-of-band corruption and the route maps it to 500 (grilling Q6/iii-a).
 	 */
 	getMemberDetailById(id: number): Promise<Result<MemberDetailReadModel | null, DatabaseError>>
+
+	/**
+	 * Fetch a non-deleted member's identity + business name + its single newest
+	 * non-deleted renewal (id DESC, LIMIT 1) for the backoffice "latest renewal"
+	 * single-view (GET /api/v1/membership/renewals/:member_id). One composite row
+	 * via a LEFT JOIN LATERAL — the first read of membership_renewals from this
+	 * repository (ADR-0013 was a write); a natural extension of that ownership.
+	 *
+	 * Returns `null` when the member (or its 1:1 business) does not exist /
+	 * is soft-deleted — the service maps that to 404 "Member or renewal not
+	 * found". A non-null row whose `renewalId` is `null` means the member exists
+	 * but has no renewal — the service maps that to the distinct 404 "No renewal
+	 * records found". Never returns `err` for a not-found case (only for a DB
+	 * failure → 500).
+	 */
+	getLatestRenewalByMemberId(id: number): Promise<Result<MemberLatestRenewalReadModel | null, DatabaseError>>
 
 	/**
 	 * Paginated, filtered, sorted list of members for the backoffice table
