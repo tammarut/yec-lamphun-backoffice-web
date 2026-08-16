@@ -218,3 +218,44 @@ UPDATE members
 SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL;
+
+-- ============================================================================
+-- Get latest renewal by member_id (GET /api/v1/membership/renewals/:member_id)
+-- A single round-trip for the backoffice "latest renewal" single-view: a
+-- non-deleted member + its 1:1 business + the single newest non-deleted renewal
+-- (id DESC, LIMIT 1) via LEFT JOIN LATERAL. Static query -> sqlc (ADR-0010).
+-- `:many` per ADR-0001; the repository narrows the single row by hand.
+--
+-- The INNER JOIN on member_business collapses a member-with-no-live-business to
+-- 0 rows (the repo maps that to null -> "Member or renewal not found" 404). The
+-- LEFT LATERAL keeps a member-with-no-renewal as ONE row with NULL renewal_*
+-- columns, so the service can distinguish it as the distinct "no renewal" 404.
+-- membership_renewals is referenced here for FK/type parsing only — no TS
+-- cross-import (same pattern as the ADR-0013 cascade soft-delete above).
+-- ============================================================================
+
+-- name: GetLatestRenewalByMemberId :many
+SELECT
+  m.id,
+  m.profile_avatar,
+  m.title_name_th,
+  m.first_name_th,
+  m.last_name_th,
+  m.nickname,
+  m.phone_no,
+  m.position_code,
+  mb.name AS business_name,
+  mr.id AS renewal_id,
+  mr.payment_date_at AS renewal_payment_date_at,
+  mr.payment_slip_file_path AS renewal_payment_slip_file_path
+FROM members m
+JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL
+LEFT JOIN LATERAL (
+  SELECT id, payment_date_at, payment_slip_file_path
+  FROM membership_renewals
+  WHERE member_id = m.id AND deleted_at IS NULL
+  ORDER BY id DESC
+  LIMIT 1
+) mr ON true
+WHERE m.id = $1
+  AND m.deleted_at IS NULL;

@@ -102,3 +102,36 @@ export interface MemberDetailReadModel {
 	/** Latest non-deleted COMPANY_CERTIFICATE document path, or null if none. */
 	readonly companyCertificatePath: string | null
 }
+
+/**
+ * Read model for the GET-latest-renewal-by-member-id query
+ * (GET /api/v1/membership/renewals/:member_id). A single composite row: member
+ * identity + business name + the one newest renewal (id DESC, LIMIT 1 via a
+ * LEFT JOIN LATERAL). DB-shaped, camelCase, with raw file paths/keys.
+ *
+ * `renewalId` / `renewalPaymentDateAt` / `renewalPaymentSlipFilePath` are all
+ * `null` together when the member has no live renewal (the LEFT LATERAL yields
+ * NULL columns). The service inspects `renewalId === null` to raise the distinct
+ * "no renewal" 404, separate from the "member not found" 404 (a `null` read model
+ * from the repository means the member itself was not found).
+ *
+ * Like {@link MemberDetailReadModel}, `profileAvatar` is a stored R2 object key
+ * resolved to a public URL by `MemberFileUrlService` at the service layer, and
+ * `renewalPaymentSlipFilePath` is resolved to a presigned URL (private bucket,
+ * ADR-0007). `positionCode` ships verbatim — the frontend maps it to a display
+ * name (no positions JOIN).
+ */
+export interface MemberLatestRenewalReadModel {
+	readonly id: number
+	readonly profileAvatar: string | null
+	readonly titleNameTh: string
+	readonly firstNameTh: string
+	readonly lastNameTh: string
+	readonly nickname: string
+	readonly phoneNo: string
+	readonly positionCode: string
+	readonly businessName: string
+	readonly renewalId: number | null
+	readonly renewalPaymentDateAt: Date | null
+	readonly renewalPaymentSlipFilePath: string | null
+}

@@ -7,13 +7,21 @@ import { inject, injectable } from "tsyringe"
 import type { Member } from "../domain/member"
 import type { MemberBusiness } from "../domain/member-business"
 import type { MemberDocument } from "../domain/member-document"
-import type { MemberBusinessReadModel, MemberDetailReadModel, MemberDocumentType, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
+import type {
+	MemberBusinessReadModel,
+	MemberDetailReadModel,
+	MemberLatestRenewalReadModel,
+	MemberDocumentType,
+	PositionCardinality,
+	PositionReadModel,
+} from "../domain/member-read-models"
 import type { IMemberRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import {
 	countActiveHolderByPosition,
 	countMemberByIdCardHash,
+	getLatestRenewalByMemberId,
 	getMemberDocumentsByMemberId,
 	getMemberWithBusinessById,
 	getPositionByCode,
@@ -271,6 +279,49 @@ export class MembersRepository implements IMemberRepository {
 			companyCertificatePath,
 		}
 		return ok(detail)
+	}
+
+	/**
+	 * Fetch a member's identity + business name + single newest renewal in one
+	 * round-trip for the GET-latest-renewal single-view (LEFT JOIN LATERAL).
+	 *
+	 * Returns `null` for not-found / soft-deleted (no live member or business row)
+	 * → the service maps to 404 "Member or renewal not found". A found member with
+	 * no renewal comes back as a non-null row whose `renewalId` is `null` → the
+	 * service maps to the distinct 404 "No renewal records found". Never raises
+	 * an error for a not-found case; only a DB failure → `err(DatabaseError)` → 500.
+	 */
+	async getLatestRenewalByMemberId(id: number) {
+		const result = await ResultAsync.fromPromise(getLatestRenewalByMemberId(this.sql, { id: String(id) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value[0]
+		if (!row) {
+			// No live member (+ business) row → not found / soft-deleted → 404.
+			return ok(null)
+		}
+		// sqlc did not propagate the LEFT JOIN LATERAL's nullability onto the
+		// renewal_* columns (their source table columns are NOT NULL, so the
+		// generator typed them non-nullable), but at runtime they ARE null when
+		// the member has no renewal. Cast to the honest nullable reality here.
+		const renewalIdRaw = row.renewalId as string | null
+		const paymentSlipFilePath = row.renewalPaymentSlipFilePath as string | null
+		const readModel: MemberLatestRenewalReadModel = {
+			id: Number(row.id),
+			profileAvatar: row.profileAvatar,
+			titleNameTh: row.titleNameTh,
+			firstNameTh: row.firstNameTh,
+			lastNameTh: row.lastNameTh,
+			nickname: row.nickname,
+			phoneNo: row.phoneNo,
+			positionCode: row.positionCode,
+			businessName: row.businessName,
+			renewalId: renewalIdRaw === null ? null : Number(renewalIdRaw),
+			renewalPaymentDateAt: row.renewalPaymentDateAt as Date | null,
+			renewalPaymentSlipFilePath: paymentSlipFilePath,
+		}
+		return ok(readModel)
 	}
 
 	/**
