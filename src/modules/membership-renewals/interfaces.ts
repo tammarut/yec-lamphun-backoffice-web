@@ -2,6 +2,8 @@ import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { MembershipRenewal } from "./domain/membership-renewal"
 import type { PendingRenewalExistsError } from "./use-case/create-renewal/create-renewal.errors"
+import type { InvalidCursorError } from "./use-case/get-list-expired-membership/get-list-expired-membership.errors"
+import type { ExpiredMembershipListPage, ListExpiredMembershipFilter } from "./use-case/get-list-expired-membership/get-list-expired-membership.types"
 
 /**
  * Repository contract for the membership-renewals module.
@@ -76,4 +78,19 @@ export interface IMembershipRenewalRepository {
 	 * On success returns `ok(newRenewalId)`.
 	 */
 	createManualRenewal(renewal: MembershipRenewal): Promise<Result<number, DatabaseError>>
+
+	/**
+	 * The Expired Membership List read for GET /api/v1/membership/renewals/expired
+	 * (the renewals module's first READ). A members-table-only dynamic query
+	 * (Bun SQL native, ADR-0010): the rejected-first grouping keys off the
+	 * `latest_renewal_status` Renewal Cache Column, so membership_renewals is
+	 * never touched.
+	 *
+	 * Pagination is a group-aware keyset variant of ADR-0011: the cursor is a
+	 * bare member id; the page-N+1 predicate needs the anchor's
+	 * latest_renewal_status to know which ordering group to resume. A missing
+	 * anchor (deleted between pages) → `err(InvalidCursorError)` → 400.
+	 * `hasMore`/`nextCursor` are computed via `LIMIT n+1` next to the SQL.
+	 */
+	getListExpiredMembership(filter: ListExpiredMembershipFilter): Promise<Result<ExpiredMembershipListPage, DatabaseError | InvalidCursorError>>
 }

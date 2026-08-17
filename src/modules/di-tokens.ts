@@ -40,4 +40,10 @@ export const REGISTER_KEY = {
 	// staff-only sibling that reuses the same repo + pre-check but ALSO advances
 	// the membership clock (expires_at + renewal_successful_count).
 	CREATE_MANUAL_RENEWAL_SERVICE: Symbol("CREATE_MANUAL_RENEWAL_SERVICE"),
+	// Membership-renewals module (get-list-expired-membership query) — the
+	// Expired Membership List for the backoffice renewal-review table. A
+	// members-table-only read (grouping keys off the latest_renewal_status
+	// cache column); the renewals repo owns it, and the service resolves avatar
+	// URLs via the shared STORAGE_URL_RESOLVER (module boundary, grilling Q5).
+	GET_LIST_EXPIRED_MEMBERSHIP_SERVICE: Symbol("GET_LIST_EXPIRED_MEMBERSHIP_SERVICE"),
 } as const
