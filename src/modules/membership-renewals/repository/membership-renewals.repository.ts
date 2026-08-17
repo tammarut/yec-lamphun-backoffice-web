@@ -226,14 +226,14 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	 * `err(InvalidCursorError)` → 400; DB failures → `err(DatabaseError)` → 500.
 	 */
 	async getListExpiredMembership(filter: ListExpiredMembershipFilter): Promise<Result<ExpiredMembershipListPage, DatabaseError | InvalidCursorError>> {
-		const db = this.dbClient.getRwConnection()
+		const dbConnection = this.dbClient.getRwConnection()
 
 		// 1. Anchor lookup (only when paginating past page 1): which group does
 		//    the next page resume from?
 		let cursorGroup: 0 | 1 | null = null
 		if (filter.cursor !== null) {
 			const anchorResult = await ResultAsync.fromPromise(
-				db<{ latest_renewal_status: string | null }[]>`
+				dbConnection<{ latest_renewal_status: string | null }[]>`
 					SELECT m.latest_renewal_status
 					FROM members m
 					WHERE m.id = ${filter.cursor} AND m.deleted_at IS NULL
@@ -265,7 +265,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		//    within each group (a total order — id is unique, so no NULLS
 		//    handling is needed).
 		const mainResult = await ResultAsync.fromPromise(
-			db`
+			dbConnection`
 				SELECT m.id, m.profile_avatar, m.title_name_th, m.first_name_th, m.last_name_th,
 				       m.nickname, m.phone_no, m.position_code, m.status,
 				       m.latest_renewal_status, m.member_since
