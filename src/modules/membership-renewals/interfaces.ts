@@ -88,8 +88,9 @@ export interface IMembershipRenewalRepository {
 	 *
 	 * Pagination is a group-aware keyset variant of ADR-0011: the cursor is a
 	 * bare member id; the page-N+1 predicate needs the anchor's
-	 * latest_renewal_status to know which ordering group to resume. A missing
-	 * anchor (deleted between pages) → `err(InvalidCursorError)` → 400.
+	 * latest_renewal_status to know which ordering group to resume. An anchor
+	 * that no longer exists OR is no longer part of the expired set (deleted or
+	 * renewed between pages) → `err(InvalidCursorError)` → 400.
 	 * `hasMore`/`nextCursor` are computed via `LIMIT n+1` next to the SQL.
 	 */
 	getListExpiredMembership(filter: ListExpiredMembershipFilter): Promise<Result<ExpiredMembershipListPage, DatabaseError | InvalidCursorError>>

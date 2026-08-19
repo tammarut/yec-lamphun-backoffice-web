@@ -222,7 +222,8 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	 * `CASE ... ELSE 1 END` grouping exactly.
 	 *
 	 * `hasMore`/`nextCursor` are computed via `LIMIT n+1` (ADR-0011) so the n+1
-	 * logic lives next to the SQL. A missing anchor (deleted between pages) →
+	 * logic lives next to the SQL. An anchor outside the expired set (deleted, or
+	 * no longer expired — e.g. renewed between pages) is treated as missing →
 	 * `err(InvalidCursorError)` → 400; DB failures → `err(DatabaseError)` → 500.
 	 */
 	async getListExpiredMembership(filter: ListExpiredMembershipFilter): Promise<Result<ExpiredMembershipListPage, DatabaseError | InvalidCursorError>> {
@@ -236,7 +237,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 				dbConnection<{ latest_renewal_status: string | null }[]>`
 					SELECT m.latest_renewal_status
 					FROM members m
-					WHERE m.id = ${filter.cursor} AND m.deleted_at IS NULL
+					WHERE m.id = ${filter.cursor} AND m.deleted_at IS NULL AND m.status = 'EXPIRED'
 				`,
 				(error) => error as Error
 			)
@@ -245,9 +246,11 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 			}
 			const anchorRow = anchorResult.value[0]
 			if (anchorRow === undefined) {
-				// Cursor points at a member that no longer exists (soft- or hard-deleted
-				// since the client's previous page). Without the anchor's group, the
-				// page-N+1 predicate cannot be built. → 400 (ADR-0011 semantics).
+				// Cursor points at a member that no longer exists OR is no longer part
+				// of the expired set (soft-/hard-deleted, or renewed between the
+				// client's pages). Without an anchor inside the list's domain, the
+				// page-N+1 predicate cannot be meaningfully built. → 400 (ADR-0011
+				// semantics — the client restarts from page 1).
 				return err(new InvalidCursorError())
 			}
 			cursorGroup = anchorRow.latest_renewal_status === "REJECTED" ? 0 : 1
