@@ -14,6 +14,7 @@ import { UpdateMemberService } from "src/modules/members/use-case/update-member/
 import { MembershipRenewalsRepository } from "src/modules/membership-renewals/repository/membership-renewals.repository"
 import { CreateManualRenewalService } from "src/modules/membership-renewals/use-case/create-renewal-manual/create-renewal-manual.service"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
+import { GetListExpiredMembershipService } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.service"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
@@ -231,5 +232,13 @@ container.register(REGISTER_KEY.CREATE_RENEWAL_SERVICE, { useClass: CreateRenewa
 // route proves staff, the service reuses the shared status pre-check, and its
 // repo method advances the membership clock (expires_at + renewal_successful_count).
 container.register(REGISTER_KEY.CREATE_MANUAL_RENEWAL_SERVICE, { useClass: CreateManualRenewalService }, { lifecycle: Lifecycle.Singleton })
+
+// 10h. Register Membership-Renewals Module (get-list-expired-membership query).
+// Read-only orchestrator over the same MEMBERSHIP_RENEWALS_REPOSITORY above
+// (its first READ — the Expired Membership List, a group-aware keyset query)
+// and the shared STORAGE_URL_RESOLVER (profile_avatar public-bucket concat).
+// The resolver is NOT the members module's MemberFileUrlService: modules never
+// cross-import (grilling Q5 placed this use case in the renewals module).
+container.register(REGISTER_KEY.GET_LIST_EXPIRED_MEMBERSHIP_SERVICE, { useClass: GetListExpiredMembershipService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }

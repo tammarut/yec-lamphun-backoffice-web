@@ -1,11 +1,14 @@
-import { err, ok, ResultAsync } from "neverthrow"
+import { sql } from "bun"
+import { err, ok, type Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
-import type { MembershipRenewal } from "../domain/membership-renewal"
+import type { MembershipRenewal, RenewalStatus } from "../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../interfaces"
 import { PendingRenewalExistsError } from "../use-case/create-renewal/create-renewal.errors"
+import { InvalidCursorError } from "../use-case/get-list-expired-membership/get-list-expired-membership.errors"
+import type { ExpiredMembershipListPage, ExpiredMembershipListRow, ListExpiredMembershipFilter } from "../use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { getMemberStatusForRenewal, insertMembershipRenewal, updateMemberOnManualRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
 
 /**
@@ -191,6 +194,106 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
 	}
+
+	// --- Expired Membership List read (GET /membership/renewals/expired) ----
+
+	/**
+	 * The Expired Membership List query — the module's first READ, and its first
+	 * Bun-SQL-native dynamic query (ADR-0010: the WHERE shape varies at runtime,
+	 * so sqlc is the wrong tool; the handle below is the native Bun `SQL`, not
+	 * the postgres.js cast the sqlc call sites use).
+	 *
+	 * Reads ONLY the members table: the rejected-first grouping keys off the
+	 * `latest_renewal_status` Renewal Cache Column. Pagination is a group-aware
+	 * keyset variant of ADR-0011 — the cursor is a bare member id, so page N+1
+	 * first looks up the anchor's `latest_renewal_status` to learn which
+	 * ordering group it resumes from:
+	 *   - group 0 (anchor REJECTED): remaining rejected rows after the anchor
+	 *     id, PLUS every non-rejected row (the second group begins).
+	 *   - group 1 (anchor anything else, incl. NULL): non-rejected rows after
+	 *     the anchor id only.
+	 *
+	 * The non-rejected test is `IS DISTINCT FROM 'REJECTED'`, deliberately NOT
+	 * `!= 'REJECTED'` (grilling Q2): `latest_renewal_status` is nullable, and an
+	 * expired member who never filed a renewal has NULL there. Under `!=`, NULL
+	 * != 'REJECTED' evaluates NULL (falsy), silently dropping those members from
+	 * every cursor page even though page 1 (no predicate) includes them.
+	 * `IS DISTINCT FROM` is the null-safe form and matches the ORDER BY's
+	 * `CASE ... ELSE 1 END` grouping exactly.
+	 *
+	 * `hasMore`/`nextCursor` are computed via `LIMIT n+1` (ADR-0011) so the n+1
+	 * logic lives next to the SQL. An anchor outside the expired set (deleted, or
+	 * no longer expired — e.g. renewed between pages) is treated as missing →
+	 * `err(InvalidCursorError)` → 400; DB failures → `err(DatabaseError)` → 500.
+	 */
+	async getListExpiredMembership(filter: ListExpiredMembershipFilter): Promise<Result<ExpiredMembershipListPage, DatabaseError | InvalidCursorError>> {
+		const dbConnection = this.dbClient.getRwConnection()
+
+		// 1. Anchor lookup (only when paginating past page 1): which group does
+		//    the next page resume from?
+		let cursorGroup: 0 | 1 | null = null
+		if (filter.cursor !== null) {
+			const anchorResult = await ResultAsync.fromPromise(
+				dbConnection<{ latest_renewal_status: string | null }[]>`
+					SELECT m.latest_renewal_status
+					FROM members m
+					WHERE m.id = ${filter.cursor} AND m.deleted_at IS NULL AND m.status = 'EXPIRED'
+				`,
+				(error) => error as Error
+			)
+			if (anchorResult.isErr()) {
+				return err(new DatabaseError("Expired-membership anchor lookup failed", anchorResult.error))
+			}
+			const anchorRow = anchorResult.value[0]
+			if (anchorRow === undefined) {
+				// Cursor points at a member that no longer exists OR is no longer part
+				// of the expired set (soft-/hard-deleted, or renewed between the
+				// client's pages). Without an anchor inside the list's domain, the
+				// page-N+1 predicate cannot be meaningfully built. → 400 (ADR-0011
+				// semantics — the client restarts from page 1).
+				return err(new InvalidCursorError())
+			}
+			cursorGroup = anchorRow.latest_renewal_status === "REJECTED" ? 0 : 1
+		}
+
+		// 2. Dynamic fragments. All values are bound parameters; the two cursor
+		//    branches and the ORDER BY are complete static fragments (no
+		//    sql.unsafe, no identifier interpolation — see ADR-0010).
+		const searchFragment = filter.search !== null ? buildExpiredSearchFragment(filter.search) : sql``
+		const cursorFragment =
+			cursorGroup === null ? sql`` : cursorGroup === 0 ? buildRejectedGroupKeysetFragment(filter.cursor ?? 0) : buildOtherGroupKeysetFragment(filter.cursor ?? 0)
+		const fetchLimit = filter.limit + 1 // n+1 → has_more detection (ADR-0011).
+
+		// 3. Main query. Fixed sort: rejected-renewal group first, then id ASC
+		//    within each group (a total order — id is unique, so no NULLS
+		//    handling is needed).
+		const mainResult = await ResultAsync.fromPromise(
+			dbConnection`
+				SELECT m.id, m.profile_avatar, m.title_name_th, m.first_name_th, m.last_name_th,
+				       m.nickname, m.phone_no, m.position_code, m.status,
+				       m.latest_renewal_status, m.member_since
+				FROM members m
+				WHERE m.deleted_at IS NULL
+					AND m.status = 'EXPIRED'
+					${searchFragment}
+					${cursorFragment}
+				ORDER BY CASE WHEN m.latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END, m.id ASC
+				LIMIT ${fetchLimit}
+			`,
+			(error) => error as Error
+		)
+		if (mainResult.isErr()) {
+			return err(new DatabaseError("getListExpiredMembership query failed", mainResult.error))
+		}
+
+		const rawRows = mainResult.value as unknown as ReadonlyArray<Record<string, unknown>>
+		const hasMore = rawRows.length > filter.limit
+		const pageRows = hasMore ? rawRows.slice(0, filter.limit) : rawRows
+		const lastRow = pageRows[pageRows.length - 1]
+		const nextCursor = hasMore && lastRow !== undefined ? Number(lastRow["id"]) : null
+
+		return ok({ rows: pageRows.map(rowToExpiredMembershipRow), hasMore, nextCursor })
+	}
 }
 
 /**
@@ -220,4 +323,67 @@ function toPgDate(date: Date | undefined): string {
 		throw new DatabaseError("Manual renewal aggregate is missing expiresAt")
 	}
 	return date.toISOString()
+}
+
+// --- Expired Membership List helpers (module-level, like MembersRepository's
+// --- rowToMemberListRow — stateless pure functions over one row/fragment) ---
+
+/**
+ * Contains-ILIKE (`%q%`) across first_name_th and phone_no (spec: search by
+ * first name or phone; grilling confirmed following the spec here — this list
+ * deviates from GET /members' prefix-anchored pattern intentionally). LIKE
+ * wildcards in the user input (`%`, `_`) and the escape char (`\`) itself are
+ * escaped so a search for a literal `%` or `_` matches itself; `ESCAPE '\'`
+ * declares the escape char to Postgres. The pattern stays a bound parameter —
+ * this is semantic escaping, not SQL-injection protection.
+ */
+function buildExpiredSearchFragment(search: string) {
+	const escaped = search.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
+	const pattern = `%${escaped}%`
+	return sql`AND (m.first_name_th ILIKE ${pattern} ESCAPE '\\'
+	               OR m.phone_no ILIKE ${pattern} ESCAPE '\\')`
+}
+
+/**
+ * Keyset fragment when the anchor row was in the REJECTED group (group 0):
+ * keep the remaining rejected rows after the anchor id, OR move on to the
+ * entire non-rejected group. `IS DISTINCT FROM` is the null-safe inequality —
+ * see getListExpiredMembership for why `!=` would silently drop members who
+ * never filed a renewal.
+ */
+function buildRejectedGroupKeysetFragment(cursorId: number) {
+	return sql`AND (
+		(m.latest_renewal_status = 'REJECTED' AND m.id > ${cursorId})
+		OR (m.latest_renewal_status IS DISTINCT FROM 'REJECTED')
+	)`
+}
+
+/**
+ * Keyset fragment when the anchor row was in the non-rejected group (group 1):
+ * only non-rejected rows after the anchor id remain (the rejected group was
+ * fully emitted on earlier pages).
+ */
+function buildOtherGroupKeysetFragment(cursorId: number) {
+	return sql`AND m.latest_renewal_status IS DISTINCT FROM 'REJECTED' AND m.id > ${cursorId}`
+}
+
+/** Map one raw snake_case row to the camelCase {@link ExpiredMembershipListRow}. */
+function rowToExpiredMembershipRow(row: Record<string, unknown>): ExpiredMembershipListRow {
+	return {
+		id: Number(row["id"]),
+		profileAvatar: (row["profile_avatar"] as string | null) ?? null,
+		titleNameTh: row["title_name_th"] as string,
+		firstNameTh: row["first_name_th"] as string,
+		lastNameTh: row["last_name_th"] as string,
+		nickname: row["nickname"] as string,
+		phoneNo: row["phone_no"] as string,
+		positionCode: row["position_code"] as string,
+		// The query filters status = 'EXPIRED', so the cast is honest: no other
+		// value is reachable.
+		status: row["status"] as "EXPIRED",
+		// CHECK-constrained to the three RenewalStatus literals; nullable when
+		// the member never filed a renewal.
+		latestRenewalStatus: (row["latest_renewal_status"] as RenewalStatus | null) ?? null,
+		memberSince: row["member_since"] as Date,
+	}
 }
