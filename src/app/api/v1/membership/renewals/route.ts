@@ -15,12 +15,20 @@ import {
 } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import type { CreateRenewalRequest } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.types"
+import { InvalidCursorError, type GetListMembershipRenewalError } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
+import { GetListMembershipRenewalService } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.service"
+import type {
+	ListMembershipRenewalFilter,
+	ListMembershipRenewalPageResponse,
+} from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.types"
 import { createLogger } from "src/shared/lib/logger/logger"
 import { CreateRenewalSchema } from "./schema"
+import { GetListMembershipRenewalQuerySchema } from "./list-schema"
 
 export const dynamic = "force-dynamic"
 
 const logger = createLogger(["membership-renewals", "route", "create"])
+const listLogger = createLogger(["membership-renewals", "route", "list"])
 
 type CreatedRenewalResponse = {
 	readonly id: number
@@ -110,5 +118,80 @@ function mapError(error: CreateRenewalError): NextResponse<ResponseBodyError> {
 	}
 	// DatabaseError (infra) → 500, no leaky details.
 	logger.error("membership-renewals/create failed: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
+	return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
+}
+
+// ============================================================================
+// GET /api/v1/membership/renewals — the Membership Renewal List for the
+// backoffice renewal-review table (infinite scroll), filtered to one Renewal
+// Status tab (PENDING_REVIEW or APPROVED).
+// Spec: openapi-spec/get_list_membership_renewal.openapi.json.
+//
+// PUBLIC (no withAuth) — the spec declares `security: []` on this operation,
+// taken literally like the sibling GET /membership/renewals/expired (grilling
+// Q1). It returns member PII (names, phone_no) — the same accepted exposure as
+// that endpoint and GET /members.
+//
+// Pagination: ADR-0011 keyset over (payment_date_at DESC, member id DESC) with
+// a hardened anchor lookup (an anchor that left the requested status's set →
+// 400 Invalid cursor — the post-935aced semantics). Query idiom: Bun SQL
+// native (dynamic read) — ADR-0010.
+//
+// Spec deviations locked during grilling: `renewal_id` IS exposed (the
+// pseudocode's transform includes it even though the formal schema omits it);
+// `position` ships the raw position code, not the spec's POSITION_MAP Thai
+// rendering; the error body is `{ error_message }` per the house contract (the
+// pseudocode's `{ error }` shape contradicts the spec's own sequence diagram).
+// ============================================================================
+export async function GET(request: NextRequest): Promise<NextResponse<ListMembershipRenewalPageResponse | ResponseBodyError>> {
+	// 1. Read query string into a plain object for Valibot.
+	const searchParams = request.nextUrl.searchParams
+	const rawQuery: Record<string, string | undefined> = {
+		limit: searchParams.get("limit") ?? undefined,
+		cursor: searchParams.get("cursor") ?? undefined,
+		status: searchParams.get("status") ?? undefined,
+		search: searchParams.get("search") ?? undefined,
+	}
+
+	// 2. Structural validation (types, ranges, status enum) via Valibot.
+	//    `safeParse` drops `undefined` entries against optional schemas cleanly.
+	const parseResult = safeParse(GetListMembershipRenewalQuerySchema, rawQuery)
+	if (!parseResult.success) {
+		const issue = parseResult.issues[0]
+		const message = issue?.message ?? "Validation failed"
+		return NextResponse.json({ error_message: message } satisfies ResponseBodyError, { status: 400 })
+	}
+	const queryParam = parseResult.output
+
+	// 3. Semantic post-processing the schema can't express: search trim + empty→null.
+	const search = queryParam.search?.trim() || null
+
+	// 4. Build the filter (defaults applied here, not in the schema).
+	const filter: ListMembershipRenewalFilter = {
+		limit: queryParam.limit ?? 10,
+		cursor: queryParam.cursor ?? null,
+		status: queryParam.status,
+		search: search,
+	}
+
+	// 5. Hand the filter to the use case.
+	const service = container.resolve<GetListMembershipRenewalService>(REGISTER_KEY.GET_LIST_MEMBERSHIP_RENEWAL_SERVICE)
+	const result = await service.execute(filter)
+	if (result.isErr()) {
+		return mapListError(result.error)
+	}
+
+	return NextResponse.json(result.value)
+}
+
+/** Map a GetListMembershipRenewalError to its HTTP status + body (GET-specific). */
+function mapListError(error: GetListMembershipRenewalError): NextResponse<ResponseBodyError> {
+	if (error instanceof InvalidCursorError) {
+		// Stale anchor — recoverable, client-visible. Warn, not error.
+		listLogger.warn("membership-renewals/list invalid cursor: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
+		return NextResponse.json({ error_message: error.message } satisfies ResponseBodyError, { status: 400 })
+	}
+	// DatabaseError (infra) → 500, no leaky details.
+	listLogger.error("membership-renewals/list failed: {errorMessage} (code={code})", { code: error.code, errorMessage: error.message, cause: error.cause })
 	return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
 }

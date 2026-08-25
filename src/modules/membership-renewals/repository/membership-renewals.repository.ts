@@ -9,6 +9,8 @@ import type { IMembershipRenewalRepository } from "../interfaces"
 import { PendingRenewalExistsError } from "../use-case/create-renewal/create-renewal.errors"
 import { InvalidCursorError } from "../use-case/get-list-expired-membership/get-list-expired-membership.errors"
 import type { ExpiredMembershipListPage, ExpiredMembershipListRow, ListExpiredMembershipFilter } from "../use-case/get-list-expired-membership/get-list-expired-membership.types"
+import { InvalidCursorError as ListRenewalInvalidCursorError } from "../use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
+import type { ListMembershipRenewalFilter, MembershipRenewalListPage, MembershipRenewalListRow } from "../use-case/get-list-membership-renewal/get-list-membership-renewal.types"
 import { getMemberStatusForRenewal, insertMembershipRenewal, updateMemberOnManualRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
 
 /**
@@ -259,7 +261,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		// 2. Dynamic fragments. All values are bound parameters; the two cursor
 		//    branches and the ORDER BY are complete static fragments (no
 		//    sql.unsafe, no identifier interpolation — see ADR-0010).
-		const searchFragment = filter.search !== null ? buildExpiredSearchFragment(filter.search) : sql``
+		const searchFragment = filter.search !== null ? buildMemberNameOrPhoneSearchFragment(filter.search) : sql``
 		const cursorFragment =
 			cursorGroup === null ? sql`` : cursorGroup === 0 ? buildRejectedGroupKeysetFragment(filter.cursor ?? 0) : buildOtherGroupKeysetFragment(filter.cursor ?? 0)
 		const fetchLimit = filter.limit + 1 // n+1 → has_more detection (ADR-0011).
@@ -293,6 +295,130 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		const nextCursor = hasMore && lastRow !== undefined ? Number(lastRow["id"]) : null
 
 		return ok({ rows: pageRows.map(rowToExpiredMembershipRow), hasMore, nextCursor })
+	}
+
+	// --- Membership Renewal List read (GET /membership/renewals) ------------
+
+	/**
+	 * The Membership Renewal List query — the module's second Bun-SQL-native
+	 * dynamic read (ADR-0010). Unlike the expired read this joins
+	 * membership_renewals via LEFT JOIN LATERAL to surface the member's most
+	 * recent non-deleted renewal: its `id` (the response's renewal_id — the
+	 * review workflow's target) and its `payment_date_at` (the sort key). The
+	 * lateral orders by `created_at DESC, id DESC` — the id tiebreak the spec's
+	 * pseudocode omitted — so "most recent" is deterministic even when two
+	 * renewals share a created_at. `AND mr_latest.id IS NOT NULL` turns the
+	 * LEFT JOIN into the list's membership rule: a member whose cache column
+	 * says PENDING_REVIEW/APPROVED but whose renewals are all soft-deleted is
+	 * excluded.
+	 *
+	 * The SET still keys off the `latest_renewal_status` Renewal Cache Column
+	 * (not the renewal row's own status) — the join enriches rows, it never
+	 * decides who is in the list.
+	 *
+	 * Pagination is ADR-0011 keyset over (payment_date_at DESC, member id DESC)
+	 * via a Postgres row-value comparison. The anchor lookup is the hardened
+	 * post-935aced semantics: the anchor member must still exist, not be
+	 * soft-deleted, still carry the requested latest_renewal_status, AND have a
+	 * non-deleted renewal (the INNER LATERAL in the anchor query enforces the
+	 * last two together). An anchor that left the set — e.g. its renewal was
+	 * approved between the client's pages while paginating PENDING_REVIEW — is
+	 * treated as missing → `err(InvalidCursorError)` → 400; the client restarts
+	 * from page 1. The spec pseudocode's weaker lookup (any renewal exists for
+	 * the member_id) was deliberately NOT copied.
+	 *
+	 * `hasMore`/`nextCursor` are computed via `LIMIT n+1` (ADR-0011) so the n+1
+	 * logic lives next to the SQL. DB failures → `err(DatabaseError)` → 500.
+	 */
+	async getListMembershipRenewal(filter: ListMembershipRenewalFilter): Promise<Result<MembershipRenewalListPage, DatabaseError | ListRenewalInvalidCursorError>> {
+		const dbConnection = this.dbClient.getRwConnection()
+
+		// 1. Anchor lookup (only when paginating past page 1): the anchor's
+		//    latest-renewal payment_date_at — the first component of the keyset.
+		let anchorPaymentDateAt: string | null = null
+		if (filter.cursor !== null) {
+			const anchorResult = await ResultAsync.fromPromise(
+				dbConnection<{ payment_date_at: Date }[]>`
+					SELECT mr.payment_date_at
+					FROM members m
+					JOIN LATERAL (
+						SELECT payment_date_at
+						FROM membership_renewals
+						WHERE member_id = m.id AND deleted_at IS NULL
+						ORDER BY created_at DESC, id DESC
+						LIMIT 1
+					) mr ON true
+					WHERE m.id = ${filter.cursor}
+						AND m.deleted_at IS NULL
+						AND m.latest_renewal_status = ${filter.status}
+				`,
+				(error) => error as Error
+			)
+			if (anchorResult.isErr()) {
+				return err(new DatabaseError("Membership-renewal-list anchor lookup failed", anchorResult.error))
+			}
+			const anchorRow = anchorResult.value[0]
+			if (anchorRow === undefined) {
+				// Cursor points at a member that no longer exists OR has left the
+				// requested status's set (soft-/hard-deleted, renewed-then-approved,
+				// or no live renewal). Without an anchor inside the list's domain the
+				// page-N+1 predicate cannot be meaningfully built. → 400 (ADR-0011
+				// semantics — the client restarts from page 1).
+				return err(new ListRenewalInvalidCursorError())
+			}
+			// ISO string, NOT a Date: Bun.SQL serializes Date via toString()
+			// (→ "GMT+0700"), which Postgres rejects — same quirk toPgDate works
+			// around. The ::timestamptz cast in the keyset fragment makes the
+			// row-value comparison's type inference unambiguous.
+			anchorPaymentDateAt = anchorRow.payment_date_at.toISOString()
+		}
+
+		// 2. Dynamic fragments. All values are bound parameters; the keyset
+		//    fragment is a complete static fragment (no sql.unsafe — ADR-0010).
+		const searchFragment = filter.search !== null ? buildMemberNameOrPhoneSearchFragment(filter.search) : sql``
+		const cursorFragment = anchorPaymentDateAt === null ? sql`` : buildPaymentDateKeysetFragment(anchorPaymentDateAt, filter.cursor ?? 0)
+		const fetchLimit = filter.limit + 1 // n+1 → has_more detection (ADR-0011).
+
+		// 3. Main query. Fixed sort: payment_date_at DESC, member id DESC as the
+		//    tiebreak (a total order — member id is unique, and payment_date_at is
+		//    NOT NULL on membership_renewals, so no NULLS handling is needed).
+		const mainResult = await ResultAsync.fromPromise(
+			dbConnection`
+				SELECT m.id, m.profile_avatar, m.title_name_th, m.first_name_th, m.last_name_th,
+				       m.nickname, m.phone_no, m.position_code,
+				       m.latest_renewal_status AS status,
+				       mr_latest.id AS renewal_id,
+				       mr_latest.payment_date_at,
+				       m.member_since
+				FROM members m
+				LEFT JOIN LATERAL (
+					SELECT id, payment_date_at
+					FROM membership_renewals
+					WHERE member_id = m.id AND deleted_at IS NULL
+					ORDER BY created_at DESC, id DESC
+					LIMIT 1
+				) mr_latest ON true
+				WHERE m.deleted_at IS NULL
+					AND m.latest_renewal_status = ${filter.status}
+					AND mr_latest.id IS NOT NULL
+					${searchFragment}
+					${cursorFragment}
+				ORDER BY mr_latest.payment_date_at DESC, m.id DESC
+				LIMIT ${fetchLimit}
+			`,
+			(error) => error as Error
+		)
+		if (mainResult.isErr()) {
+			return err(new DatabaseError("getListMembershipRenewal query failed", mainResult.error))
+		}
+
+		const rawRows = mainResult.value as unknown as ReadonlyArray<Record<string, unknown>>
+		const hasMore = rawRows.length > filter.limit
+		const pageRows = hasMore ? rawRows.slice(0, filter.limit) : rawRows
+		const lastRow = pageRows[pageRows.length - 1]
+		const nextCursor = hasMore && lastRow !== undefined ? Number(lastRow["id"]) : null
+
+		return ok({ rows: pageRows.map(rowToMembershipRenewalListRow), hasMore, nextCursor })
 	}
 }
 
@@ -330,14 +456,16 @@ function toPgDate(date: Date | undefined): string {
 
 /**
  * Contains-ILIKE (`%q%`) across first_name_th and phone_no (spec: search by
- * first name or phone; grilling confirmed following the spec here — this list
- * deviates from GET /members' prefix-anchored pattern intentionally). LIKE
- * wildcards in the user input (`%`, `_`) and the escape char (`\`) itself are
- * escaped so a search for a literal `%` or `_` matches itself; `ESCAPE '\'`
- * declares the escape char to Postgres. The pattern stays a bound parameter —
- * this is semantic escaping, not SQL-injection protection.
+ * first name or phone; grilling confirmed following the spec here — both list
+ * endpoints deviate from GET /members' prefix-anchored pattern intentionally).
+ * Shared by the Expired Membership List and the Membership Renewal List, whose
+ * search semantics are identical. LIKE wildcards in the user input (`%`, `_`)
+ * and the escape char (`\`) itself are escaped so a search for a literal `%` or
+ * `_` matches itself; `ESCAPE '\'` declares the escape char to Postgres. The
+ * pattern stays a bound parameter — this is semantic escaping, not
+ * SQL-injection protection.
  */
-function buildExpiredSearchFragment(search: string) {
+function buildMemberNameOrPhoneSearchFragment(search: string) {
 	const escaped = search.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
 	const pattern = `%${escaped}%`
 	return sql`AND (m.first_name_th ILIKE ${pattern} ESCAPE '\\'
@@ -367,6 +495,19 @@ function buildOtherGroupKeysetFragment(cursorId: number) {
 	return sql`AND m.latest_renewal_status IS DISTINCT FROM 'REJECTED' AND m.id > ${cursorId}`
 }
 
+/**
+ * Keyset fragment for the Membership Renewal List's sort
+ * (payment_date_at DESC, member id DESC): a Postgres row-value comparison,
+ * which expands to `payment_date_at < anchor OR (payment_date_at = anchor AND
+ * id < cursorId)` — exactly the continuation of a DESC, DESC keyset. The anchor
+ * payment_date_at arrives as an ISO string (Bun.SQL Date quirk — see
+ * getListMembershipRenewal) and is cast to timestamptz so the comparison's type
+ * inference is unambiguous.
+ */
+function buildPaymentDateKeysetFragment(anchorPaymentDateAt: string, cursorId: number) {
+	return sql`AND (mr_latest.payment_date_at, m.id) < (${anchorPaymentDateAt}::timestamptz, ${cursorId})`
+}
+
 /** Map one raw snake_case row to the camelCase {@link ExpiredMembershipListRow}. */
 function rowToExpiredMembershipRow(row: Record<string, unknown>): ExpiredMembershipListRow {
 	return {
@@ -385,5 +526,26 @@ function rowToExpiredMembershipRow(row: Record<string, unknown>): ExpiredMembers
 		// the member never filed a renewal.
 		latestRenewalStatus: (row["latest_renewal_status"] as RenewalStatus | null) ?? null,
 		memberSince: row["member_since"] as Date,
+	}
+}
+
+/** Map one raw snake_case row to the camelCase {@link MembershipRenewalListRow}. */
+function rowToMembershipRenewalListRow(row: Record<string, unknown>): MembershipRenewalListRow {
+	return {
+		id: Number(row["id"]),
+		renewalId: Number(row["renewal_id"]),
+		profileAvatar: (row["profile_avatar"] as string | null) ?? null,
+		titleNameTh: row["title_name_th"] as string,
+		firstNameTh: row["first_name_th"] as string,
+		lastNameTh: row["last_name_th"] as string,
+		nickname: row["nickname"] as string,
+		phoneNo: row["phone_no"] as string,
+		positionCode: row["position_code"] as string,
+		// The query filters latest_renewal_status = filter.status (already
+		// narrowed to PENDING_REVIEW | APPROVED by the schema), so the cast is
+		// honest: no other value is reachable.
+		status: row["status"] as MembershipRenewalListRow["status"],
+		memberSince: row["member_since"] as Date,
+		paymentDateAt: row["payment_date_at"] as Date,
 	}
 }

@@ -4,6 +4,8 @@ import type { MembershipRenewal } from "./domain/membership-renewal"
 import type { PendingRenewalExistsError } from "./use-case/create-renewal/create-renewal.errors"
 import type { InvalidCursorError } from "./use-case/get-list-expired-membership/get-list-expired-membership.errors"
 import type { ExpiredMembershipListPage, ListExpiredMembershipFilter } from "./use-case/get-list-expired-membership/get-list-expired-membership.types"
+import type { InvalidCursorError as ListRenewalInvalidCursorError } from "./use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
+import type { ListMembershipRenewalFilter, MembershipRenewalListPage } from "./use-case/get-list-membership-renewal/get-list-membership-renewal.types"
 
 /**
  * Repository contract for the membership-renewals module.
@@ -94,4 +96,22 @@ export interface IMembershipRenewalRepository {
 	 * `hasMore`/`nextCursor` are computed via `LIMIT n+1` next to the SQL.
 	 */
 	getListExpiredMembership(filter: ListExpiredMembershipFilter): Promise<Result<ExpiredMembershipListPage, DatabaseError | InvalidCursorError>>
+
+	/**
+	 * The Membership Renewal List read for GET /api/v1/membership/renewals —
+	 * members whose most recent renewal holds the requested Renewal Status
+	 * (PENDING_REVIEW or APPROVED), ordered by that renewal's payment_date_at
+	 * DESC then member id DESC. Unlike the expired read this is a LATERAL join
+	 * into membership_renewals (the renewal id and payment date are part of the
+	 * payload and the sort), but the SET membership still keys off the
+	 * `latest_renewal_status` Renewal Cache Column.
+	 *
+	 * Pagination is ADR-0011 keyset over (payment_date_at, member id). The
+	 * anchor lookup is the hardened post-935aced semantics: the anchor member
+	 * must still exist AND still carry the requested latest_renewal_status AND
+	 * have a non-deleted renewal — otherwise `err(InvalidCursorError)` → 400
+	 * (the client restarts from page 1). `hasMore`/`nextCursor` are computed
+	 * via `LIMIT n+1` next to the SQL.
+	 */
+	getListMembershipRenewal(filter: ListMembershipRenewalFilter): Promise<Result<MembershipRenewalListPage, DatabaseError | ListRenewalInvalidCursorError>>
 }

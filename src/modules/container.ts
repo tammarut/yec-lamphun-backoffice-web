@@ -15,6 +15,7 @@ import { MembershipRenewalsRepository } from "src/modules/membership-renewals/re
 import { CreateManualRenewalService } from "src/modules/membership-renewals/use-case/create-renewal-manual/create-renewal-manual.service"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import { GetListExpiredMembershipService } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.service"
+import { GetListMembershipRenewalService } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.service"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
@@ -240,5 +241,12 @@ container.register(REGISTER_KEY.CREATE_MANUAL_RENEWAL_SERVICE, { useClass: Creat
 // The resolver is NOT the members module's MemberFileUrlService: modules never
 // cross-import (grilling Q5 placed this use case in the renewals module).
 container.register(REGISTER_KEY.GET_LIST_EXPIRED_MEMBERSHIP_SERVICE, { useClass: GetListExpiredMembershipService }, { lifecycle: Lifecycle.Singleton })
+
+// 10i. Register Membership-Renewals Module (get-list-membership-renewal query).
+// Read-only orchestrator over the same MEMBERSHIP_RENEWALS_REPOSITORY above
+// (its second READ — the Membership Renewal List, a LATERAL-join keyset query
+// serving the PENDING_REVIEW / APPROVED tabs) and the same shared
+// STORAGE_URL_RESOLVER (profile_avatar public-bucket concat).
+container.register(REGISTER_KEY.GET_LIST_MEMBERSHIP_RENEWAL_SERVICE, { useClass: GetListMembershipRenewalService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }
