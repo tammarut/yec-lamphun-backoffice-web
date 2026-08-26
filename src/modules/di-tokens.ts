@@ -52,4 +52,10 @@ export const REGISTER_KEY = {
 	// payment date); set membership still keys off the latest_renewal_status
 	// cache column. Same repo + shared STORAGE_URL_RESOLVER collaborators.
 	GET_LIST_MEMBERSHIP_RENEWAL_SERVICE: Symbol("GET_LIST_MEMBERSHIP_RENEWAL_SERVICE"),
+	// Membership-renewals module (get-renewal-stat query) — the Renewal Stat,
+	// the three badge counts above the same review table. The repo's first
+	// STATIC read (sqlc per ADR-0010): one COUNT(*) FILTER aggregate over the
+	// Renewal Cache Columns, no join. Expired count includes latest-rejected
+	// members per the spec (ADR-0017).
+	GET_RENEWAL_STAT_SERVICE: Symbol("GET_RENEWAL_STAT_SERVICE"),
 } as const

@@ -104,3 +104,7 @@ _Avoid_: renewal queue, pending list, approved list, renewal table
 **Expired Membership List**:
 The read-ordered view of members whose Member Status is `EXPIRED`, consumed by the backoffice renewal-review table. Members whose most recent Membership Renewal was REJECTED surface first as a group, followed by all other expired members (including those who never filed any renewal); each group is ordered by member id ascending. Each row carries its `latest_renewal_status` (null when the member never filed a renewal) so rejected-renewal members are identifiable per row — but the ordering, not the field, is what places them on top.
 _Avoid_: expired members table, rejected list, expired queue
+
+**Renewal Stat**:
+The three badge counts shown above the renewal-review table, served by `GET /api/v1/membership/renewals/stat`: total expired members (Member Status `EXPIRED` **or** most recent Membership Renewal `REJECTED` — deliberately a superset of the Expired Membership List, which keys on Member Status alone), total pending-review members, and total approved members. Read exclusively from the Renewal Cache Columns — no renewal rows are joined; the counts are not a partition (a member may appear in more than one).
+_Avoid_: tab counts, renewal summary, totals

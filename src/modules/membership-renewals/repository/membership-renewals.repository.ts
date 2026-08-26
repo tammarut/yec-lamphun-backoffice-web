@@ -11,7 +11,8 @@ import { InvalidCursorError } from "../use-case/get-list-expired-membership/get-
 import type { ExpiredMembershipListPage, ExpiredMembershipListRow, ListExpiredMembershipFilter } from "../use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { InvalidCursorError as ListRenewalInvalidCursorError } from "../use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
 import type { ListMembershipRenewalFilter, MembershipRenewalListPage, MembershipRenewalListRow } from "../use-case/get-list-membership-renewal/get-list-membership-renewal.types"
-import { getMemberStatusForRenewal, insertMembershipRenewal, updateMemberOnManualRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
+import type { RenewalStatRow } from "../use-case/get-renewal-stat/get-renewal-stat.types"
+import { getMemberStatusForRenewal, getRenewalStat, insertMembershipRenewal, updateMemberOnManualRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the membership-renewals module.
@@ -419,6 +420,36 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		const nextCursor = hasMore && lastRow !== undefined ? Number(lastRow["id"]) : null
 
 		return ok({ rows: pageRows.map(rowToMembershipRenewalListRow), hasMore, nextCursor })
+	}
+
+	// --- Renewal Stat read (GET /membership/renewals/stat) --------------------
+
+	/**
+	 * The Renewal Stat query — the module's first STATIC read, back on the
+	 * sqlc channel (ADR-0010's letter: zero parameters, nothing dynamic; the
+	 * two list reads above are Bun SQL native because their WHERE shape varies
+	 * at runtime). One aggregated `COUNT(*) FILTER` row over non-deleted
+	 * members, reading ONLY the Renewal Cache Columns — the glossary's stated
+	 * purpose for those columns (no join on a member read). The `::int` casts
+	 * live in the SQL so the counts arrive as JS numbers, not BIGINT strings.
+	 *
+	 * `total_expired_members` follows the spec's pseudocode literally —
+	 * `status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'` — a
+	 * deliberate superset of the Expired Membership List (ADR-0017). COUNT with
+	 * no GROUP BY always returns exactly one row (all zeros over an empty
+	 * members table); the zeros fallback merely mirrors the members module's
+	 * count pattern (`row ? row.count : 0`) so a driver anomaly degrades to
+	 * zeros instead of an undefined access. DB failures →
+	 * `err(DatabaseError)` → 500.
+	 */
+	async getRenewalStat(): Promise<Result<RenewalStatRow, DatabaseError>> {
+		const result = await ResultAsync.fromPromise(getRenewalStat(this.sql), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+
+		const row = result.value[0]
+		return ok(row ?? { totalExpiredMembers: 0, totalPendingReviewMembers: 0, totalApprovedMembers: 0 })
 	}
 }
 

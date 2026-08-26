@@ -81,3 +81,37 @@ SET status = 'ACTIVE',
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL;
+
+-- ============================================================================
+-- Renewal Stat (GET /api/v1/membership/renewals/stat) — ADR-0017
+-- The three badge counts above the renewal-review table, from ONE aggregated
+-- query over the members table. The module's first STATIC read — zero
+-- parameters, nothing dynamic — so sqlc owns it per ADR-0010's letter (the two
+-- list reads are dynamic, hence Bun SQL native). Reads ONLY the Renewal Cache
+-- Columns: membership_renewals is never joined.
+--
+-- The expired count follows the spec's pseudocode LITERALLY —
+-- `status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'` — making it a
+-- deliberate superset of the Expired Membership List (which keys on
+-- status = 'EXPIRED' alone). The OR is currently redundant (no reject flow
+-- exists, so a REJECTED latest renewal always rides on an EXPIRED member) but
+-- self-heals cache drift and future-proofs the count if a review flow ever
+-- leaves a rejected member non-EXPIRED. The three counts are NOT a partition:
+-- a member may appear in more than one (e.g. EXPIRED again while its latest
+-- renewal is still APPROVED).
+--
+-- Each aggregate is cast ::int (not BIGINT) so the driver returns a JS number.
+-- COUNT with no GROUP BY always yields exactly one row — even over an empty
+-- table (all zeros) — but the repo still guards with a zero-row fallback like
+-- the members module's count pattern.
+-- ============================================================================
+
+-- name: GetRenewalStat :many
+-- Single-row aggregate of the three Renewal Stat badge counts. :many per
+-- ADR-0001; the repo narrows rows[0] with a zeros fallback.
+SELECT
+  (COUNT(*) FILTER (WHERE status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'))::int AS total_expired_members,
+  (COUNT(*) FILTER (WHERE latest_renewal_status = 'PENDING_REVIEW'))::int AS total_pending_review_members,
+  (COUNT(*) FILTER (WHERE latest_renewal_status = 'APPROVED'))::int AS total_approved_members
+FROM members
+WHERE deleted_at IS NULL;
