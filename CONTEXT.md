@@ -97,6 +97,10 @@ _Avoid_: account status, membership state
 Denormalized columns on `members` kept in sync with the renewal's own state to avoid a JOIN on every member read. The pair `status` (the Member Status) and `latest_renewal_status` (the Renewal Status of the member's most recent renewal) is written by every Renewal Submission atomically inside the renewal's transaction. The two further columns `expires_at` and `renewal_successful_count` are written ONLY by a Manual Renewal Submission — the public create-renewal flow deliberately leaves them untouched (ADR-0015 deferred them; ADR-0016 assigns them to the manual endpoint). The update-member PATCH never touches any of them (they are lifecycle columns, owned by the renewal flow).
 _Avoid_: cached fields, denormalized status
 
+**Membership Renewal List**:
+The read-ordered view of members whose most recent Membership Renewal holds a requested Renewal Status (`PENDING_REVIEW` or `APPROVED`), consumed by the backoffice renewal-review table. Ordered by the renewal's payment date descending, then member id descending. Each row carries the renewal's own id (`renewal_id`) alongside the member fields, so the review workflow can act on the renewal. The cursor is the member id of the last row seen; it is valid only while that member still sits inside the requested status's set — an anchor that left the set (e.g. its renewal was approved between the client's pages) is an Invalid cursor, and the client restarts from page 1.
+_Avoid_: renewal queue, pending list, approved list, renewal table
+
 **Expired Membership List**:
 The read-ordered view of members whose Member Status is `EXPIRED`, consumed by the backoffice renewal-review table. Members whose most recent Membership Renewal was REJECTED surface first as a group, followed by all other expired members (including those who never filed any renewal); each group is ordered by member id ascending. Each row carries its `latest_renewal_status` (null when the member never filed a renewal) so rejected-renewal members are identifiable per row — but the ordering, not the field, is what places them on top.
 _Avoid_: expired members table, rejected list, expired queue

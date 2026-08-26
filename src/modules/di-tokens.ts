@@ -46,4 +46,10 @@ export const REGISTER_KEY = {
 	// cache column); the renewals repo owns it, and the service resolves avatar
 	// URLs via the shared STORAGE_URL_RESOLVER (module boundary, grilling Q5).
 	GET_LIST_EXPIRED_MEMBERSHIP_SERVICE: Symbol("GET_LIST_EXPIRED_MEMBERSHIP_SERVICE"),
+	// Membership-renewals module (get-list-membership-renewal query) — the
+	// Membership Renewal List (PENDING_REVIEW / APPROVED tabs of the same
+	// review table). A LATERAL-join read into membership_renewals (renewal id +
+	// payment date); set membership still keys off the latest_renewal_status
+	// cache column. Same repo + shared STORAGE_URL_RESOLVER collaborators.
+	GET_LIST_MEMBERSHIP_RENEWAL_SERVICE: Symbol("GET_LIST_MEMBERSHIP_RENEWAL_SERVICE"),
 } as const
