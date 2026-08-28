@@ -549,6 +549,7 @@ export async function softDeleteMemberById(sql: Sql, args: SoftDeleteMemberByIdA
 }
 
 export const getLatestRenewalByMemberIdQuery = `-- name: GetLatestRenewalByMemberId :many
+
 SELECT
   m.id,
   m.profile_avatar,

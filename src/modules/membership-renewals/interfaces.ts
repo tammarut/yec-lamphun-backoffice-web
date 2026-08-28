@@ -6,6 +6,7 @@ import type { InvalidCursorError } from "./use-case/get-list-expired-membership/
 import type { ExpiredMembershipListPage, ListExpiredMembershipFilter } from "./use-case/get-list-expired-membership/get-list-expired-membership.types"
 import type { InvalidCursorError as ListRenewalInvalidCursorError } from "./use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
 import type { ListMembershipRenewalFilter, MembershipRenewalListPage } from "./use-case/get-list-membership-renewal/get-list-membership-renewal.types"
+import type { RenewalStatRow } from "./use-case/get-renewal-stat/get-renewal-stat.types"
 
 /**
  * Repository contract for the membership-renewals module.
@@ -114,4 +115,23 @@ export interface IMembershipRenewalRepository {
 	 * via `LIMIT n+1` next to the SQL.
 	 */
 	getListMembershipRenewal(filter: ListMembershipRenewalFilter): Promise<Result<MembershipRenewalListPage, DatabaseError | ListRenewalInvalidCursorError>>
+
+	/**
+	 * The Renewal Stat read for GET /api/v1/membership/renewals/stat — the
+	 * three badge counts above the renewal-review table, from ONE aggregated
+	 * `COUNT(*) FILTER` query. The module's first STATIC read: zero parameters,
+	 * nothing dynamic, so sqlc owns it (ADR-0010's letter — the two list reads
+	 * are dynamic, hence Bun SQL native). Reads ONLY the members table via the
+	 * Renewal Cache Columns; membership_renewals is never joined.
+	 *
+	 * `total_expired_members` follows the spec's pseudocode literally —
+	 * `status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'` — a deliberate
+	 * superset of the Expired Membership List (ADR-0017). The three counts are
+	 * not a partition; a member may appear in more than one.
+	 *
+	 * COUNT with no GROUP BY always returns one row (all zeros over an empty
+	 * table); the repo still guards with a zeros fallback like the members
+	 * module's count pattern. DB failures map to `err(DatabaseError)`.
+	 */
+	getRenewalStat(): Promise<Result<RenewalStatRow, DatabaseError>>
 }

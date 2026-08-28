@@ -62,6 +62,7 @@ export async function updateMemberStatusOnRenewal(sql: Sql, args: UpdateMemberSt
 }
 
 export const updateMemberOnManualRenewalQuery = `-- name: UpdateMemberOnManualRenewal :exec
+
 UPDATE members
 SET status = 'ACTIVE',
     latest_renewal_status = 'APPROVED',
@@ -78,4 +79,27 @@ export interface UpdateMemberOnManualRenewalArgs {
 
 export async function updateMemberOnManualRenewal(sql: Sql, args: UpdateMemberOnManualRenewalArgs): Promise<void> {
 	await sql.unsafe(updateMemberOnManualRenewalQuery, [args.id, args.expiresAt])
+}
+
+export const getRenewalStatQuery = `-- name: GetRenewalStat :many
+
+SELECT
+  (COUNT(*) FILTER (WHERE status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'))::int AS total_expired_members,
+  (COUNT(*) FILTER (WHERE latest_renewal_status = 'PENDING_REVIEW'))::int AS total_pending_review_members,
+  (COUNT(*) FILTER (WHERE latest_renewal_status = 'APPROVED'))::int AS total_approved_members
+FROM members
+WHERE deleted_at IS NULL`
+
+export interface GetRenewalStatRow {
+	totalExpiredMembers: number
+	totalPendingReviewMembers: number
+	totalApprovedMembers: number
+}
+
+export async function getRenewalStat(sql: Sql): Promise<GetRenewalStatRow[]> {
+	return (await sql.unsafe(getRenewalStatQuery, []).values()).map((row) => ({
+		totalExpiredMembers: row[0],
+		totalPendingReviewMembers: row[1],
+		totalApprovedMembers: row[2],
+	}))
 }
