@@ -470,7 +470,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		return ok(row ?? { totalExpiredMembers: 0, totalPendingReviewMembers: 0, totalApprovedMembers: 0 })
 	}
 
-	// --- Review renewal (PATCH /membership/renewals/{id}/review) ------------
+	// --- Review renewal (PATCH /membership/renewals/review/{id}) -------------
 
 	/**
 	 * The review flow's pre-check read (ADR-0018) — the review-flow twin of

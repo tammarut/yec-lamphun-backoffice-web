@@ -55,7 +55,7 @@ const mockSessionData = {
  * default).
  */
 function makeRequest(renewalId: string, body: unknown, sessionCookie?: string): NextRequest {
-	const req = new NextRequest(`http://localhost/api/v1/membership/renewals/${renewalId}/review`, {
+	const req = new NextRequest(`http://localhost/api/v1/membership/renewals/review/${renewalId}`, {
 		method: "PATCH",
 		body: typeof body === "string" ? body : JSON.stringify(body),
 	})
@@ -65,7 +65,7 @@ function makeRequest(renewalId: string, body: unknown, sessionCookie?: string): 
 	return req
 }
 
-describe("PATCH /api/v1/membership/renewals/{renewal_id}/review", () => {
+describe("PATCH /api/v1/membership/renewals/review/{renewal_id}", () => {
 	let mockService: ReturnType<typeof mock<ReviewRenewalService>>
 	let mockAuthService: ReturnType<typeof mock<AuthService>>
 

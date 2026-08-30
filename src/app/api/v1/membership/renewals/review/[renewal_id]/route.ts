@@ -18,6 +18,14 @@ export const dynamic = "force-dynamic"
 const logger = createLogger(["membership-renewals", "route", "review"])
 
 // Next 16: dynamic route params are a Promise. Await before reading renewal_id.
+//
+// NOTE on the URL shape: the spec drafted this as /renewals/{renewal_id}/review,
+// but Next.js requires sibling dynamic segments to share ONE slug name and the
+// member-scoped GET /renewals/[member_id] already owns this level — nesting the
+// review route under it forced the params key to `member_id` while the value
+// was a renewal id. Moving the static `review` segment first
+// (/renewals/review/{renewal_id}) removes the collision and restores the honest
+// param name (ADR-0018).
 type ReviewRouteContext = { params: Promise<{ renewal_id: string }> }
 
 // Inline renewal_id validation: parse the string path param into an integer > 0
@@ -31,7 +39,7 @@ const RenewalIdParamSchema = pipe(
 )
 
 // ============================================================================
-// PATCH /api/v1/membership/renewals/{renewal_id}/review — staff decide a live
+// PATCH /api/v1/membership/renewals/review/{renewal_id} — staff decide a live
 // pending renewal (ADR-0018).
 //
 // PROTECTED — wrapped in withAuth (the spec's session_id cookie is required):

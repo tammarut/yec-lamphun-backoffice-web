@@ -4,7 +4,7 @@ status: accepted
 
 # Review-renewal is a guarded state transition; the approve write is shared with the manual flow
 
-`PATCH /api/v1/membership/renewals/{renewal_id}/review` (staff-only, `withAuth`) is the review API the domain reserved since ADR-0015/0016: it decides a live `PENDING_REVIEW` renewal — approve (`ACTIVE`, Membership Expiry re-stamped, `renewal_successful_count` +1) or reject (`EXPIRED`, mandatory reason) — and both member-side writes stay owned by the renewals repository inside one transaction, like every renewal flow before it.
+`PATCH /api/v1/membership/renewals/review/{renewal_id}` (staff-only, `withAuth`) is the review API the domain reserved since ADR-0015/0016: it decides a live `PENDING_REVIEW` renewal — approve (`ACTIVE`, Membership Expiry re-stamped, `renewal_successful_count` +1) or reject (`EXPIRED`, mandatory reason) — and both member-side writes stay owned by the renewals repository inside one transaction, like every renewal flow before it.
 
 ## Why
 
@@ -22,6 +22,9 @@ Reject sets Member Status `EXPIRED` unconditionally, per spec. Edge case accepte
 
 ### 5. Reviewer identity is not recorded
 The spec neither sends nor stores a reviewer; the table has no column (only `reviewed_at`/`rejection_reason`). The session does carry a username, but adding an audit column is unrequested scope — the glossary's "with reviewer" claim was corrected instead. If an audit trail becomes a requirement, add a column + migration then.
+
+### 6. URL shape: `/renewals/review/{renewal_id}`, not the spec's `/renewals/{renewal_id}/review`
+The spec drafted the review action nested under the resource id. Next.js, however, requires sibling dynamic segments to share ONE slug name — and the member-scoped `GET /renewals/[member_id]` already owns that level. Nesting the review route there compiled only by borrowing the `member_id` slug, so the params key said `member_id` while the value was a renewal id (an aliasing wart that invited misreads). Moving the static `review` segment ahead of the id removes the collision outright and restores the honest `renewal_id` param name, at the cost of deviating from the spec's literal path. Rejected alternatives: the aliased `[member_id]/review` nesting (kept until this decision — misleading name, and the level becomes unusable for any future member-scoped action); renaming the GET route's slug to a neutral `[id]` (churns a shipped route for cosmetics); a catch-all segment or rewrite (machinery that hides the problem). This is a one-time contract decision — once the frontend consumes the URL it is effectively frozen.
 
 ## Considered options
 

@@ -2,7 +2,7 @@ import { check, object, optional, nullable, picklist, pipe, string, type InferOu
 
 /**
  * Structural + cross-field request schema for
- * PATCH /api/v1/membership/renewals/{renewal_id}/review.
+ * PATCH /api/v1/membership/renewals/review/{renewal_id}.
  *
  * Two depths, both owned here because both are pure functions of the request
  * body (ADR-0018):

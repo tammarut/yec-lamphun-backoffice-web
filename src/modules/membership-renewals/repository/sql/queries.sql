@@ -120,7 +120,7 @@ FROM members
 WHERE deleted_at IS NULL;
 
 -- ============================================================================
--- Review renewal (PATCH /api/v1/membership/renewals/{renewal_id}/review) — ADR-0018
+-- Review renewal (PATCH /api/v1/membership/renewals/review/{renewal_id}) — ADR-0018
 -- The review API the domain reserved since ADR-0015/0016: staff decide a live
 -- PENDING_REVIEW renewal. Follows the create-flow split — a cheap READ for the
 -- service's 404/409 pre-check outside the transaction, then a WRITE owning the

@@ -8,7 +8,7 @@ import type { ReviewRenewalRequest } from "./review-renewal.types"
 
 /**
  * Use case: review a pending membership renewal
- * (PATCH /api/v1/membership/renewals/{renewal_id}/review, ADR-0018).
+ * (PATCH /api/v1/membership/renewals/review/{renewal_id}, ADR-0018).
  *
  * An orchestrator, nothing more: the transition rule lives on the aggregate
  * ({@link MembershipRenewal.fromDb} + `review()`), and atomicity lives in the

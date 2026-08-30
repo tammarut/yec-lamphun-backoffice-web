@@ -82,7 +82,7 @@ A Renewal Submission made by staff via `POST /api/v1/membership/renewals/manual`
 _Avoid_: manual renewal, backoffice renewal, staff-created renewal
 
 **Renewal Review**:
-The staff act of deciding a live `PENDING_REVIEW` Membership Renewal, via `PATCH /api/v1/membership/renewals/{renewal_id}/review` (staff session required). Approving sets the Renewal Status to `APPROVED`, moves the member to `ACTIVE`, re-stamps the Membership Expiry, and increments `renewal_successful_count`; rejecting sets `REJECTED` with a mandatory rejection reason and moves the member to `EXPIRED`. Both outcomes are terminal — deciding an already-decided renewal is refused as already reviewed.
+The staff act of deciding a live `PENDING_REVIEW` Membership Renewal, via `PATCH /api/v1/membership/renewals/review/{renewal_id}` (staff session required). Approving sets the Renewal Status to `APPROVED`, moves the member to `ACTIVE`, re-stamps the Membership Expiry, and increments `renewal_successful_count`; rejecting sets `REJECTED` with a mandatory rejection reason and moves the member to `EXPIRED`. Both outcomes are terminal — deciding an already-decided renewal is refused as already reviewed.
 _Avoid_: approve api, renewal decision, moderation
 
 **Membership Expiry**:

@@ -1,7 +1,7 @@
 import type { ReviewDecision } from "../../domain/membership-renewal"
 
 /**
- * Validated request DTO for PATCH /api/v1/membership/renewals/{renewal_id}/review.
+ * Validated request DTO for PATCH /api/v1/membership/renewals/review/{renewal_id}.
  *
  * `renewalId` arrives as the path parameter (already a positive integer by the
  * time this exists). `decision` is the review verdict; `reason` is the rejection
