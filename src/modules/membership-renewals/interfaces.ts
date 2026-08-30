@@ -1,12 +1,13 @@
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
-import type { MembershipRenewal } from "./domain/membership-renewal"
+import type { MembershipRenewal, MembershipRenewalDbProps, ReviewedRenewal } from "./domain/membership-renewal"
 import type { PendingRenewalExistsError } from "./use-case/create-renewal/create-renewal.errors"
 import type { InvalidCursorError } from "./use-case/get-list-expired-membership/get-list-expired-membership.errors"
 import type { ExpiredMembershipListPage, ListExpiredMembershipFilter } from "./use-case/get-list-expired-membership/get-list-expired-membership.types"
 import type { InvalidCursorError as ListRenewalInvalidCursorError } from "./use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
 import type { ListMembershipRenewalFilter, MembershipRenewalListPage } from "./use-case/get-list-membership-renewal/get-list-membership-renewal.types"
 import type { RenewalStatRow } from "./use-case/get-renewal-stat/get-renewal-stat.types"
+import type { RenewalAlreadyReviewedError } from "./use-case/review-renewal/review-renewal.errors"
 
 /**
  * Repository contract for the membership-renewals module.
@@ -134,4 +135,39 @@ export interface IMembershipRenewalRepository {
 	 * module's count pattern. DB failures map to `err(DatabaseError)`.
 	 */
 	getRenewalStat(): Promise<Result<RenewalStatRow, DatabaseError>>
+
+	/**
+	 * Pre-check read for the review-renewal flow (ADR-0018), running OUTSIDE
+	 * that flow's transaction — the review-flow twin of
+	 * {@link getMemberStatusForRenewal}. Returns exactly the three columns
+	 * {@link MembershipRenewalDbProps} carries (`GetRenewalForReview`: id,
+	 * member_id, status), which is all the domain transition needs; the service
+	 * feeds the row straight into `MembershipRenewal.fromDb`. Returns `null`
+	 * when the renewal does not exist or is soft-deleted (indistinguishable to
+	 * the client → 404). A terminal status in the row is the CLEAN 409 signal;
+	 * the racy twin is the guarded UPDATE inside {@link applyReview}.
+	 */
+	getRenewalForReview(renewalId: number): Promise<Result<MembershipRenewalDbProps | null, DatabaseError>>
+
+	/**
+	 * Atomically apply a Renewal Review decision in one transaction (ADR-0018):
+	 *   1. GUARDED renewal UPDATE — `WHERE id AND status = 'PENDING_REVIEW' AND
+	 *      deleted_at IS NULL` with `RETURNING id`. A renewal decided by a
+	 *      concurrent review matches ZERO rows; the repo maps the empty
+	 *      returning set to `err(RenewalAlreadyReviewedError)` (→ 409) and the
+	 *      transaction auto-rolls back. This guard — not the service's
+	 *      pre-check — is what makes the 409 contract true under concurrency.
+	 *   2. Member-side write, branched by the outcome's status: approve reuses
+	 *      the manual flow's four-column UPDATE (ACTIVE, APPROVED,
+	 *      expires_at=outcome.expiresAt, renewal_successful_count+1 — the
+	 *      shared `UpdateMemberOnApprovedRenewal`); reject writes the
+	 *      two-column `UpdateMemberOnRejectedReview` (EXPIRED, REJECTED) and
+	 *      never touches the membership clock.
+	 *
+	 * All values are read from the {@link ReviewedRenewal} outcome the domain's
+	 * `review()` computed; the repo does not interpret them. DB failures map to
+	 * `err(DatabaseError)`. On success returns `ok(undefined)` — the route's
+	 * success response is 204 No Content.
+	 */
+	applyReview(reviewed: ReviewedRenewal): Promise<Result<void, RenewalAlreadyReviewedError | DatabaseError>>
 }

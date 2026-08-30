@@ -4,7 +4,7 @@ import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
-import type { MembershipRenewal, RenewalStatus } from "../domain/membership-renewal"
+import type { MembershipRenewal, RenewalStatus, ReviewedRenewal } from "../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../interfaces"
 import { PendingRenewalExistsError } from "../use-case/create-renewal/create-renewal.errors"
 import { InvalidCursorError } from "../use-case/get-list-expired-membership/get-list-expired-membership.errors"
@@ -12,7 +12,17 @@ import type { ExpiredMembershipListPage, ExpiredMembershipListRow, ListExpiredMe
 import { InvalidCursorError as ListRenewalInvalidCursorError } from "../use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
 import type { ListMembershipRenewalFilter, MembershipRenewalListPage, MembershipRenewalListRow } from "../use-case/get-list-membership-renewal/get-list-membership-renewal.types"
 import type { RenewalStatRow } from "../use-case/get-renewal-stat/get-renewal-stat.types"
-import { getMemberStatusForRenewal, getRenewalStat, insertMembershipRenewal, updateMemberOnManualRenewal, updateMemberStatusOnRenewal } from "./sql/sqlc-generated/queries_sql"
+import { RenewalAlreadyReviewedError } from "../use-case/review-renewal/review-renewal.errors"
+import {
+	getMemberStatusForRenewal,
+	getRenewalForReview,
+	getRenewalStat,
+	insertMembershipRenewal,
+	updateMemberOnApprovedRenewal,
+	updateMemberOnRejectedReview,
+	updateMemberStatusOnRenewal,
+	updateRenewalOnReview,
+} from "./sql/sqlc-generated/queries_sql"
 
 /**
  * sqlc-generated repository for the membership-renewals module.
@@ -94,7 +104,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 			const renewalId = await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
 				const newId = await this.doInsertRenewal(sql, renewal)
-				await this.doUpdateMemberOnManualRenewal(sql, renewal)
+				await this.doUpdateMemberOnApprovedRenewal(sql, renewal.memberId, renewal.expiresAt)
 				return newId
 			})
 
@@ -172,24 +182,32 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	}
 
 	/**
-	 * The MANUAL member cache write — runs inside createManualRenewal's
-	 * transaction. Sets ALL four Renewal Cache Columns for the manual flow
-	 * (ADR-0016): the two the public write touches (status, latest_renewal_status,
-	 * here fixed to ACTIVE / APPROVED literals by the sqlc query) PLUS the two
-	 * clock columns the manual flow advances — `expires_at` (bound from the
-	 * aggregate's computed value) and `renewal_successful_count` (incremented
-	 * inline). The generated query carries `deleted_at IS NULL` like every other
-	 * members write.
+	 * The APPROVED member cache write — shared by TWO flows whose member-side
+	 * effects are column-identical (ADR-0018): the manual create flow and the
+	 * review flow's approve branch. (The query was renamed from
+	 * UpdateMemberOnManualRenewal to UpdateMemberOnApprovedRenewal when the
+	 * review flow adopted it.) Sets ALL four Renewal Cache Columns: the two the
+	 * public create write touches (status, latest_renewal_status, fixed to
+	 * ACTIVE / APPROVED literals by the sqlc query) PLUS the two clock columns
+	 * an approval advances — `expires_at` (bound from the caller's computed
+	 * value) and `renewal_successful_count` (incremented inline, never
+	 * read-then-written in TS). The generated query carries `deleted_at IS
+	 * NULL` like every other members write.
 	 *
 	 * `expiresAt` must be bound as an ISO string, NOT a Date: Bun.SQL serializes
 	 * Date via `toString()` (→ "GMT+0700"), which Postgres rejects (same quirk
-	 * MembersRepository.toPgDate works around). The conversion is isolated here.
+	 * MembersRepository.toPgDate works around). The generated arg type demands
+	 * `Date | null` (current sqlc TS plugin infers TIMESTAMPTZ params as Date),
+	 * so the ISO string is cast back — the exact pattern MembersRepository uses
+	 * on its own Date args (members.repository.ts insert/update call sites).
+	 * {@link toPgDate} throws on a missing value — the manual aggregate and the
+	 * approve outcome both always set it.
 	 */
-	private async doUpdateMemberOnManualRenewal(sql: Sql, renewal: MembershipRenewal): Promise<void> {
+	private async doUpdateMemberOnApprovedRenewal(sql: Sql, memberId: number, expiresAt: Date | undefined): Promise<void> {
 		const result = await ResultAsync.fromPromise(
-			updateMemberOnManualRenewal(sql, {
-				id: String(renewal.memberId),
-				expiresAt: toPgDate(renewal.expiresAt),
+			updateMemberOnApprovedRenewal(sql, {
+				id: String(memberId),
+				expiresAt: toPgDate(expiresAt) as unknown as Date,
 			}),
 			(error) => error as Error
 		)
@@ -451,6 +469,125 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		const row = result.value[0]
 		return ok(row ?? { totalExpiredMembers: 0, totalPendingReviewMembers: 0, totalApprovedMembers: 0 })
 	}
+
+	// --- Review renewal (PATCH /membership/renewals/review/{id}) -------------
+
+	/**
+	 * The review flow's pre-check read (ADR-0018) — the review-flow twin of
+	 * {@link getMemberStatusForRenewal}. Runs OUTSIDE the review transaction and
+	 * returns exactly the {@link MembershipRenewalDbProps} three columns, which
+	 * the service feeds straight into `MembershipRenewal.fromDb`. No row → the
+	 * renewal does not exist or is soft-deleted; the service narrows null → 404.
+	 * DB failures map to `err(DatabaseError)` → 500.
+	 */
+	async getRenewalForReview(renewalId: number) {
+		const result = await ResultAsync.fromPromise(getRenewalForReview(this.sql, { id: String(renewalId) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value[0]
+		if (row === undefined) {
+			return ok(null)
+		}
+		// BIGSERIAL ids come back as strings; convert at this boundary. The
+		// status is CHECK-constrained to the three RenewalStatus literals, so
+		// the cast is honest — same stance as rowToExpiredMembershipRow.
+		return ok({ id: Number(row.id), memberId: Number(row.memberId), status: row.status as RenewalStatus })
+	}
+
+	/**
+	 * The review flow's cross-table transaction (ADR-0018), mirroring
+	 * {@link createRenewal}'s shape: guarded renewal UPDATE first, then the
+	 * member-side write, both inside one `dbClient.transaction` (auto-commit on
+	 * success, auto-rollback on throw).
+	 *
+	 * The guard is the load-bearing part: `updateRenewalOnReview` carries
+	 * `AND status = 'PENDING_REVIEW' AND deleted_at IS NULL` and RETURNs the
+	 * decided row's id, so a renewal decided by a CONCURRENT review matches zero
+	 * rows — the helper throws {@link RenewalAlreadyReviewedError} (→ 409) and
+	 * the whole transaction rolls back. This is what makes the 409 contract
+	 * true under concurrency; the service's pre-check only catches the clean
+	 * case (ADR-0018's deliberate deviation from the spec's racy
+	 * check-then-write SQL).
+	 *
+	 * The member branch reads the outcome's own values — approve reuses the
+	 * manual flow's four-column approved write (shared query,
+	 * UpdateMemberOnApprovedRenewal); reject writes the two-column EXPIRED one
+	 * and never touches the membership clock.
+	 */
+	async applyReview(reviewed: ReviewedRenewal) {
+		try {
+			await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
+				await this.doUpdateRenewalOnReview(sql, reviewed)
+				if (reviewed.status === "APPROVED") {
+					await this.doUpdateMemberOnApprovedRenewal(sql, reviewed.memberId, reviewed.expiresAt)
+				} else {
+					await this.doUpdateMemberOnRejectedReview(sql, reviewed.memberId)
+				}
+			})
+
+			return ok(undefined)
+		} catch (error) {
+			// doUpdateRenewalOnReview throws RenewalAlreadyReviewedError when the
+			// guarded UPDATE matches zero rows; propagate it as-is so the route
+			// maps to 409. Everything else (including DatabaseError thrown by the
+			// helpers) is a DatabaseError → 500.
+			if (error instanceof RenewalAlreadyReviewedError) {
+				return err(error)
+			}
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Apply review transaction failed", error))
+		}
+	}
+
+	/**
+	 * The GUARDED renewal write — runs inside applyReview's transaction. The
+	 * generated UPDATE carries `AND status = 'PENDING_REVIEW' AND deleted_at IS
+	 * NULL` and RETURNs the decided row's id; an empty returning set means a
+	 * concurrent review won the race (or the row vanished), which is the same
+	 * domain fact as the service pre-check's 409 — throw
+	 * {@link RenewalAlreadyReviewedError} to trigger the tx auto-rollback. The
+	 * spec's `CASE WHEN status='REJECTED'` on rejection_reason is deliberately
+	 * absent here: the guard guarantees the row was PENDING_REVIEW (reason
+	 * NULL), so binding the outcome's reason-or-null directly is equivalent.
+	 */
+	private async doUpdateRenewalOnReview(sql: Sql, reviewed: ReviewedRenewal): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateRenewalOnReview(sql, {
+				status: reviewed.status,
+				rejectionReason: reviewed.rejectionReason,
+				id: String(reviewed.renewalId),
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+		if (result.value.length === 0) {
+			throw new RenewalAlreadyReviewedError()
+		}
+	}
+
+	/**
+	 * The REJECTED member cache write — the review flow's reject branch, inside
+	 * applyReview's transaction. Two columns only (EXPIRED / REJECTED literals
+	 * fixed by the sqlc query): a rejected renewal never touches the membership
+	 * clock. Carries `deleted_at IS NULL` like every other members write.
+	 */
+	private async doUpdateMemberOnRejectedReview(sql: Sql, memberId: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateMemberOnRejectedReview(sql, {
+				id: String(memberId),
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
 }
 
 /**
@@ -467,13 +604,13 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Convert the manual renewal's expiresAt Date to a Postgres-safe ISO 8601 string.
+ * Convert an approval's expiresAt Date to a Postgres-safe ISO 8601 string.
  *
  * Same Bun.SQL quirk MembersRepository.toPgDate works around: Date.toString()
  * yields a local-tz string ("GMT+0700") that Postgres rejects; toISOString()
- * ("Z" suffix) is accepted for TIMESTAMPTZ. The manual aggregate always sets
- * expiresAt (createManual), so a missing value is a programmer error — throw
- * rather than silently write NULL.
+ * ("Z" suffix) is accepted for TIMESTAMPTZ. Callers: the manual-create
+ * aggregate and the review-approve outcome — both always set expiresAt, so a
+ * missing value is a programmer error — throw rather than silently write NULL.
  */
 function toPgDate(date: Date | undefined): string {
 	if (date === undefined) {

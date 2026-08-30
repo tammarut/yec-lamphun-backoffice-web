@@ -58,4 +58,10 @@ export const REGISTER_KEY = {
 	// Renewal Cache Columns, no join. Expired count includes latest-rejected
 	// members per the spec (ADR-0017).
 	GET_RENEWAL_STAT_SERVICE: Symbol("GET_RENEWAL_STAT_SERVICE"),
+	// Membership-renewals module (review-renewal command) — ADR-0018. Staff
+	// decide a live PENDING_REVIEW renewal: approve re-stamps expires_at and
+	// bumps renewal_successful_count; reject expires the member with a reason.
+	// Orchestrates the same MEMBERSHIP_RENEWALS_REPOSITORY (pre-check read +
+	// guarded cross-table write); the transition rule lives on the aggregate.
+	REVIEW_RENEWAL_SERVICE: Symbol("REVIEW_RENEWAL_SERVICE"),
 } as const
