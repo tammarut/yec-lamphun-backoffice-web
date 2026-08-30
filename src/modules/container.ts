@@ -17,6 +17,7 @@ import { CreateRenewalService } from "src/modules/membership-renewals/use-case/c
 import { GetListExpiredMembershipService } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.service"
 import { GetListMembershipRenewalService } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.service"
 import { GetRenewalStatService } from "src/modules/membership-renewals/use-case/get-renewal-stat/get-renewal-stat.service"
+import { ReviewRenewalService } from "src/modules/membership-renewals/use-case/review-renewal/review-renewal.service"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
@@ -249,6 +250,21 @@ container.register(REGISTER_KEY.GET_LIST_EXPIRED_MEMBERSHIP_SERVICE, { useClass:
 // serving the PENDING_REVIEW / APPROVED tabs) and the same shared
 // STORAGE_URL_RESOLVER (profile_avatar public-bucket concat).
 container.register(REGISTER_KEY.GET_LIST_MEMBERSHIP_RENEWAL_SERVICE, { useClass: GetListMembershipRenewalService }, { lifecycle: Lifecycle.Singleton })
+
+// 10j. Register Membership-Renewals Module (get-renewal-stat query). Read-only
+// orchestrator over the same MEMBERSHIP_RENEWALS_REPOSITORY above (its first
+// STATIC read — one sqlc COUNT(*) FILTER aggregate over the Renewal Cache
+// Columns, no join; ADR-0017). No URL resolver collaborator: the response is
+// three bare counts.
+container.register(REGISTER_KEY.GET_RENEWAL_STAT_SERVICE, { useClass: GetRenewalStatService }, { lifecycle: Lifecycle.Singleton })
+
+// 10k. Register Membership-Renewals Module (review-renewal command). The
+// module's second WRITE and first state transition (ADR-0018): a pure
+// orchestrator over the same MEMBERSHIP_RENEWALS_REPOSITORY above — its
+// pre-check read feeds MembershipRenewal.fromDb, and applyReview owns the
+// guarded cross-table transaction (renewal UPDATE + member cache write). The
+// transition rule itself lives on the aggregate, not here.
+container.register(REGISTER_KEY.REVIEW_RENEWAL_SERVICE, { useClass: ReviewRenewalService }, { lifecycle: Lifecycle.Singleton })
 
 // 10j. Register Membership-Renewals Module (get-renewal-stat query). Read-only
 // orchestrator over the same MEMBERSHIP_RENEWALS_REPOSITORY above (its first

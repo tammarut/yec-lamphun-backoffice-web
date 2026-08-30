@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { RenewalAlreadyReviewedError } from "../use-case/review-renewal/review-renewal.errors"
 import { MembershipRenewal } from "./membership-renewal"
 
 const baseInput = {
@@ -99,6 +100,66 @@ describe("MembershipRenewal.createManual", () => {
 			const renewal = MembershipRenewal.createManual({ ...baseInput, now })._unsafeUnwrap()
 
 			expect(renewal.expiresAt?.toISOString()).toBe(expected)
+		})
+	})
+})
+
+describe("MembershipRenewal.review (ADR-0018)", () => {
+	const now = new Date("2026-08-30T09:00:00Z")
+	const pendingRow = { id: 79, memberId: 15, status: "PENDING_REVIEW" } as const
+
+	describe("Happy cases", () => {
+		test("approve a PENDING_REVIEW renewal -> APPROVED outcome, member ACTIVE, expiry re-stamped, no reason", () => {
+			const renewal = MembershipRenewal.fromDb({ ...pendingRow })
+
+			const result = renewal.review({ decision: "APPROVED", reason: null, now })
+
+			expect(result.isOk()).toBe(true)
+			const outcome = result._unsafeUnwrap()
+			expect(outcome.renewalId).toBe(79)
+			expect(outcome.memberId).toBe(15)
+			expect(outcome.status).toBe("APPROVED")
+			expect(outcome.rejectionReason).toBeNull()
+			expect(outcome.reviewedAt).toBe(now)
+			expect(outcome.memberStatus).toBe("ACTIVE")
+			// Same shared rule the manual factory uses: end of NEXT calendar year.
+			expect(outcome.expiresAt?.toISOString()).toBe("2027-12-31T23:59:59.999Z")
+		})
+
+		test("reject a PENDING_REVIEW renewal -> REJECTED outcome, member EXPIRED, reason carried, no expiry", () => {
+			const renewal = MembershipRenewal.fromDb({ ...pendingRow })
+
+			const result = renewal.review({ decision: "REJECTED", reason: "สลิปไม่ชัด", now })
+
+			expect(result.isOk()).toBe(true)
+			const outcome = result._unsafeUnwrap()
+			expect(outcome.status).toBe("REJECTED")
+			expect(outcome.rejectionReason).toBe("สลิปไม่ชัด")
+			expect(outcome.memberStatus).toBe("EXPIRED")
+			expect(outcome.expiresAt).toBeUndefined()
+		})
+
+		test("Membership Expiry is pinned across calendar-year edges on the review path too", () => {
+			const renewal = MembershipRenewal.fromDb({ ...pendingRow })
+			const at = new Date("2027-01-01T00:00:00Z")
+
+			const outcome = renewal.review({ decision: "APPROVED", reason: null, now: at })._unsafeUnwrap()
+
+			expect(outcome.expiresAt?.toISOString()).toBe("2028-12-31T23:59:59.999Z")
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		// Exhaustive over the terminal statuses — the transition rule (ADR-0018).
+		test.each(["APPROVED", "REJECTED"] as const)("already-$0 renewal cannot be reviewed again -> RenewalAlreadyReviewedError", (status) => {
+			const renewal = MembershipRenewal.fromDb({ id: 79, memberId: 15, status })
+
+			const result = renewal.review({ decision: "REJECTED", reason: "late second look", now })
+
+			expect(result.isErr()).toBe(true)
+			const error = result._unsafeUnwrapErr()
+			expect(error).toBeInstanceOf(RenewalAlreadyReviewedError)
+			expect(error.message).toBe("This renewal has been reviewed")
 		})
 	})
 })

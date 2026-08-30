@@ -68,11 +68,14 @@ WHERE id = $1
 -- kind fork here.
 -- ============================================================================
 
--- name: UpdateMemberOnManualRenewal :exec
--- The MANUAL member cache write — four columns (vs the public path's two).
+-- name: UpdateMemberOnApprovedRenewal :exec
+-- The APPROVED member cache write — four columns (vs the public path's two).
+-- Shared by TWO flows whose member-side effects are column-identical
+-- (ADR-0018): the manual create flow and the review flow's approve branch.
 -- $2 is the new expires_at (ISO 8601 string; the repo converts the aggregate's
 -- Date so Bun.SQL's Date.toString() quirk does not reject it). Statuses are
--- literals per ADR-0016. Carries `deleted_at IS NULL` like every members write.
+-- literals — both callers approve a renewal. Carries `deleted_at IS NULL` like
+-- every members write.
 UPDATE members
 SET status = 'ACTIVE',
     latest_renewal_status = 'APPROVED',
@@ -115,3 +118,57 @@ SELECT
   (COUNT(*) FILTER (WHERE latest_renewal_status = 'APPROVED'))::int AS total_approved_members
 FROM members
 WHERE deleted_at IS NULL;
+
+-- ============================================================================
+-- Review renewal (PATCH /api/v1/membership/renewals/{renewal_id}/review) — ADR-0018
+-- The review API the domain reserved since ADR-0015/0016: staff decide a live
+-- PENDING_REVIEW renewal. Follows the create-flow split — a cheap READ for the
+-- service's 404/409 pre-check outside the transaction, then a WRITE owning the
+-- cross-table transaction. The status/reason pairing (REJECTED needs a reason,
+-- APPROVED forbids one) is validated at the route boundary, before any of this
+-- runs.
+-- ============================================================================
+
+-- name: GetRenewalForReview :many
+-- Pre-check read (runs OUTSIDE the review transaction). Fetches the renewal's
+-- member_id and status for the service's 404 pre-check and the aggregate's
+-- fromDb reconstitution. Returns no row when the renewal does not exist or is
+-- soft-deleted (the repo narrows that to null → the service maps to 404).
+SELECT id, member_id, status
+FROM membership_renewals
+WHERE id = $1
+  AND deleted_at IS NULL;
+
+-- name: UpdateRenewalOnReview :many
+-- The GUARDED renewal write (ADR-0018's deliberate deviation from the spec's
+-- literal SQL): the WHERE carries `status = 'PENDING_REVIEW' AND deleted_at IS
+-- NULL`, so a renewal decided by a concurrent review matches ZERO rows and the
+-- repo maps the empty RETURNING set to RenewalAlreadyReviewedError → 409 inside
+-- the transaction (auto-rollback). :many + RETURNING rather than :execrows —
+-- the TS plugin emits no executor for :execrows, and :many is the module
+-- convention anyway (ADR-0001). The spec's `CASE WHEN status='REJECTED'` on
+-- rejection_reason is deliberately dropped: the guard guarantees the row was
+-- PENDING_REVIEW (reason NULL), so binding the decision's reason-or-null
+-- directly is equivalent. $2 is NULL on approve.
+UPDATE membership_renewals
+SET status = $1,
+    rejection_reason = $2,
+    reviewed_at = NOW(),
+    updated_at = NOW()
+WHERE id = $3
+  AND status = 'PENDING_REVIEW'
+  AND deleted_at IS NULL
+RETURNING id;
+
+-- name: UpdateMemberOnRejectedReview :exec
+-- The REJECTED member cache write — the review flow's reject branch. Two
+-- columns only: a rejected renewal never touches the membership clock
+-- (expires_at / renewal_successful_count stay as they are). Statuses are
+-- literals — this query is reached only on decision='REJECTED'. Carries
+-- `deleted_at IS NULL` like every other members write.
+UPDATE members
+SET status = 'EXPIRED',
+    latest_renewal_status = 'REJECTED',
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;

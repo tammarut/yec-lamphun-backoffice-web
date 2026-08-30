@@ -1,13 +1,16 @@
-import { ok, type Result } from "neverthrow"
+import { err, ok, type Result } from "neverthrow"
+import { RenewalAlreadyReviewedError } from "../use-case/review-renewal/review-renewal.errors"
 import { computeMembershipExpiry } from "src/modules/shared/membership/membership-expiry"
 
 /**
  * The Renewal Status of a single Membership Renewal.
  *
  * `PENDING_REVIEW` is the entry point for a Public Submission; `APPROVED` is the
- * entry point for an Admin Submission (instant approval, ADR-0015). `REJECTED` is
- * a terminal state set only by the future review API. Mirrors the
- * `chk_membership_renewals_status` CHECK constraint verbatim.
+ * entry point for an Admin Submission (instant approval, ADR-0015). Both
+ * `APPROVED` and `REJECTED` are terminal — they are set at submission (Admin
+ * Submission) or by the Renewal Review flow (ADR-0018), and a decided renewal
+ * never transitions again. Mirrors the `chk_membership_renewals_status` CHECK
+ * constraint verbatim.
  */
 export type RenewalStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED"
 
@@ -27,8 +30,8 @@ export type MemberStatusOnRenewal = "PENDING_RENEWAL" | "ACTIVE"
  * is selected from the submission kind (ADR-0015). There are no value objects
  * today — `paymentSlipFilePath` is an opaque R2 token trusted from the upload
  * endpoint; `memberId` is a positive integer already validated at the route.
- * When the review API lands, this is where a `reviewedAt` / `reviewer` /
- * transition-state VO would go.
+ * The review outcome ({@link ReviewedRenewal}) is the review flow's counterpart
+ * to this create-flow bag.
  */
 export type MembershipRenewalProps = {
 	readonly memberId: number
@@ -48,30 +51,91 @@ export type MembershipRenewalProps = {
 }
 
 /**
- * A fully-resolved, persistence-ready Membership Renewal.
+ * The reconstituted state a Renewal Review acts on (ADR-0018): exactly the
+ * columns `GetRenewalForReview` selects. Deliberately NOT the full row — the
+ * review decision needs identity and current status only; the payment slip and
+ * dates are irrelevant to the transition. Instances built from this shape are
+ * the only ones on which {@link MembershipRenewal.review} is defined.
+ */
+export type MembershipRenewalDbProps = {
+	readonly id: number
+	readonly memberId: number
+	readonly status: RenewalStatus
+}
+
+/**
+ * The staff review decision applied to a live `PENDING_REVIEW` Membership
+ * Renewal (ADR-0018). Both values are terminal; the boundary schema restricts
+ * the request to exactly this pair.
+ */
+export type ReviewDecision = "APPROVED" | "REJECTED"
+
+/**
+ * The Member Status the review flow writes back to `members.status`: `ACTIVE`
+ * on approve, `EXPIRED` on reject. The write-only subset for this flow —
+ * matches how {@link MemberStatusOnRenewal} narrows the create flow.
+ */
+export type MemberStatusOnReview = "ACTIVE" | "EXPIRED"
+
+/**
+ * The persistence-ready outcome of a Renewal Review (ADR-0018) — what
+ * {@link MembershipRenewal.review} hands the repository's `applyReview`.
  *
- * Constructed exclusively through {@link create} (resolves the status pair from
- * the submission kind) — there is no `fromDb` yet because the create-renewal
- * flow only ever persists, never reconstitutes. No setters — all access is via
- * getters. The service passes this aggregate directly to the repository; the
+ * `rejectionReason` is the decision's reason on reject and `null` on approve
+ * (the boundary schema enforces the pairing before this exists). `expiresAt`
+ * is present ONLY on approve — the shared Membership Expiry rule
+ * (`computeMembershipExpiry`, end of next year) — so the repo's approve branch
+ * can bind it exactly like the manual flow does. `renewal_successful_count` is
+ * NOT carried here: it is incremented in SQL (`count + 1`), never
+ * read-then-written in TS.
+ */
+export type ReviewedRenewal = {
+	readonly renewalId: number
+	readonly memberId: number
+	readonly status: ReviewDecision
+	readonly rejectionReason: string | null
+	readonly reviewedAt: Date
+	readonly memberStatus: MemberStatusOnReview
+	readonly expiresAt?: Date
+}
+
+/**
+ * A Membership Renewal in one of its two instanciations: persistence-ready
+ * after a create request (create-shaped props), or reconstituted from the DB
+ * for a Renewal Review (db-shaped props carrying the row's id).
+ *
+ * Constructed exclusively through the static factories ({@link create},
+ * {@link createManual}, {@link fromDb}) — no other rehydration exists beyond
+ * the review's three columns. No setters — all access is via getters. The
+ * service passes the create aggregate directly to the repository; the
  * repository maps the getters to sqlc's generated arg objects.
  *
  * Named for the domain concept (not "MembershipRenewalAggregate") to match the
  * `Member` precedent.
  *
- * ## Why this aggregate exists (and what it does NOT do yet)
+ * ## The aggregate's two jobs
  *
- * The members module's domain layer earns its keep on heavy self-invariants
- * (id_card crypto/format, position-active, location swap). The create-renewal
- * flow has only ONE self-invariant today: the submission-kind → status-pair
- * mapping. Centralizing that rule here (rather than a ternary in the service)
- * is this aggregate's current job — modest, but it keeps the rule out of the
- * service layer and gives the future review/approve API a home. The renewal
- * *state machine* (PENDING_REVIEW → APPROVED|REJECTED transitions, supersede-
- * on-renew) is the real domain logic; it lands here when that API ships.
+ * 1. The submission-kind → status-pair rule (ADR-0015), centralized in
+ *    {@link create}/{@link createManual} rather than a ternary in the service.
+ * 2. The renewal state machine (ADR-0018): {@link fromDb} + {@link review} own
+ *    the `PENDING_REVIEW`-only transition and compute the review outcome,
+ *    keeping the rule out of the service layer.
  */
 export class MembershipRenewal {
-	private constructor(private readonly props: MembershipRenewalProps) {}
+	private constructor(private readonly props: MembershipRenewalProps | MembershipRenewalDbProps) {}
+
+	/**
+	 * Narrow the props union to the create shape. The create-only getters below
+	 * are reached only on create-built instances (the repo's create paths); the
+	 * review path ({@link review}) reads the db shape instead. Mirrors the
+	 * `toPgDate` stance: throw on impossible state rather than fabricate data.
+	 */
+	private createProps(): MembershipRenewalProps {
+		if (!("paymentSlipFilePath" in this.props)) {
+			throw new Error("This getter is only defined on a create-built MembershipRenewal")
+		}
+		return this.props
+	}
 
 	// --- Getters (Read-Only Access) ---
 
@@ -79,16 +143,16 @@ export class MembershipRenewal {
 		return this.props.memberId
 	}
 	get paymentSlipFilePath() {
-		return this.props.paymentSlipFilePath
+		return this.createProps().paymentSlipFilePath
 	}
 	get paymentDateAt() {
-		return this.props.paymentDateAt
+		return this.createProps().paymentDateAt
 	}
 	get status() {
 		return this.props.status
 	}
 	get memberStatusOnRenewal() {
-		return this.props.memberStatusOnRenewal
+		return this.createProps().memberStatusOnRenewal
 	}
 	/**
 	 * The new `members.expires_at` for a Manual Renewal Submission. `undefined`
@@ -97,7 +161,7 @@ export class MembershipRenewal {
 	 * manual write path.
 	 */
 	get expiresAt(): Date | undefined {
-		return this.props.expiresAt
+		return this.createProps().expiresAt
 	}
 
 	// --- Factory: New Renewal Creation ---
@@ -169,5 +233,73 @@ export class MembershipRenewal {
 				expiresAt: computeMembershipExpiry(input.now),
 			})
 		)
+	}
+
+	// --- Factory: From Database (for Renewal Review) ---
+
+	/**
+	 * Reconstitute a Membership Renewal for a Renewal Review (ADR-0018) — the
+	 * review API the domain reserved since ADR-0015/0016. Trusts persisted data
+	 * (skips validation), exactly like `Member.fromDb`; the row is the three
+	 * columns `GetRenewalForReview` selects, which is all the transition needs.
+	 * The service calls this AFTER the repository read and BEFORE
+	 * {@link review}.
+	 */
+	static fromDb(row: MembershipRenewalDbProps): MembershipRenewal {
+		return new MembershipRenewal(row)
+	}
+
+	// --- State Machine: Renewal Review (ADR-0018) ---
+
+	/**
+	 * Decide this renewal — the `PENDING_REVIEW` → terminal transition the
+	 * aggregate owns (ADR-0018). Only a live `PENDING_REVIEW` renewal may be
+	 * decided; anything else (APPROVED / REJECTED, whether at submission or by
+	 * an earlier review) is `err(RenewalAlreadyReviewedError)` → 409 at the
+	 * route. This is the domain-level twin of the SQL guard on
+	 * `UpdateRenewalOnReview`: the service's pre-check catches the clean case,
+	 * the SQL guard catches the race, and this rule is what both enforce.
+	 *
+	 * The status/reason pairing (REJECTED requires a non-empty reason, APPROVED
+	 * forbids one) is NOT re-checked here — it is a pure function of the request
+	 * body, owned by the route's Valibot schema, which runs before any of this.
+	 *
+	 * Approve computes `expiresAt` via the shared Membership Expiry rule — the
+	 * same `computeMembershipExpiry` the manual factory uses — and yields
+	 * memberStatus ACTIVE; reject carries the reason and yields EXPIRED. The
+	 * `renewal_successful_count` bump is deliberately absent: the repository
+	 * increments it in SQL inside the same transaction.
+	 */
+	review(input: { decision: ReviewDecision; reason: string | null; now: Date }): Result<ReviewedRenewal, RenewalAlreadyReviewedError> {
+		const row = this.props
+		if (!("id" in row)) {
+			// review() is only defined on a fromDb-reconstituted renewal; the
+			// service never calls it on a create-built instance. Programmer
+			// error — throw rather than fabricate a renewalId.
+			throw new Error("review() requires a fromDb-reconstituted MembershipRenewal")
+		}
+		if (row.status !== "PENDING_REVIEW") {
+			return err(new RenewalAlreadyReviewedError())
+		}
+
+		if (input.decision === "APPROVED") {
+			return ok({
+				renewalId: row.id,
+				memberId: row.memberId,
+				status: "APPROVED",
+				rejectionReason: null,
+				reviewedAt: input.now,
+				memberStatus: "ACTIVE",
+				expiresAt: computeMembershipExpiry(input.now),
+			})
+		}
+		return ok({
+			renewalId: row.id,
+			memberId: row.memberId,
+			status: "REJECTED",
+			rejectionReason: input.reason,
+			reviewedAt: input.now,
+			memberStatus: "EXPIRED",
+		})
 	}
 }

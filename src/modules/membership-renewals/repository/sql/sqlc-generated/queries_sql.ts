@@ -61,7 +61,7 @@ export async function updateMemberStatusOnRenewal(sql: Sql, args: UpdateMemberSt
 	await sql.unsafe(updateMemberStatusOnRenewalQuery, [args.id, args.status, args.latestRenewalStatus])
 }
 
-export const updateMemberOnManualRenewalQuery = `-- name: UpdateMemberOnManualRenewal :exec
+export const updateMemberOnApprovedRenewalQuery = `-- name: UpdateMemberOnApprovedRenewal :exec
 
 UPDATE members
 SET status = 'ACTIVE',
@@ -72,13 +72,13 @@ SET status = 'ACTIVE',
 WHERE id = $1
   AND deleted_at IS NULL`
 
-export interface UpdateMemberOnManualRenewalArgs {
+export interface UpdateMemberOnApprovedRenewalArgs {
 	id: string
-	expiresAt: string
+	expiresAt: Date | null
 }
 
-export async function updateMemberOnManualRenewal(sql: Sql, args: UpdateMemberOnManualRenewalArgs): Promise<void> {
-	await sql.unsafe(updateMemberOnManualRenewalQuery, [args.id, args.expiresAt])
+export async function updateMemberOnApprovedRenewal(sql: Sql, args: UpdateMemberOnApprovedRenewalArgs): Promise<void> {
+	await sql.unsafe(updateMemberOnApprovedRenewalQuery, [args.id, args.expiresAt])
 }
 
 export const getRenewalStatQuery = `-- name: GetRenewalStat :many
@@ -102,4 +102,72 @@ export async function getRenewalStat(sql: Sql): Promise<GetRenewalStatRow[]> {
 		totalPendingReviewMembers: row[1],
 		totalApprovedMembers: row[2],
 	}))
+}
+
+export const getRenewalForReviewQuery = `-- name: GetRenewalForReview :many
+
+SELECT id, member_id, status
+FROM membership_renewals
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface GetRenewalForReviewArgs {
+	id: string
+}
+
+export interface GetRenewalForReviewRow {
+	id: string
+	memberId: string
+	status: string
+}
+
+export async function getRenewalForReview(sql: Sql, args: GetRenewalForReviewArgs): Promise<GetRenewalForReviewRow[]> {
+	return (await sql.unsafe(getRenewalForReviewQuery, [args.id]).values()).map((row) => ({
+		id: row[0],
+		memberId: row[1],
+		status: row[2],
+	}))
+}
+
+export const updateRenewalOnReviewQuery = `-- name: UpdateRenewalOnReview :many
+UPDATE membership_renewals
+SET status = $1,
+    rejection_reason = $2,
+    reviewed_at = NOW(),
+    updated_at = NOW()
+WHERE id = $3
+  AND status = 'PENDING_REVIEW'
+  AND deleted_at IS NULL
+RETURNING id`
+
+export interface UpdateRenewalOnReviewArgs {
+	status: string
+	rejectionReason: string | null
+	id: string
+}
+
+export interface UpdateRenewalOnReviewRow {
+	id: string
+}
+
+export async function updateRenewalOnReview(sql: Sql, args: UpdateRenewalOnReviewArgs): Promise<UpdateRenewalOnReviewRow[]> {
+	return (await sql.unsafe(updateRenewalOnReviewQuery, [args.status, args.rejectionReason, args.id]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
+
+export const updateMemberOnRejectedReviewQuery = `-- name: UpdateMemberOnRejectedReview :exec
+UPDATE members
+SET status = 'EXPIRED',
+    latest_renewal_status = 'REJECTED',
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface UpdateMemberOnRejectedReviewArgs {
+	id: string
+}
+
+export async function updateMemberOnRejectedReview(sql: Sql, args: UpdateMemberOnRejectedReviewArgs): Promise<void> {
+	await sql.unsafe(updateMemberOnRejectedReviewQuery, [args.id])
 }
