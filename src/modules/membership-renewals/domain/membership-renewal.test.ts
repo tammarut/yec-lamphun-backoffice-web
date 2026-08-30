@@ -161,5 +161,17 @@ describe("MembershipRenewal.review (ADR-0018)", () => {
 			expect(error).toBeInstanceOf(RenewalAlreadyReviewedError)
 			expect(error.message).toBe("This renewal has been reviewed")
 		})
+
+		test("review() on a create-built instance throws (only fromDb instances carry a renewalId)", () => {
+			const renewal = MembershipRenewal.create({ ...baseInput, isAdmin: false })._unsafeUnwrap()
+
+			expect(() => renewal.review({ decision: "APPROVED", reason: null, now })).toThrowError("review() requires a fromDb-reconstituted MembershipRenewal")
+		})
+
+		test("create-only getters on a fromDb instance throw (no fabricated create props)", () => {
+			const renewal = MembershipRenewal.fromDb({ id: 79, memberId: 15, status: "PENDING_REVIEW" })
+
+			expect(() => renewal.paymentSlipFilePath).toThrowError("This getter is only defined on a create-built MembershipRenewal")
+		})
 	})
 })
