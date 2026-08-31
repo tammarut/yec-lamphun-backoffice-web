@@ -64,4 +64,10 @@ export const REGISTER_KEY = {
 	// Orchestrates the same MEMBERSHIP_RENEWALS_REPOSITORY (pre-check read +
 	// guarded cross-table write); the transition rule lives on the aggregate.
 	REVIEW_RENEWAL_SERVICE: Symbol("REVIEW_RENEWAL_SERVICE"),
+	// Dashboard module (get-dashboard-stat query) — ADR-0019. The Dashboard
+	// Stat: five headline counts read from the members-owned tables via the
+	// dashboard repo's own sqlc block (spec-literal "not yet renewed" bucket;
+	// Bangkok wall-clock years). No TS cross-import into the members module.
+	DASHBOARD_REPOSITORY: Symbol("DASHBOARD_REPOSITORY"),
+	GET_DASHBOARD_STAT_SERVICE: Symbol("GET_DASHBOARD_STAT_SERVICE"),
 } as const
