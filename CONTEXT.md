@@ -112,3 +112,9 @@ _Avoid_: expired members table, rejected list, expired queue
 **Renewal Stat**:
 The three badge counts shown above the renewal-review table, served by `GET /api/v1/membership/renewals/stat`: total expired members (Member Status `EXPIRED` **or** most recent Membership Renewal `REJECTED` — deliberately a superset of the Expired Membership List, which keys on Member Status alone), total pending-review members, and total approved members. Read exclusively from the Renewal Cache Columns — no renewal rows are joined; the counts are not a partition (a member may appear in more than one).
 _Avoid_: tab counts, renewal summary, totals
+
+## Dashboard
+
+**Dashboard Stat**:
+The five headline counts of the backoffice dashboard, served by `GET /api/v1/dashboard/stat`: total members, total active members, total "not yet renewed" members, total businesses, and members joined per year over a lookback window (default 5 years, 1–20). Its `total_expired_members` — Member Status `EXPIRED` **or** `PENDING_RENEWAL` (the "ยังไม่ได้ต่ออายุ" reading) — is deliberately a different definition from the **Renewal Stat**'s same-named count (which includes latest-renewal-`REJECTED` members but not `PENDING_RENEWAL` ones); the two endpoints' numbers are not expected to match. `RESIGNED` members count toward the total and the yearly breakdown but neither status bucket, so the three member counts do not sum. Years in the per-year breakdown are Bangkok wall-clock years (Asia/Bangkok), zero-filled across the whole window — independent of any server timezone.
+_Avoid_: dashboard summary, overview stat, dashboard totals

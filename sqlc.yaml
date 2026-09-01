@@ -61,3 +61,20 @@ sql:
             options:
                 runtime: "node"
                 driver: "postgres"
+    # The dashboard module owns the Dashboard Stat read (ADR-0019). Its sqlc
+    # block references members/member_business/business_categories schemas
+    # ONLY so the FKs resolve during parsing — no TS cross-import into the
+    # members module (symmetric mirror of the renewals block, ADR-0013
+    # pattern). members/schema.sql already contains positions.
+    - schema:
+          - "src/modules/business-categories/repository/sql/schema.sql"
+          - "src/modules/members/repository/sql/schema.sql"
+          - "src/modules/members/repository/member-business/sql/schema.sql"
+      queries: "src/modules/dashboard/repository/sql/queries.sql"
+      engine: "postgresql"
+      codegen:
+          - out: "src/modules/dashboard/repository/sql/sqlc-generated"
+            plugin: ts
+            options:
+                runtime: "node"
+                driver: "postgres"

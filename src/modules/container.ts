@@ -2,6 +2,8 @@ import "reflect-metadata"
 import { AuthService } from "src/modules/auth/auth.service"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
+import { DashboardRepository } from "src/modules/dashboard/repository/dashboard.repository"
+import { GetDashboardStatService } from "src/modules/dashboard/use-case/get-dashboard-stat/get-dashboard-stat.service"
 import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
 import { MemberFileService } from "src/modules/members/member-file.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
@@ -266,11 +268,17 @@ container.register(REGISTER_KEY.GET_RENEWAL_STAT_SERVICE, { useClass: GetRenewal
 // transition rule itself lives on the aggregate, not here.
 container.register(REGISTER_KEY.REVIEW_RENEWAL_SERVICE, { useClass: ReviewRenewalService }, { lifecycle: Lifecycle.Singleton })
 
-// 10j. Register Membership-Renewals Module (get-renewal-stat query). Read-only
-// orchestrator over the same MEMBERSHIP_RENEWALS_REPOSITORY above (its first
-// STATIC read — one sqlc COUNT(*) FILTER aggregate over the Renewal Cache
-// Columns, no join; ADR-0017). No URL resolver collaborator: the response is
-// three bare counts.
-container.register(REGISTER_KEY.GET_RENEWAL_STAT_SERVICE, { useClass: GetRenewalStatService }, { lifecycle: Lifecycle.Singleton })
+// 11. Register Dashboard Module (get-dashboard-stat query) — ADR-0019. The
+// Dashboard Stat: five headline counts read from the members-owned tables via
+// the dashboard repo's own sqlc block (no TS cross-import — the mirror of the
+// renewals arrangement). The repository is Transient (stateless wrapper around
+// the singleton DatabaseClient, matching every other repository); the service
+// is Singleton (matching the other use cases). No URL resolver collaborator:
+// the response is bare counts.
+container.register(REGISTER_KEY.DASHBOARD_REPOSITORY, {
+	useClass: DashboardRepository,
+})
+
+container.register(REGISTER_KEY.GET_DASHBOARD_STAT_SERVICE, { useClass: GetDashboardStatService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }
