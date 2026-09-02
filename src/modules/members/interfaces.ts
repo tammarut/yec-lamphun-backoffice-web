@@ -4,6 +4,7 @@ import type { Member } from "./domain/member"
 import type { MemberDetailReadModel, MemberLatestRenewalReadModel, MemberDocumentType, PositionReadModel } from "./domain/member-read-models"
 import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
+import type { ExecutiveCommitteeMemberRow } from "./use-case/get-executive-committee/get-executive-committee.types"
 
 export interface IMemberRepository {
 	// --- Check queries (run OUTSIDE the create-member transaction) ----------
@@ -108,4 +109,26 @@ export interface IMemberRepository {
 	 * `getMemberDetailById` (grilling Q9).
 	 */
 	getListMembers(filter: ListMembersFilter): Promise<Result<MemberListPage, DatabaseError | InvalidCursorError>>
+
+	// --- Executive committee reads (GET /api/v1/members/executive-committee) --
+
+	/**
+	 * Fetch every position row ordered by `(display_order, code)`. The
+	 * executive-committee service consumes the whole hierarchy (Thai names +
+	 * parent links) to assemble the org-chart tree and to materialize Vacant
+	 * Position placeholders for missing rungs (ADR-0020). Includes inactive
+	 * positions — placement on the chart keys off holders, not is_active.
+	 */
+	getAllPositions(): Promise<Result<readonly PositionReadModel[], DatabaseError>>
+
+	/**
+	 * Fetch the flat Executive Committee rows: every non-deleted, non-RESIGNED
+	 * member holding any position except GENERAL_MEMBER, with the member's 1:1
+	 * business name (null when no live business row). Ordered by
+	 * `(positions.display_order, members.id)` so the service's tree assembly
+	 * yields org-chart sibling order without re-sorting. The service — not this
+	 * query — derives parent-child links from the position hierarchy
+	 * (members has no parent_id column; ADR-0020).
+	 */
+	getExecutiveCommittee(): Promise<Result<readonly ExecutiveCommitteeMemberRow[], DatabaseError>>
 }

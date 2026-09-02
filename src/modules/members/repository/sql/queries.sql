@@ -259,3 +259,41 @@ LEFT JOIN LATERAL (
 ) mr ON true
 WHERE m.id = $1
   AND m.deleted_at IS NULL;
+
+-- ============================================================================
+-- Get executive committee (GET /api/v1/members/executive-committee) — ADR-0020.
+-- The org-chart read: every non-deleted, non-RESIGNED member holding any
+-- position except GENERAL_MEMBER, returned FLAT with the 1:1 business name.
+-- The service assembles the tree from the position hierarchy — members has no
+-- parent_id column (supervisor is derived at read time), so these two queries
+-- carry everything the assembly needs: the full positions table (hierarchy +
+-- Thai names) and the member rows ordered by (display_order, id) so siblings
+-- land in org-chart order without re-sorting. The INNER JOIN on positions is
+-- guaranteed to match (FK ON DELETE RESTRICT); the LEFT JOIN's soft-delete
+-- filter lives in the ON clause so a missing business does not drop the member
+-- (same shape as GetMemberWithBusinessById). `:many` per ADR-0001.
+-- ============================================================================
+
+-- name: GetAllPositions :many
+SELECT code, name_th, name_en, cardinality, parent_position_code, display_order, is_active
+FROM positions
+ORDER BY display_order ASC, code ASC;
+
+-- name: GetExecutiveCommitteeMembers :many
+SELECT m.id,
+       m.profile_avatar,
+       m.title_name_th,
+       m.first_name_th,
+       m.last_name_th,
+       m.nickname,
+       m.position_code,
+       b.name AS business_name
+FROM members m
+INNER JOIN positions p ON p.code = m.position_code
+LEFT JOIN member_business b
+       ON b.member_id = m.id
+      AND b.deleted_at IS NULL
+WHERE m.deleted_at IS NULL
+  AND m.status IN ('ACTIVE', 'PENDING_RENEWAL', 'EXPIRED')
+  AND m.position_code != 'GENERAL_MEMBER'
+ORDER BY p.display_order ASC, m.id ASC;
