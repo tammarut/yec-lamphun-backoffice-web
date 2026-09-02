@@ -89,19 +89,16 @@ export class GetExecutiveCommitteeService {
 			return null
 		}
 
-		// Codes of positions with live holders, in the members query's
-		// (display_order, id) order — captured BEFORE any placeholder
-		// materializes. resolveAttachment caches placeholders into
-		// nodesByPosition, so iterating that map (or the positions table)
-		// instead of this list would mistake an unheld position for an
-		// occupied one and re-attach its placeholder under its own
-		// descendants — a circular node graph (see the cycle guard below too).
-		const occupiedCodes: string[] = []
-		for (const row of memberRows) {
-			if (occupiedCodes[occupiedCodes.length - 1] !== row.positionCode) {
-				occupiedCodes.push(row.positionCode)
-			}
-		}
+		// Codes of positions with live holders, deduped by Set in
+		// first-occurrence order (the query's (display_order, id) order) —
+		// captured BEFORE any placeholder materializes. resolveAttachment
+		// caches placeholders into nodesByPosition, so iterating that map (or
+		// the positions table) instead of this list would mistake an unheld
+		// position for an occupied one and re-attach its placeholder under its
+		// own descendants — a circular node graph (see the cycle guard below
+		// too). The Set keeps each position attached exactly once even if the
+		// query's ORDER BY ever stops grouping same-position rows contiguously.
+		const occupiedCodes: string[] = [...new Set(memberRows.map((row) => row.positionCode))]
 
 		// Attach every non-root occupied position's nodes under their parent
 		// position. Iteration order keeps the children arrays deterministic;

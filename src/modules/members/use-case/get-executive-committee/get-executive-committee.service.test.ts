@@ -181,6 +181,33 @@ describe("GetExecutiveCommitteeService", () => {
 				expect(root?.children.map((child) => child.id)).toEqual([11])
 			})
 
+			test("attaches each occupied position exactly once even when same-position rows are not contiguous", async () => {
+				// Simulates a future ORDER BY change that stops grouping
+				// same-position rows: SECRETARY rows interleaved with others.
+				// The old contiguity-based dedup would have attached the
+				// SECRETARY position's nodes twice; the Set does not.
+				mockRepo.getExecutiveCommittee.mockResolvedValue(ok([member(1, "PRESIDENT"), member(4, "SECRETARY"), member(2, "ADVISORY_BOARD"), member(7, "ASST_SECRETARY")]))
+
+				const root = (await service.execute())._unsafeUnwrap()
+
+				const ids: number[] = []
+				const collect = (node: ExecutiveCommitteeNode): void => {
+					if (node.id !== null) {
+						ids.push(node.id)
+					}
+					node.children.forEach(collect)
+				}
+				collect(root!)
+
+				expect(ids).toHaveLength(4)
+				expect(ids.filter((id) => id === 4)).toHaveLength(1)
+				// First-occurrence order: secretary (300) was interleaved before
+				// advisory (250) in the input, so it lands first here.
+				expect(root?.children.map((child) => child.id)).toEqual([4, 2])
+				const secretary = root?.children.find((child) => child.id === 4)
+				expect(secretary?.children.map((child) => child.id)).toEqual([7])
+			})
+
 			test("breaks a parent_position_code cycle without weaving a circular node graph", async () => {
 				const positions: PositionReadModel[] = [
 					position("PRESIDENT", "ประธาน YEC Lamphun", null, 200),
