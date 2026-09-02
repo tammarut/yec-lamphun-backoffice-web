@@ -31,6 +31,11 @@ export const REGISTER_KEY = {
 	UPDATE_MEMBER_SERVICE: Symbol("UPDATE_MEMBER_SERVICE"),
 	// Members module (delete-member-by-id command) — ADR-0013.
 	DELETE_MEMBER_SERVICE: Symbol("DELETE_MEMBER_SERVICE"),
+	// Members module (get-executive-committee query) — ADR-0020. The org-chart
+	// tree read: flat members+positions sqlc reads assembled into a tree DERIVED
+	// from the position hierarchy, with Vacant Position placeholders for unheld
+	// rungs. Reuses MEMBERS_REPOSITORY + MEMBER_FILE_URL_SERVICE.
+	GET_EXECUTIVE_COMMITTEE_SERVICE: Symbol("GET_EXECUTIVE_COMMITTEE_SERVICE"),
 	// Membership-renewals module (create-renewal command) — ADR-0014. The renewals
 	// repo owns the cross-table create transaction (INSERT renewal + UPDATE member
 	// cache columns); the service runs the status pre-check.

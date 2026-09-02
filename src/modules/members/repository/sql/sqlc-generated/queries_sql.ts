@@ -610,3 +610,74 @@ export async function getLatestRenewalByMemberId(sql: Sql, args: GetLatestRenewa
 		renewalPaymentSlipFilePath: row[11],
 	}))
 }
+
+export const getAllPositionsQuery = `-- name: GetAllPositions :many
+
+SELECT code, name_th, name_en, cardinality, parent_position_code, display_order, is_active
+FROM positions
+ORDER BY display_order ASC, code ASC`
+
+export interface GetAllPositionsRow {
+	code: string
+	nameTh: string
+	nameEn: string
+	cardinality: string
+	parentPositionCode: string | null
+	displayOrder: number
+	isActive: boolean
+}
+
+export async function getAllPositions(sql: Sql): Promise<GetAllPositionsRow[]> {
+	return (await sql.unsafe(getAllPositionsQuery, []).values()).map((row) => ({
+		code: row[0],
+		nameTh: row[1],
+		nameEn: row[2],
+		cardinality: row[3],
+		parentPositionCode: row[4],
+		displayOrder: row[5],
+		isActive: row[6],
+	}))
+}
+
+export const getExecutiveCommitteeMembersQuery = `-- name: GetExecutiveCommitteeMembers :many
+SELECT m.id,
+       m.profile_avatar,
+       m.title_name_th,
+       m.first_name_th,
+       m.last_name_th,
+       m.nickname,
+       m.position_code,
+       b.name AS business_name
+FROM members m
+INNER JOIN positions p ON p.code = m.position_code
+LEFT JOIN member_business b
+       ON b.member_id = m.id
+      AND b.deleted_at IS NULL
+WHERE m.deleted_at IS NULL
+  AND m.status IN ('ACTIVE', 'PENDING_RENEWAL', 'EXPIRED')
+  AND m.position_code != 'GENERAL_MEMBER'
+ORDER BY p.display_order ASC, m.id ASC`
+
+export interface GetExecutiveCommitteeMembersRow {
+	id: string
+	profileAvatar: string | null
+	titleNameTh: string
+	firstNameTh: string
+	lastNameTh: string
+	nickname: string
+	positionCode: string
+	businessName: string | null
+}
+
+export async function getExecutiveCommitteeMembers(sql: Sql): Promise<GetExecutiveCommitteeMembersRow[]> {
+	return (await sql.unsafe(getExecutiveCommitteeMembersQuery, []).values()).map((row) => ({
+		id: row[0],
+		profileAvatar: row[1],
+		titleNameTh: row[2],
+		firstNameTh: row[3],
+		lastNameTh: row[4],
+		nickname: row[5],
+		positionCode: row[6],
+		businessName: row[7],
+	}))
+}

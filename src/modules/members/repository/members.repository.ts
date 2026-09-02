@@ -18,9 +18,12 @@ import type {
 import type { IMemberRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
+import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-committee/get-executive-committee.types"
 import {
 	countActiveHolderByPosition,
 	countMemberByIdCardHash,
+	getAllPositions,
+	getExecutiveCommitteeMembers,
 	getLatestRenewalByMemberId,
 	getMemberDocumentsByMemberId,
 	getMemberWithBusinessById,
@@ -322,6 +325,61 @@ export class MembersRepository implements IMemberRepository {
 			renewalPaymentSlipFilePath: paymentSlipFilePath,
 		}
 		return ok(readModel)
+	}
+
+	// --- Executive committee reads (GET /api/v1/members/executive-committee) --
+
+	/**
+	 * Fetch every position row ordered by `(display_order, code)` — the whole
+	 * hierarchy the service needs to assemble the org-chart tree and to
+	 * materialize Vacant Position placeholders (ADR-0020). Static read → sqlc.
+	 */
+	async getAllPositions() {
+		const result = await ResultAsync.fromPromise(getAllPositions(this.sql), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(
+			result.value.map(
+				(row) =>
+					({
+						code: row.code,
+						nameTh: row.nameTh,
+						nameEn: row.nameEn,
+						cardinality: row.cardinality as PositionCardinality,
+						parentPositionCode: row.parentPositionCode,
+						displayOrder: row.displayOrder,
+						isActive: row.isActive,
+					}) satisfies PositionReadModel
+			)
+		)
+	}
+
+	/**
+	 * Fetch the flat Executive Committee rows (members + 1:1 business name),
+	 * already ordered `(display_order, id)` for org-chart sibling order. Static
+	 * read → sqlc; BIGSERIAL ids arrive as strings and are numbered here.
+	 */
+	async getExecutiveCommittee(): Promise<Result<readonly ExecutiveCommitteeMemberRow[], DatabaseError>> {
+		const result = await ResultAsync.fromPromise(getExecutiveCommitteeMembers(this.sql), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(
+			result.value.map(
+				(row) =>
+					({
+						id: Number(row.id),
+						profileAvatar: row.profileAvatar,
+						titleNameTh: row.titleNameTh,
+						firstNameTh: row.firstNameTh,
+						lastNameTh: row.lastNameTh,
+						nickname: row.nickname,
+						positionCode: row.positionCode,
+						businessName: row.businessName,
+					}) satisfies ExecutiveCommitteeMemberRow
+			)
+		)
 	}
 
 	/**

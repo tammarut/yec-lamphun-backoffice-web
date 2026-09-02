@@ -44,6 +44,14 @@ _Avoid_: position type, slot count
 The active member currently holding the position directly above another member's position in the hierarchy. A supervisor is DERIVED at read time from the position hierarchy (`positions.parent_position_code`) — it is never stored as a column on a member. The President and General Members have no supervisor.
 _Avoid_: parent, manager, parent member
 
+**Executive Committee**:
+The members holding any Position other than General Member — Resigned members excluded — rendered as one tree rooted at the President holder and mirroring the position hierarchy. With no live President holder the whole view is empty.
+_Avoid_: org chart, committee list, board
+
+**Vacant Position**:
+A position on the Executive Committee tree that has no live holder but has live descendants: rendered as a placeholder carrying only the position title, so members below it still appear at their true depth. Never materialized for the root.
+_Avoid_: ghost node, empty position, missing rung
+
 **Member Document**:
 A formal record attached to a member, of a fixed kind: `ID_CARD`, `COMPANY_CERTIFICATE`, or `PAYMENT_SLIP`. Stored as a file path reference plus a type tag — distinct from a **Member File**, which is the upload artifact before it is associated.
 _Avoid_: attachment, file

@@ -9,6 +9,7 @@ import { MemberFileService } from "src/modules/members/member-file.service"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
+import { GetExecutiveCommitteeService } from "src/modules/members/use-case/get-executive-committee/get-executive-committee.service"
 import { GetLatestRenewalByMemberIdService } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
@@ -280,5 +281,13 @@ container.register(REGISTER_KEY.DASHBOARD_REPOSITORY, {
 })
 
 container.register(REGISTER_KEY.GET_DASHBOARD_STAT_SERVICE, { useClass: GetDashboardStatService }, { lifecycle: Lifecycle.Singleton })
+
+// 12. Register Members Module (get-executive-committee query) — ADR-0020. The
+// Executive Committee org-chart tree for the backoffice chart page: a read-only
+// orchestrator over the same MEMBERS_REPOSITORY above (its second static
+// committee read — flat members+positions rows) and the members module's
+// MemberFileUrlService (profile_avatar public-bucket concat, ADR-0007). The
+// tree itself is assembled in the service from the position hierarchy.
+container.register(REGISTER_KEY.GET_EXECUTIVE_COMMITTEE_SERVICE, { useClass: GetExecutiveCommitteeService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }
