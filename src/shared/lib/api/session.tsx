@@ -56,6 +56,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	const loginMutation = useMutation<void, ApiError, LoginInput>({
 		mutationFn: login,
 		onSuccess: async () => {
+			// Set the known state immediately — a 401 refetch retains the last
+			// successful data in TanStack v5, so invalidation alone would leave
+			// a stale `true` behind if the cookie didn't stick.
+			queryClient.setQueryData(SESSION_QUERY_KEY, true)
 			await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
 		},
 	})
@@ -63,6 +67,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	const logoutMutation = useMutation<void, ApiError, void>({
 		mutationFn: logout,
 		onSuccess: async () => {
+			// Same as above: reset to logged-out first, then re-validate.
+			queryClient.setQueryData(SESSION_QUERY_KEY, false)
 			await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
 		},
 	})
@@ -70,7 +76,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	return (
 		<SessionContext.Provider
 			value={{
-				isAdmin: sessionQuery.data === true,
+				// `data` survives failed refetches in TanStack v5, so an errored
+				// probe (expired session, cleared cookie) must force isAdmin off.
+				isAdmin: sessionQuery.data === true && sessionQuery.error === null,
 				isCheckingSession: sessionQuery.isPending,
 				loginMutation,
 				logoutMutation,
