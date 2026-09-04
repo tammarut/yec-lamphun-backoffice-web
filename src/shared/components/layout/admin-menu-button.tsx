@@ -24,10 +24,11 @@ export function AdminMenuButton() {
 		<SidebarMenu data-slot="admin-menu">
 			<SidebarMenuItem>
 				<SidebarMenuButton
+					size="lg"
+					className={cn("px-3 text-base [&_svg]:size-5", isAdmin ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : "text-muted-foreground")}
 					disabled={isCheckingSession}
 					tooltip={isAdmin ? "ออกจากโหมดผู้ดูแลระบบ" : "สำหรับผู้ดูแลระบบ"}
 					onClick={() => (isAdmin ? setLogoutOpen(true) : setLoginOpen(true))}
-					className={cn(isAdmin ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : "text-muted-foreground")}
 				>
 					<HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
 					<span>{isAdmin ? "Admin Mode" : "ผู้ดูแลระบบ"}</span>
