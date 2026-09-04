@@ -1,9 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useState } from "react"
 import { Toaster } from "sonner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { AdminMenuButton } from "src/shared/components/layout/admin-menu-button"
+import { AdminLoginDialog } from "src/shared/components/layout/admin-login-dialog"
+import { AdminLogoutConfirmDialog } from "src/shared/components/layout/admin-logout-confirm-dialog"
+import { AdminMenuButton, type AdminDialogMode } from "src/shared/components/layout/admin-menu-button"
 import { SidebarProvider } from "src/shared/components/ui/sidebar"
 import { TooltipProvider } from "src/shared/components/ui/tooltip"
 import { SessionProvider } from "src/shared/lib/api/session"
@@ -50,22 +53,32 @@ function stubApiFetch() {
 	return { fetchMock, server }
 }
 
+/** Harness mirroring the AppShell wiring: dialogs live outside the sidebar. */
 function renderAdminMenu() {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	})
-	render(
-		<QueryClientProvider client={queryClient}>
-			<TooltipProvider>
-				<SessionProvider>
-					<SidebarProvider>
-						<AdminMenuButton />
-						<Toaster position="top-right" richColors />
-					</SidebarProvider>
-				</SessionProvider>
-			</TooltipProvider>
-		</QueryClientProvider>
-	)
+	function Harness() {
+		const [dialog, setDialog] = useState<AdminDialogMode | null>(null)
+		const closeDialog = (open: boolean) => {
+			if (!open) setDialog(null)
+		}
+		return (
+			<QueryClientProvider client={queryClient}>
+				<TooltipProvider>
+					<SessionProvider>
+						<SidebarProvider>
+							<AdminMenuButton onOpen={setDialog} />
+							<AdminLoginDialog open={dialog === "login"} onOpenChange={closeDialog} />
+							<AdminLogoutConfirmDialog open={dialog === "logout"} onOpenChange={closeDialog} />
+							<Toaster position="top-right" richColors />
+						</SidebarProvider>
+					</SessionProvider>
+				</TooltipProvider>
+			</QueryClientProvider>
+		)
+	}
+	render(<Harness />)
 }
 
 async function waitForGearLabel(expected: string) {

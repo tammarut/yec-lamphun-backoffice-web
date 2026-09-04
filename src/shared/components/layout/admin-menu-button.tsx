@@ -2,23 +2,33 @@
 
 import { Settings02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { useState } from "react"
 
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "src/shared/components/ui/sidebar"
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "src/shared/components/ui/sidebar"
 import { cn } from "src/shared/lib/utils/utils"
 import { useSession } from "src/shared/lib/api/session"
 
-import { AdminLoginDialog } from "src/shared/components/layout/admin-login-dialog"
-import { AdminLogoutConfirmDialog } from "src/shared/components/layout/admin-logout-confirm-dialog"
+export type AdminDialogMode = "login" | "logout"
+
+type AdminMenuButtonProps = {
+	/** Opens the matching admin dialog, which lives in the AppShell (outside the sidebar). */
+	onOpen: (mode: AdminDialogMode) => void
+}
 
 /**
  * Sidebar footer entry for admin mode: opens the login dialog when logged out
- * and the logout confirmation when the admin session is active.
+ * and the logout confirmation when the admin session is active. The dialogs
+ * themselves are owned by the AppShell — this component only reports intent.
  */
-export function AdminMenuButton() {
+export function AdminMenuButton({ onOpen }: AdminMenuButtonProps) {
 	const { isAdmin, isCheckingSession } = useSession()
-	const [loginOpen, setLoginOpen] = useState(false)
-	const [logoutOpen, setLogoutOpen] = useState(false)
+	const { setOpenMobile } = useSidebar()
+
+	function handleClick() {
+		// On mobile the sidebar is a drawer; close it so the dialog opens as the
+		// only modal, one task later to skip the drawer's focus-return animation.
+		setOpenMobile(false)
+		setTimeout(() => onOpen(isAdmin ? "logout" : "login"), 0)
+	}
 
 	return (
 		<SidebarMenu data-slot="admin-menu">
@@ -31,15 +41,12 @@ export function AdminMenuButton() {
 					)}
 					disabled={isCheckingSession}
 					tooltip={isAdmin ? "ออกจากโหมดผู้ดูแลระบบ" : "สำหรับผู้ดูแลระบบ"}
-					onClick={() => (isAdmin ? setLogoutOpen(true) : setLoginOpen(true))}
+					onClick={handleClick}
 				>
 					<HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
 					<span>{isAdmin ? "Admin Mode" : "ผู้ดูแลระบบ"}</span>
 				</SidebarMenuButton>
 			</SidebarMenuItem>
-
-			<AdminLoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
-			<AdminLogoutConfirmDialog open={logoutOpen} onOpenChange={setLogoutOpen} />
 		</SidebarMenu>
 	)
 }

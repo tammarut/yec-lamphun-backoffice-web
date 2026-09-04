@@ -69,9 +69,29 @@ describe("AdminLoginDialog", () => {
 				})
 			)
 		})
+
+		it("should toggle password visibility", async () => {
+			renderDialog(() => jsonResponse(204))
+			const password = await screen.findByLabelText("รหัสผ่าน")
+			expect(password.getAttribute("type")).toBe("password")
+
+			fireEvent.click(screen.getByRole("button", { name: "แสดงรหัสผ่าน" }))
+			expect(password.getAttribute("type")).toBe("text")
+			expect(screen.getByRole("button", { name: "ซ่อนรหัสผ่าน" })).toBeTruthy()
+		})
 	})
 
 	describe("Unhappy cases", () => {
+		it("should show per-field Thai errors on empty submit without sending a request", async () => {
+			const { fetchMock } = renderDialog(() => jsonResponse(204))
+
+			fireEvent.click(await screen.findByRole("button", { name: "เข้าสู่ระบบ" }))
+
+			expect(await screen.findByText("กรุณากรอกชื่อผู้ใช้")).toBeTruthy()
+			expect(screen.getByText("กรุณากรอกรหัสผ่าน")).toBeTruthy()
+			expect(fetchMock).not.toHaveBeenCalledWith("/api/v1/auth/login", expect.anything())
+		})
+
 		it("should show the Thai invalid-credentials alert on 401 and keep the dialog open", async () => {
 			const { onOpenChange } = renderDialog(() => jsonResponse(401, { error_message: "Unauthorized" }))
 
@@ -81,6 +101,16 @@ describe("AdminLoginDialog", () => {
 			expect(alert.textContent).toBe("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 			expect(onOpenChange).not.toHaveBeenCalledWith(false)
 			expect(screen.getByText("ผู้ดูแลระบบ")).toBeTruthy()
+		})
+
+		it("should show a generic inline error for non-401 failures", async () => {
+			const { onOpenChange } = renderDialog(() => jsonResponse(500, { error_message: "Internal Server Error" }))
+
+			await submitCredentials()
+
+			const alert = await screen.findByRole("alert")
+			expect(alert.textContent).toBe("เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+			expect(onOpenChange).not.toHaveBeenCalledWith(false)
 		})
 	})
 })

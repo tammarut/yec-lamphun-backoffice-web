@@ -4,9 +4,11 @@ import { Building02Icon, Chart01Icon, HierarchySquare02Icon, IdIcon, UserGroupIc
 import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
-import { AdminMenuButton } from "src/shared/components/layout/admin-menu-button"
+import { AdminLoginDialog } from "src/shared/components/layout/admin-login-dialog"
+import { AdminLogoutConfirmDialog } from "src/shared/components/layout/admin-logout-confirm-dialog"
+import { AdminMenuButton, type AdminDialogMode } from "src/shared/components/layout/admin-menu-button"
 import {
 	Sidebar,
 	SidebarContent,
@@ -30,7 +32,11 @@ const NAV_ITEMS = [
 	{ url: "/renewal", title: "ต่ออายุสมาชิก", icon: IdIcon },
 ] as const
 
-function AppSidebar() {
+type AppSidebarProps = {
+	onAdminClick: (mode: AdminDialogMode) => void
+}
+
+function AppSidebar({ onAdminClick }: AppSidebarProps) {
 	const pathname = usePathname()
 	const { setOpenMobile } = useSidebar()
 
@@ -69,16 +75,20 @@ function AppSidebar() {
 				</SidebarGroup>
 			</SidebarContent>
 			<SidebarFooter className="border-sidebar-border border-t">
-				<AdminMenuButton />
+				<AdminMenuButton onOpen={onAdminClick} />
 			</SidebarFooter>
 		</Sidebar>
 	)
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+	// The admin dialogs live here, OUTSIDE the sidebar: on mobile the sidebar is
+	// a drawer whose content unmounts on close, which would destroy dialog state.
+	const [adminDialog, setAdminDialog] = useState<AdminDialogMode | null>(null)
+
 	return (
 		<SidebarProvider className="h-svh">
-			<AppSidebar />
+			<AppSidebar onAdminClick={setAdminDialog} />
 			<SidebarInset>
 				<header data-slot="app-shell-header" className="bg-background flex h-14 shrink-0 items-center gap-2 border-b px-4">
 					<SidebarTrigger />
@@ -90,6 +100,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 					<div className="mx-auto w-full max-w-7xl">{children}</div>
 				</div>
 			</SidebarInset>
+
+			<AdminLoginDialog open={adminDialog === "login"} onOpenChange={(open) => (open ? null : setAdminDialog(null))} />
+			<AdminLogoutConfirmDialog open={adminDialog === "logout"} onOpenChange={(open) => (open ? null : setAdminDialog(null))} />
 		</SidebarProvider>
 	)
 }
