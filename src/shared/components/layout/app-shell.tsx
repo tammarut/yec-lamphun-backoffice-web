@@ -50,7 +50,13 @@ function AppSidebar() {
 						<SidebarMenu className="gap-1.5">
 							{NAV_ITEMS.map((item) => (
 								<SidebarMenuItem key={item.url}>
-									<SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title} size="lg" className="px-3 text-base [&_svg]:size-5">
+									<SidebarMenuButton
+										asChild
+										isActive={pathname === item.url}
+										tooltip={item.title}
+										size="lg"
+										className="px-3 text-base group-data-[collapsible=icon]:justify-center [&_svg]:size-5 group-data-[collapsible=icon]:[&>span:last-child]:hidden"
+									>
 										<Link href={item.url} onClick={() => setOpenMobile(false)}>
 											<HugeiconsIcon icon={item.icon} strokeWidth={2} />
 											<span>{item.title}</span>
