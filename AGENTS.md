@@ -148,6 +148,18 @@ src/
 
 * **Path Aliases:** ALWAYS use absolute-like path aliases starting with `src/` (e.g. `src/shared/lib/...` or `src/modules/...`). **Do not use relative paths** (`../../`) when importing from outside the immediate folder.
 * **Tabs for Indentation:** Use real Tab characters for indentation (not spaces), matching the workspace Prettier config.
+* **No Single-Line `if`:** ALWAYS use full block syntax, even for short guard clauses or throws:
+
+  ```typescript
+  // ✅ Correct
+  if (result.isErr()) {
+      throw result.error
+  }
+
+  // ❌ Wrong — no single-line if
+  if (result.isErr()) throw result.error
+  ```
+
 * **Strict Compiler Compliance:** No unused variables, no implicit returns, and strict property accesses on index types (`noPropertyAccessFromIndexSignature` and `noUncheckedIndexedAccess` are active).
 
 ---

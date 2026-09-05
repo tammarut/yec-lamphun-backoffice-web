@@ -74,7 +74,9 @@ export function MembersView() {
 	}
 
 	const handleConfirmDelete = () => {
-		if (deleteTarget === null) return
+		if (deleteTarget === null) {
+			return
+		}
 		deleteMutation.mutate(deleteTarget.id, {
 			onSuccess: () => {
 				toast.success("ลบสมาชิกเรียบร้อย")

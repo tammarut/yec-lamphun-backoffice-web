@@ -24,7 +24,9 @@ async function fetchMembersPage(search: string, cursor: string | null): Promise<
 		params.set("cursor", cursor)
 	}
 	const result = await fetchJson<ListMembersPage>(`/api/v1/members?${params.toString()}`)
-	if (result.isErr()) throw result.error
+	if (result.isErr()) {
+		throw result.error
+	}
 	return result.value
 }
 
@@ -45,7 +47,9 @@ export function useMembers(search: string) {
 
 async function deleteMember(id: number): Promise<void> {
 	const result = await fetchJson<null>(`/api/v1/members/${id}`, { method: "DELETE" })
-	if (result.isErr()) throw result.error
+	if (result.isErr()) {
+		throw result.error
+	}
 }
 
 /** Soft-delete (ADR-0013) + list invalidation; toasts are owned by the caller. */
