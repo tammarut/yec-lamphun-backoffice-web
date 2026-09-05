@@ -98,13 +98,23 @@ async function clickGear() {
 	fireEvent.click(gear)
 }
 
+async function confirmLogout() {
+	// The confirm's action button shares the gear's new "ออกจากระบบ" name — target it by slot.
+	const action = await waitFor(() => {
+		const btn = document.querySelector("[data-slot='alert-dialog-action']")
+		if (!btn) throw new Error("logout confirm action not rendered yet")
+		return btn
+	})
+	fireEvent.click(action)
+}
+
 async function loginThroughDialog() {
 	await clickGear()
 	const username = await screen.findByLabelText("ชื่อผู้ใช้")
 	fireEvent.change(username, { target: { value: "admin" } })
 	fireEvent.change(screen.getByLabelText("รหัสผ่าน"), { target: { value: "secret" } })
 	fireEvent.click(screen.getByRole("button", { name: "เข้าสู่ระบบ" }))
-	await waitForGearLabel("Admin Mode")
+	await waitForGearLabel("ออกจากระบบ")
 }
 
 let api: ReturnType<typeof stubApiFetch>
@@ -135,7 +145,7 @@ describe("AdminMenuButton session cycle", () => {
 
 			// Logout through the confirm dialog
 			await clickGear()
-			fireEvent.click(await screen.findByRole("button", { name: "ออกจากระบบ" }))
+			await confirmLogout()
 			// Regression guard: a 401 session refetch retains the last successful
 			// data in TanStack v5 — the gear must still revert to the logged-out view.
 			await waitForGearLabel("ผู้ดูแลระบบ")
@@ -157,7 +167,7 @@ describe("AdminMenuButton session cycle", () => {
 			api.server.loggedIn = false
 
 			await clickGear()
-			fireEvent.click(await screen.findByRole("button", { name: "ออกจากระบบ" }))
+			await confirmLogout()
 			await waitFor(() => {
 				const toasts = [...document.querySelectorAll("[data-sonner-toast]")].map((el) => el.textContent)
 				if (!toasts.some((t) => t?.includes("ออกจากระบบไม่สำเร็จ"))) {

@@ -1,10 +1,9 @@
 "use client"
 
-import { Settings02Icon } from "@hugeicons/core-free-icons"
+import { Logout01Icon, Settings02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "src/shared/components/ui/sidebar"
-import { cn } from "src/shared/lib/utils/utils"
 import { useSession } from "src/shared/lib/api/session"
 
 export type AdminDialogMode = "login" | "logout"
@@ -35,16 +34,13 @@ export function AdminMenuButton({ onOpen }: AdminMenuButtonProps) {
 			<SidebarMenuItem>
 				<SidebarMenuButton
 					size="lg"
-					className={cn(
-						"px-3 text-base group-data-[collapsible=icon]:justify-center [&_svg]:size-5 group-data-[collapsible=icon]:[&>span:last-child]:hidden",
-						isAdmin ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : "text-muted-foreground"
-					)}
+					className="text-muted-foreground px-3 text-base group-data-[collapsible=icon]:justify-center [&_svg]:size-5 group-data-[collapsible=icon]:[&>span:last-child]:hidden"
 					disabled={isCheckingSession}
-					tooltip={isAdmin ? "ออกจากโหมดผู้ดูแลระบบ" : "สำหรับผู้ดูแลระบบ"}
+					tooltip={isAdmin ? "ออกจากระบบ" : "สำหรับผู้ดูแลระบบ"}
 					onClick={handleClick}
 				>
-					<HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-					<span>{isAdmin ? "Admin Mode" : "ผู้ดูแลระบบ"}</span>
+					<HugeiconsIcon icon={isAdmin ? Logout01Icon : Settings02Icon} strokeWidth={2} />
+					<span>{isAdmin ? "ออกจากระบบ" : "ผู้ดูแลระบบ"}</span>
 				</SidebarMenuButton>
 			</SidebarMenuItem>
 		</SidebarMenu>
