@@ -126,3 +126,9 @@ _Avoid_: tab counts, renewal summary, totals
 **Dashboard Stat**:
 The five headline counts of the backoffice dashboard, served by `GET /api/v1/dashboard/stat`: total members, total active members, total "not yet renewed" members, total businesses, and members joined per year over a lookback window (default 5 years, 1–20). Its `total_expired_members` — Member Status `EXPIRED` **or** `PENDING_RENEWAL` (the "ยังไม่ได้ต่ออายุ" reading) — is deliberately a different definition from the **Renewal Stat**'s same-named count (which includes latest-renewal-`REJECTED` members but not `PENDING_RENEWAL` ones); the two endpoints' numbers are not expected to match. `RESIGNED` members count toward the total and the yearly breakdown but neither status bucket, so the three member counts do not sum. Years in the per-year breakdown are Bangkok wall-clock years (Asia/Bangkok), zero-filled across the whole window — independent of any server timezone.
 _Avoid_: dashboard summary, overview stat, dashboard totals
+
+## Backoffice UI
+
+**Status Badge**:
+The single display vocabulary for a Member Status across the backoffice UI: `ACTIVE` → ปกติ; `EXPIRED` and `PENDING_RENEWAL` → ยังไม่ได้ต่ออายุ (the same union reading as Dashboard Stat's not-yet-renewed count); `RESIGNED` → ลาออก. A Status Badge is staff-only — the public member directory renders no status. It is display-only by construction: no page ever writes a Member Status directly; every transition flows through the Membership Renewal lifecycle (Renewal Review or a Manual Renewal Submission).
+_Avoid_: member state label, renewal badge, status pill
