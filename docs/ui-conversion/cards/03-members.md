@@ -36,7 +36,7 @@ The largest card, split into two PRs (see README §2):
 
 Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~line 496.
 
-- Toolbar: heading รายชื่อสมาชิก; search input (placeholder "ค้นหาชื่อ, ตำแหน่ง...", server-side, debounced ~300ms); list/card view toggle; admin-only **Export CSV** button (lives in the toolbar, not the bulk bar, so it stays reachable with nothing selected); admin-only เพิ่มสมาชิก button (**3b** — hidden in 3a; it only opens the wizard).
+- Toolbar: heading รายชื่อสมาชิก; search input (placeholder "ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง..." + title tooltip explaining prefix matching — deliberate deviation from the mockup's "ค้นหาชื่อ, ตำแหน่ง...", which over-promised: the API prefix-matches `first_name_th`/`phone_no`/`position_code` only, so no last name and no Thai position label; server-side, debounced ~300ms); list/card view toggle; admin-only **Export CSV** button (lives in the toolbar, not the bulk bar, so it stays reachable with nothing selected); admin-only เพิ่มสมาชิก button (**3b** — hidden in 3a; it only opens the wizard).
 - Bulk bar (admin, when rows selected): "เลือกแล้ว N รายการ". (Export moved to the toolbar; status buttons dropped — see Scope split.)
 - Table columns: [admin checkbox] · ชื่อ-สกุล/ตำแหน่ง (avatar + admin-only status badge + `${title_name_th}${first_name_th} ${last_name_th}` + (nickname) + Thai position label) · ธุรกิจ/กิจการ (`business.name`) · รายละเอียดธุรกิจ (`business.description`) · ติดต่อ (phone/email/LINE ID) · [admin] จัดการ (delete in 3a; edit added in 3b).
 - Card view: responsive grid (1/2/3/4 cols) of member cards (avatar, name+nickname, position, business chip, description, contacts; admin badge + delete on hover in 3a, edit added in 3b).

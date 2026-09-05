@@ -104,9 +104,10 @@ export function MembersView() {
 						<HugeiconsIcon icon={Search01Icon} className="text-muted-foreground pointer-events-none absolute top-2.5 left-3 size-4" />
 						<Input
 							type="search"
-							placeholder="ค้นหาชื่อ, ตำแหน่ง..."
+							placeholder="ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง..."
 							className="pl-9"
 							aria-label="ค้นหาสมาชิก"
+							title="ค้นแบบขึ้นต้นคำ — ชื่อจริง (ไทย), เบอร์โทร หรือรหัสตำแหน่ง เช่น PRESIDENT"
 							value={searchTerm}
 							onChange={(event) => setSearchTerm(event.target.value)}
 						/>

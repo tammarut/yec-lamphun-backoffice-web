@@ -84,7 +84,7 @@ describe("MembersView", () => {
 			expect(screen.queryByRole("columnheader", { name: "จัดการ" })).toBeNull()
 			expect(screen.queryByText("ปกติ")).toBeNull()
 			expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull()
-			expect(screen.getByPlaceholderText("ค้นหาชื่อ, ตำแหน่ง...")).toBeTruthy()
+			expect(screen.getByPlaceholderText("ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง...")).toBeTruthy()
 		})
 
 		it("admin: rows carry checkboxes, status badges and the จัดการ column", async () => {
