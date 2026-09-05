@@ -1,9 +1,10 @@
 "use client"
 
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Call02Icon, Chat01Icon, Delete02Icon, Mail01Icon } from "@hugeicons/core-free-icons"
+import { Delete02Icon } from "@hugeicons/core-free-icons"
 
 import { fullNameTh, positionLabel } from "src/shared/components/members/member-labels"
+import { MemberContacts } from "src/shared/components/members/member-contacts"
 import type { MemberListItem } from "src/shared/components/members/members-types"
 import { StatusBadge } from "src/shared/components/members/status-badge"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
@@ -91,22 +92,7 @@ export function MembersTable({ members, isAdmin, selectedIds, onToggleOne, onTog
 									</div>
 								</TableCell>
 								<TableCell className="align-top">
-									<div className="mt-1 space-y-1 text-sm">
-										<div className="text-muted-foreground flex items-center gap-2">
-											<HugeiconsIcon icon={Call02Icon} data-slot-icon="phone" className="size-4" />
-											<span>{member.phone_no === "" ? "-" : member.phone_no}</span>
-										</div>
-										<div className="text-muted-foreground flex items-center gap-2">
-											<HugeiconsIcon icon={Mail01Icon} data-slot-icon="email" className="size-4" />
-											<span className="max-w-40 truncate" title={member.email ?? undefined}>
-												{member.email ?? "-"}
-											</span>
-										</div>
-										<div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-											<HugeiconsIcon icon={Chat01Icon} data-slot-icon="line" className="size-4" />
-											<span>{member.line_id ?? "-"}</span>
-										</div>
-									</div>
+									<MemberContacts member={member} className="mt-1" />
 								</TableCell>
 								{isAdmin && (
 									<TableCell className="align-top">

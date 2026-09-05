@@ -36,14 +36,14 @@ The largest card, split into two PRs (see README §2):
 
 Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~line 496.
 
-- Toolbar: heading รายชื่อสมาชิก; search input (placeholder "ค้นหาชื่อ, ตำแหน่ง...", server-side, debounced ~300ms); list/card view toggle; admin-only เพิ่มสมาชิก button (**3b** — hidden in 3a; it only opens the wizard).
-- Bulk bar (admin, when rows selected): "เลือกแล้ว N รายการ", Export CSV. (Status buttons dropped — see Scope split.)
+- Toolbar: heading รายชื่อสมาชิก; search input (placeholder "ค้นหาชื่อ, ตำแหน่ง...", server-side, debounced ~300ms); list/card view toggle; admin-only **Export CSV** button (lives in the toolbar, not the bulk bar, so it stays reachable with nothing selected); admin-only เพิ่มสมาชิก button (**3b** — hidden in 3a; it only opens the wizard).
+- Bulk bar (admin, when rows selected): "เลือกแล้ว N รายการ". (Export moved to the toolbar; status buttons dropped — see Scope split.)
 - Table columns: [admin checkbox] · ชื่อ-สกุล/ตำแหน่ง (avatar + admin-only status badge + `${title_name_th}${first_name_th} ${last_name_th}` + (nickname) + Thai position label) · ธุรกิจ/กิจการ (`business.name`) · รายละเอียดธุรกิจ (`business.description`) · ติดต่อ (phone/email/LINE ID) · [admin] จัดการ (delete in 3a; edit added in 3b).
 - Card view: responsive grid (1/2/3/4 cols) of member cards (avatar, name+nickname, position, business chip, description, contacts; admin badge + delete on hover in 3a, edit added in 3b).
 - Status badges are **admin-only** in the mockup (both views) — keep that; public visitors see no status. Labels per the **Status Badge** term in CONTEXT.md: ACTIVE → ปกติ (success), EXPIRED/PENDING_RENEWAL → ยังไม่ได้ต่ออายุ (warning), RESIGNED → ลาออก (muted).
 - Thai position labels: the mockup's `yecPositions` array (19 entries) matches `PositionSchema.options` order 1:1 — ship a client-side code→label map alongside the status map.
 - Keyset pagination: "โหลดเพิ่มเติม" (cursor, shown while `has_more`) — no page numbers.
-- CSV export: client-side; **selected rows, or all rows loaded so far when nothing is selected**. Headers ชื่อ-นามสกุล, ชื่อเล่น, ตำแหน่ง, กิจการ, เบอร์โทร, อีเมล, สถานะ; prepend `\uFEFF` BOM so Excel renders Thai; quote-wrap fields (escape embedded quotes); filename `yec_members_export.csv`.
+- CSV export: client-side; **selected rows, or all rows loaded so far when nothing is selected** (hence the toolbar button — a bulk-bar-only button can never fire the fallback). Headers ชื่อ-นามสกุล, ชื่อเล่น, ตำแหน่ง, กิจการ, เบอร์โทร, อีเมล, สถานะ; prepend `\uFEFF` BOM so Excel renders Thai; quote-wrap fields (escape embedded quotes); filename `yec_members_export.csv`.
 - Delete dialog: ยืนยันการลบสมาชิก + "คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลของ {ชื่อ} ออกจากระบบ? การกระทำนี้ไม่สามารถย้อนกลับได้", ยกเลิก / ยืนยันลบ.
 - Add/Edit wizard dialog (max-w-4xl), footer ย้อนกลับ / ถัดไป / บันทึกข้อมูล (**3b**):
   - **Tab 1 ข้อมูลการสมัคร** — applicant type radio (บุคคลธรรมดา/นิติบุคคล); uploads: `company_certificate` (หนังสือรับรองบริษัท/ทะเบียนพาณิชย์), `id_card_image` (สำเนาบัตรประชาชน).

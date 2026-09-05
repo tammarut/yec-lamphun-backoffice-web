@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Grid02Icon, Menu01Icon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
+import { Download02Icon, Grid02Icon, Menu01Icon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 
 import { BulkActionsBar } from "src/shared/components/members/bulk-actions-bar"
 import { DeleteMemberDialog } from "src/shared/components/members/delete-member-dialog"
@@ -31,9 +31,18 @@ export function MembersView() {
 
 	const [searchTerm, setSearchTerm] = useState("")
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
-	const [viewMode, setViewMode] = useState<ViewMode>(() => (isMobile ? "card" : "list"))
 	const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(new Set())
 	const [deleteTarget, setDeleteTarget] = useState<MemberListItem | null>(null)
+
+	// The view is DERIVED: the user's explicit pick wins; otherwise follow the
+	// breakpoint (card under 768px, table above). Deriving — rather than copying
+	// isMobile into state — means useIsMobile()'s post-mount resolution flips
+	// the default without an effect, and never fights the user's choice.
+	const [userView, setUserView] = useState<ViewMode | null>(null)
+	const viewMode: ViewMode = userView ?? (isMobile ? "card" : "list")
+	const changeViewMode = (mode: ViewMode) => {
+		setUserView(mode)
+	}
 
 	const membersQuery = useMembers(debouncedSearch)
 	const deleteMutation = useDeleteMember()
@@ -108,7 +117,7 @@ export function MembersView() {
 							size="icon-sm"
 							aria-label="มุมมองตาราง"
 							aria-pressed={viewMode === "list"}
-							onClick={() => setViewMode("list")}
+							onClick={() => changeViewMode("list")}
 						>
 							<HugeiconsIcon icon={Menu01Icon} className="size-4" />
 						</Button>
@@ -117,15 +126,21 @@ export function MembersView() {
 							size="icon-sm"
 							aria-label="มุมมองการ์ด"
 							aria-pressed={viewMode === "card"}
-							onClick={() => setViewMode("card")}
+							onClick={() => changeViewMode("card")}
 						>
 							<HugeiconsIcon icon={Grid02Icon} className="size-4" />
 						</Button>
 					</div>
+					{isAdmin && (
+						<Button variant="outline" onClick={handleExport} data-slot="export-csv">
+							<HugeiconsIcon icon={Download02Icon} className="size-4" />
+							Export CSV
+						</Button>
+					)}
 				</div>
 			</div>
 
-			{isAdmin && selectedIds.size > 0 && <BulkActionsBar count={selectedIds.size} onExport={handleExport} />}
+			{isAdmin && selectedIds.size > 0 && <BulkActionsBar count={selectedIds.size} />}
 
 			{isLoading ? (
 				viewMode === "list" ? (

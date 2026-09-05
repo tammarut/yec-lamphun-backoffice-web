@@ -17,9 +17,9 @@ export function buildMembersCsv(rows: readonly MemberListItem[]): string {
 	const lines = [
 		CSV_HEADERS.map(csvEscape).join(","),
 		...rows.map((row) =>
-			[fullNameTh(row), row.nickname ?? "", positionLabel(row.position), row.business.name, row.phone_no ?? "", row.email ?? "", statusBadgeLabel(row.status)]
-				.map(csvEscape)
-				.join(",")
+			// nickname/phone_no/business.name are non-nullable on the wire; only
+			// email may be JSON null.
+			[fullNameTh(row), row.nickname, positionLabel(row.position), row.business.name, row.phone_no, row.email ?? "", statusBadgeLabel(row.status)].map(csvEscape).join(",")
 		),
 	]
 	return `\uFEFF${lines.join("\n")}`

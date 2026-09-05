@@ -1,10 +1,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { downloadMembersCsv } from "src/shared/components/members/export-members-csv"
+import { makeMember } from "src/shared/components/members/make-member.fixture"
 import type { MemberListItem } from "src/shared/components/members/members-types"
 import { MembersView } from "src/shared/components/members/members-view"
 import { SessionProvider } from "src/shared/lib/api/session"
+
+vi.mock("src/shared/components/members/export-members-csv", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("src/shared/components/members/export-members-csv")>()
+	return {
+		...actual,
+		downloadMembersCsv: vi.fn(),
+	}
+})
 
 function jsonResponse(status: number, body?: unknown) {
 	return new Response(body === undefined ? null : JSON.stringify(body), {
@@ -13,34 +23,16 @@ function jsonResponse(status: number, body?: unknown) {
 	})
 }
 
-function makeMember(overrides: Partial<MemberListItem> = {}): MemberListItem {
-	return {
-		id: 1,
-		profile_avatar: null,
-		registration_type: "INDIVIDUAL",
-		title_name_th: "นาย",
-		first_name_th: "สมชาย",
-		last_name_th: "ใจดี",
-		nickname: "ชาย",
-		phone_no: "089-111-2222",
-		email: "somchai@example.com",
-		line_id: "somchai",
-		position: "GENERAL_MEMBER",
-		status: "ACTIVE",
-		business: { name: "ร้านกาแฟสมชาย", description: "กาแฟคั่วบด" },
-		...overrides,
-	}
-}
-
 function listPage(members: MemberListItem[]) {
 	return { data: members, has_more: false, next_cursor: null }
 }
 
 /**
  * Render MembersView against a stubbed fetch. `sessionOk` toggles the admin
- * probe (204 = staff, 401 = public); `listResponse` produces the list GET.
+ * probe (204 = staff, 401 = public); `listResponse` produces the list GET;
+ * `mobile` seeds matchMedia for the responsive default-view effect.
  */
-function renderView(options: { sessionOk: boolean; listResponse: () => Response }) {
+function renderView(options: { sessionOk: boolean; listResponse: () => Response; mobile?: boolean }) {
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
 		if (url === "/api/v1/auth/session") {
@@ -55,7 +47,10 @@ function renderView(options: { sessionOk: boolean; listResponse: () => Response 
 		return jsonResponse(404)
 	})
 	vi.stubGlobal("fetch", fetchMock)
-	vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+	// use-mobile resolves matchMedia against innerWidth in an effect; jsdom
+	// starts at 1024px, so a real listener is enough for both branches.
+	vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: options.mobile === true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+	vi.stubGlobal("innerWidth", options.mobile === true ? 375 : 1280)
 
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -71,19 +66,24 @@ function renderView(options: { sessionOk: boolean; listResponse: () => Response 
 }
 
 describe("MembersView", () => {
+	beforeEach(() => {
+		vi.mocked(downloadMembersCsv).mockClear()
+	})
+
 	afterEach(() => {
 		cleanup()
 		vi.unstubAllGlobals()
 	})
 
 	describe("Happy cases", () => {
-		it("public: renders rows without any admin controls (no checkboxes, จัดการ, badges)", async () => {
+		it("public: renders rows without any admin controls (no checkboxes, จัดการ, badges, export)", async () => {
 			renderView({ sessionOk: false, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
 
 			expect(await screen.findByText("นายสมชาย ใจดี")).toBeTruthy()
 			expect(screen.queryByRole("checkbox")).toBeNull()
 			expect(screen.queryByRole("columnheader", { name: "จัดการ" })).toBeNull()
 			expect(screen.queryByText("ปกติ")).toBeNull()
+			expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull()
 			expect(screen.getByPlaceholderText("ค้นหาชื่อ, ตำแหน่ง...")).toBeTruthy()
 		})
 
@@ -118,6 +118,37 @@ describe("MembersView", () => {
 
 			expect(await screen.findByText("ไม่พบข้อมูลสมาชิก")).toBeTruthy()
 			expect(screen.queryByText("นายสมชาย ใจดี")).toBeNull()
+		})
+
+		it("admin: export with a selection downloads exactly the selected rows", async () => {
+			const members = [makeMember(), makeMember({ id: 2, first_name_th: "บัญชา", last_name_th: "มากมี" })]
+			renderView({ sessionOk: true, listResponse: () => jsonResponse(200, listPage(members)) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			fireEvent.click(screen.getByRole("checkbox", { name: "เลือก นายสมชาย ใจดี" }))
+			fireEvent.click(screen.getByRole("button", { name: "Export CSV" }))
+
+			expect(downloadMembersCsv).toHaveBeenCalledTimes(1)
+			expect(vi.mocked(downloadMembersCsv)).toHaveBeenCalledWith([members[0]])
+		})
+
+		it("admin: export with nothing selected falls back to all loaded rows", async () => {
+			const members = [makeMember(), makeMember({ id: 2, first_name_th: "บัญชา", last_name_th: "มากมี" })]
+			renderView({ sessionOk: true, listResponse: () => jsonResponse(200, listPage(members)) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			fireEvent.click(screen.getByRole("button", { name: "Export CSV" }))
+
+			expect(downloadMembersCsv).toHaveBeenCalledTimes(1)
+			expect(vi.mocked(downloadMembersCsv)).toHaveBeenCalledWith(members)
+		})
+
+		it("mobile viewport defaults to the card view, desktop to the table", async () => {
+			renderView({ sessionOk: false, mobile: true, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			expect(screen.getByRole("button", { name: "มุมมองการ์ด" }).getAttribute("aria-pressed")).toBe("true")
+			expect((await screen.findByText("นายสมชาย ใจดี")).closest("[data-slot=members-table]")).toBeNull()
 		})
 
 		it("fetches page one with limit=20 and no search param for an empty term", async () => {
