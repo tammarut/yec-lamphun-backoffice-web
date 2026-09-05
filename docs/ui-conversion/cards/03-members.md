@@ -15,7 +15,7 @@ The largest card, split into two PRs (see README §2):
 
 ## Route & files
 
-- `src/app/members/page.tsx`.
+- `src/app/(public)/members/page.tsx`.
 - `src/shared/components/members/` — `members-view.tsx` (toolbar + views), `members-table.tsx`, `members-card-grid.tsx`, `member-wizard-dialog.tsx` (+ its three step forms, **3b**), `delete-member-dialog.tsx`, `bulk-actions-bar.tsx`.
 - Client-side valibot schemas mirroring the server contract — put them in `src/modules/members/` only if they become shared domain logic; otherwise colocate with the wizard.
 

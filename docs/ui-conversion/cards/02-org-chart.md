@@ -6,7 +6,7 @@ The organizational structure page at `/org`: an executive-committee tree (presid
 
 ## Route & files
 
-- `src/app/org/page.tsx`.
+- `src/app/(public)/org/page.tsx`.
 - `src/shared/components/org-chart/` — tree components: `org-tree.tsx` (layout + connector CSS), `person-card.tsx`, `general-members.tsx`.
 - Connector styles: small custom CSS (borders via Tailwind or a tiny globals addition) — this is the one page expected to need custom layout CSS.
 

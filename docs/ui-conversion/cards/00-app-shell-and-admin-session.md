@@ -12,10 +12,10 @@ Every page card lands inside a working app: sidebar navigation for the four rout
 ## Route & files
 
 - `src/app/layout.tsx` — Thai metadata (`ระบบบริหารจัดการองค์กร - YEC Lamphun`), keep Noto Sans, mount `QueryClientProvider` + sonner `<Toaster />`.
-- `src/app/page.tsx` — replace the component-example demo with `redirect("/dashboard")`.
+- `src/app/(public)/page.tsx` — replace the component-example demo with `redirect("/dashboard")` (moved under `(public)/` in the UI-03a PR — AGENTS.md §1 route groups).
 - Delete `src/shared/components/component-example.tsx` and `src/shared/components/example.tsx` (the demo gallery). Keep everything in `ui/`.
 - New `src/shared/components/layout/app-shell.tsx` (`"use client"`) — shadcn `Sidebar` + content area, mounted in the root layout. Siblings in `src/shared/components/layout/`: `providers.tsx` (QueryClient + sonner + TooltipProvider), `admin-menu-button.tsx` (footer entry, reports intent only), `admin-login-dialog.tsx`, `admin-logout-confirm-dialog.tsx`. **The admin dialogs are owned by the AppShell, not the sidebar** — on mobile the sidebar is a drawer whose close unmounts its children, which would destroy dialog state.
-- New routes (stub pages with just a heading): `src/app/dashboard/page.tsx`, `src/app/org/page.tsx`, `src/app/members/page.tsx`, `src/app/renewal/page.tsx`.
+- New routes (stub pages with just a heading): `src/app/(public)/dashboard/page.tsx`, `src/app/(public)/org/page.tsx`, `src/app/(public)/members/page.tsx`, `src/app/(public)/renewal/page.tsx` (flat `src/app/<name>/` at card-00 time; grouped under `(public)/` in the UI-03a PR — AGENTS.md §1). The `(private)` group is reserved until a cookie-gated page exists (all pages are publicly viewable by the locked §1.2 decision).
 - New `src/app/api/v1/auth/session/route.ts` + `route.test.ts` — **the one new endpoint** (see API contract).
 - New `src/shared/lib/api/` (or similar) — small typed `fetchJson` helper returning `Result`-style errors with `{ error_message }` parsing.
 

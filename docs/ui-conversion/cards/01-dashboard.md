@@ -6,7 +6,7 @@ The landing overview at `/dashboard`: headline stat cards, a members-per-year ch
 
 ## Route & files
 
-- `src/app/dashboard/page.tsx` — page composition (can be a thin server wrapper around a client component).
+- `src/app/(public)/dashboard/page.tsx` — page composition (can be a thin server wrapper around a client component).
 - `src/shared/components/dashboard/` (or `src/modules/dashboard/…` if it grows domain logic — keep it presentational here) — stat-cards, member-chart, contact-card components.
 - Root layout already provides the shell + providers (card 00).
 

@@ -8,7 +8,7 @@ Do this after card 03 — it reuses the member-autocomplete and file-upload patt
 
 ## Route & files
 
-- `src/app/renewal/page.tsx`.
+- `src/app/(public)/renewal/page.tsx`.
 - `src/shared/components/renewal/` — `renewal-gate.tsx` (closed state / admin toggle), `renewal-stats.tsx`, `renewal-table.tsx`, `renewal-form-dialog.tsx`, `review-dialog.tsx`, `slip-viewer.tsx`.
 
 ## API contract
