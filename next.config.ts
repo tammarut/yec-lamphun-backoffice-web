@@ -1,8 +1,14 @@
 import type { NextConfig } from "next"
-import "./src/shared/config/env"
+import { envConfig } from "./src/shared/config/env"
 
 const appEnv = process.env["NODE_ENV"]
 const isProduction = appEnv === "production"
+
+// Public member files (avatars, logos, products) render from the R2 public
+// base URL — the r2.dev endpoint in dev, a Cloudflare-proxied custom domain in
+// prod (ADR-0007). CSP img-src must allow that origin, derived from config so
+// each environment allow-lists exactly its own host.
+const publicFileOrigin = new URL(envConfig.R2_PUBLIC_BASE_URL).origin
 
 // Security headers (OWASP recommended)
 const securityHeaders = [
@@ -15,8 +21,8 @@ const securityHeaders = [
 	{
 		key: "Content-Security-Policy",
 		value: isProduction
-			? "default-src 'self'; script-src 'self' 'unsafe-inline' *.your-cdn.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: *.your-cdn.com images.unsplash.com; font-src 'self'; connect-src 'self' *.your-api.com; frame-src none; object-src 'none';"
-			: "default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: images.unsplash.com; font-src 'self'; connect-src 'self' http://localhost:*",
+			? `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin}; font-src 'self'; connect-src 'self'; frame-src none; object-src 'none';`
+			: `default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin}; font-src 'self'; connect-src 'self' http://localhost:*`,
 	},
 ]
 

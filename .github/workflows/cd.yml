@@ -29,6 +29,8 @@ jobs:
     build-and-push:
         name: Build Docker image and push to registry
         runs-on: ubuntu-latest
+        env:
+            R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
         # Only publish when the CI run that triggered us actually succeeded.
         if: ${{ github.event.workflow_run.conclusion == 'success' }}
         steps:

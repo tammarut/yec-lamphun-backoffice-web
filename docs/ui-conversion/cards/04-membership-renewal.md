@@ -124,6 +124,8 @@ Definition of done: the card's acceptance criteria, plus `bun run lint` and
 
 ## References
 
+- API spec: `docs/openapi/api-yec-lamphun-backoffice-web.openapi.json` (Apidog export, OpenAPI 3.1 — full request/response schemas for every endpoint).
+
 - Mockup: `MembershipRenewal` — `ui-mockup/YEC-Lamphun.html` ~lines 913–1597.
 - `src/app/api/v1/membership/renewals/**`; `src/app/api/v1/system-settings/**`; ADRs 0015–0018; `src/modules/membership/` (renewal module).
 - README §8 gap ledger items 4 (phone discrepancy — this page uses 053-511-168 per mockup) and 5 (static fee/PDPA copy).
