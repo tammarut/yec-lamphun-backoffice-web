@@ -32,14 +32,14 @@ function listPage(members: MemberListItem[]) {
  * probe (204 = staff, 401 = public); `listResponse` produces the list GET;
  * `mobile` seeds matchMedia for the responsive default-view effect.
  */
-function renderView(options: { sessionOk: boolean; listResponse: () => Response; mobile?: boolean }) {
+function renderView(options: { sessionOk: boolean; listResponse: (url: string) => Response; mobile?: boolean }) {
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
 		if (url === "/api/v1/auth/session") {
 			return jsonResponse(options.sessionOk ? 204 : 401, options.sessionOk ? undefined : { error_message: "Unauthorized" })
 		}
 		if (url.startsWith("/api/v1/members?") && (init?.method ?? "GET") === "GET") {
-			return options.listResponse()
+			return options.listResponse(url)
 		}
 		if (url === "/api/v1/members/1" && init?.method === "DELETE") {
 			return jsonResponse(204)
@@ -143,6 +143,55 @@ describe("MembersView", () => {
 			expect(vi.mocked(downloadMembersCsv)).toHaveBeenCalledWith(members)
 		})
 
+		it("deleting a member restarts the list from page 1 with no cursor replay", async () => {
+			const state = { deleted: new Set<number>(), cursorCalls: 0 }
+			renderView({
+				sessionOk: true,
+				// Page size 1: page1=[1] cursor"1" -> page2=[2] cursor"2" -> page3=[3].
+				listResponse: (url) => {
+					const cursor = new URLSearchParams(url.split("?")[1] ?? "").get("cursor")
+					if (cursor !== null) {
+						state.cursorCalls += 1
+					}
+					if (cursor !== null && state.deleted.has(Number(cursor))) {
+						return jsonResponse(400, { error_message: "Invalid cursor" })
+					}
+					const data = [1, 2, 3].map((id) => makeMember({ id, first_name_th: String(id) })).filter((member) => !state.deleted.has(member.id))
+					const anchor = cursor === null ? 0 : Number(cursor)
+					const page = data.filter((member) => member.id > anchor).slice(0, 1)
+					const last = page.at(-1)
+					const hasMore = last !== undefined && data.some((member) => member.id > last.id)
+					return jsonResponse(200, {
+						data: page,
+						has_more: hasMore,
+						next_cursor: hasMore && last ? String(last.id) : null,
+					})
+				},
+			})
+
+			expect(await screen.findByText("นาย1 ใจดี")).toBeTruthy()
+			fireEvent.click(screen.getByRole("button", { name: "โหลดเพิ่มเติม" }))
+			expect(await screen.findByText("นาย2 ใจดี")).toBeTruthy()
+
+			// Member 1 anchors the cached next_cursor ("1"); deleting it must not
+			// leave any cached cursor that could ever be replayed.
+			fireEvent.click(screen.getByRole("button", { name: "ลบสมาชิก นาย1 ใจดี" }))
+			state.deleted.add(1)
+			fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบ" }))
+
+			await waitFor(() => {
+				expect(screen.queryByText("นาย1 ใจดี")).toBeNull()
+			})
+			// Settle the post-mutation refetches (mock resolves immediately).
+			await new Promise((resolve) => setTimeout(resolve, 150))
+			// Reset contract: the list restarts from page 1 — exactly one cursor
+			// request ever happened (the initial load-more), the remaining member
+			// renders, and no invalid-cursor error state appears.
+			expect(state.cursorCalls).toBe(1)
+			expect(await screen.findByText("นาย2 ใจดี")).toBeTruthy()
+			expect(screen.queryByText("โหลดรายชื่อสมาชิกไม่สำเร็จ")).toBeNull()
+		})
+
 		it("changing the search term clears the selection (no stale bulk bar)", async () => {
 			renderView({ sessionOk: true, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
 
@@ -161,6 +210,13 @@ describe("MembersView", () => {
 			await screen.findByText("นายสมชาย ใจดี")
 			expect(screen.getByRole("button", { name: "มุมมองการ์ด" }).getAttribute("aria-pressed")).toBe("true")
 			expect((await screen.findByText("นายสมชาย ใจดี")).closest("[data-slot=members-table]")).toBeNull()
+		})
+
+		it("admin: Export CSV is disabled while the list is empty", async () => {
+			renderView({ sessionOk: true, listResponse: () => jsonResponse(200, listPage([])) })
+
+			expect(await screen.findByText("ไม่พบข้อมูลสมาชิก")).toBeTruthy()
+			expect(screen.getByRole("button", { name: "Export CSV" }).hasAttribute("disabled")).toBe(true)
 		})
 
 		it("fetches page one with limit=20 and no search param for an empty term", async () => {

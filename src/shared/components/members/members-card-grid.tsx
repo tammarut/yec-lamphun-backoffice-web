@@ -29,7 +29,7 @@ export function MembersCardGrid({ members, isAdmin, onDeleteClick }: MembersCard
 						</div>
 					)}
 					{isAdmin && (
-						<div className="absolute top-3 right-3 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+						<div className="absolute top-3 right-3 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
 							<Button
 								variant="outline"
 								size="icon"

@@ -11,7 +11,9 @@ import { MembersCardGrid } from "src/shared/components/members/members-card-grid
 import { MembersTable } from "src/shared/components/members/members-table"
 import { downloadMembersCsv } from "src/shared/components/members/export-members-csv"
 import type { MemberListItem } from "src/shared/components/members/members-types"
-import { useDeleteMember, useMembers } from "src/shared/components/members/use-members"
+import { useQueryClient } from "@tanstack/react-query"
+
+import { MEMBERS_LIST_QUERY_KEY, useDeleteMember, useMembers } from "src/shared/components/members/use-members"
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Button } from "src/shared/components/ui/button"
 import { Input } from "src/shared/components/ui/input"
@@ -44,6 +46,7 @@ export function MembersView() {
 		setUserView(mode)
 	}
 
+	const queryClient = useQueryClient()
 	const membersQuery = useMembers(debouncedSearch)
 	const deleteMutation = useDeleteMember()
 
@@ -143,7 +146,7 @@ export function MembersView() {
 						</Button>
 					</div>
 					{isAdmin && (
-						<Button variant="outline" onClick={handleExport} data-slot="export-csv">
+						<Button variant="outline" disabled={isLoading || members.length === 0} onClick={handleExport} data-slot="export-csv">
 							<HugeiconsIcon icon={Download02Icon} className="size-4" />
 							Export CSV
 						</Button>
@@ -180,7 +183,7 @@ export function MembersView() {
 					<AlertTitle>โหลดรายชื่อสมาชิกไม่สำเร็จ</AlertTitle>
 					<AlertDescription className="flex items-center gap-3">
 						<span>{membersQuery.error.message}</span>
-						<Button variant="outline" size="sm" onClick={() => membersQuery.refetch()}>
+						<Button variant="outline" size="sm" onClick={() => queryClient.resetQueries({ queryKey: MEMBERS_LIST_QUERY_KEY })}>
 							<HugeiconsIcon icon={Refresh01Icon} className="size-4" />
 							ลองใหม่
 						</Button>
