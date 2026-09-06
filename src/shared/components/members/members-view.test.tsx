@@ -143,6 +143,18 @@ describe("MembersView", () => {
 			expect(vi.mocked(downloadMembersCsv)).toHaveBeenCalledWith(members)
 		})
 
+		it("changing the search term clears the selection (no stale bulk bar)", async () => {
+			renderView({ sessionOk: true, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			fireEvent.click(await screen.findByRole("checkbox", { name: "เลือก นายสมชาย ใจดี" }))
+			expect(screen.getByText("เลือกแล้ว 1 รายการ")).toBeTruthy()
+
+			fireEvent.change(screen.getByPlaceholderText("ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง..."), {
+				target: { value: "สมชาย" },
+			})
+			expect(screen.queryByText("เลือกแล้ว 1 รายการ")).toBeNull()
+		})
+
 		it("mobile viewport defaults to the card view, desktop to the table", async () => {
 			renderView({ sessionOk: false, mobile: true, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
 
@@ -184,15 +196,19 @@ describe("MembersView", () => {
 		})
 
 		it("shows โหลดเพิ่มเติม only while has_more is true", async () => {
-			const state = { hasMore: true }
+			const state = { hasMore: true, page: 0 }
 			renderView({
 				sessionOk: false,
-				listResponse: () =>
-					jsonResponse(200, {
-						data: [makeMember()],
+				// Distinct ids per page — accumulated pages must not collide on
+				// the row key the way real server ids never would.
+				listResponse: () => {
+					state.page += 1
+					return jsonResponse(200, {
+						data: [makeMember({ id: state.page })],
 						has_more: state.hasMore,
-						next_cursor: state.hasMore ? "1" : null,
-					}),
+						next_cursor: state.hasMore ? String(state.page) : null,
+					})
+				},
 			})
 
 			expect(await screen.findByText("โหลดเพิ่มเติม")).toBeTruthy()

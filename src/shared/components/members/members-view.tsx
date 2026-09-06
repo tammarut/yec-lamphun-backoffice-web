@@ -67,10 +67,18 @@ export function MembersView() {
 		setSelectedIds(checked ? new Set(members.map((member) => member.id)) : new Set())
 	}
 
+	// A selection belongs to the result set it was made in; typing a new
+	// search replaces that set, so drop it on the first keystroke instead of
+	// letting stale ids linger into the fresh list (and its exports).
+	const changeSearch = (term: string) => {
+		setSearchTerm(term)
+		setSelectedIds(new Set())
+	}
+
 	const handleExport = () => {
 		// Selected rows when any, otherwise everything loaded so far (card).
-		const rows = [...members].filter((member) => selectedIds.has(member.id))
-		downloadMembersCsv(rows.length > 0 ? rows : members)
+		const rows = selectedIds.size > 0 ? members.filter((member) => selectedIds.has(member.id)) : members
+		downloadMembersCsv(rows)
 	}
 
 	const handleConfirmDelete = () => {
@@ -111,7 +119,7 @@ export function MembersView() {
 							aria-label="ค้นหาสมาชิก"
 							title="ค้นแบบขึ้นต้นคำ — ชื่อจริง (ไทย), เบอร์โทร หรือรหัสตำแหน่ง เช่น PRESIDENT"
 							value={searchTerm}
-							onChange={(event) => setSearchTerm(event.target.value)}
+							onChange={(event) => changeSearch(event.target.value)}
 						/>
 					</div>
 					<div className="bg-card flex rounded-lg border p-1" role="group" aria-label="มุมมองข้อมูล">
@@ -185,6 +193,8 @@ export function MembersView() {
 			) : viewMode === "list" ? (
 				<MembersTable members={members} isAdmin={isAdmin} selectedIds={selectedIds} onToggleOne={toggleOne} onToggleAll={toggleAll} onDeleteClick={setDeleteTarget} />
 			) : (
+				// Card view is display-only (the mockup has no card checkboxes):
+				// a table-made selection persists here and still drives Export CSV.
 				<MembersCardGrid members={members} isAdmin={isAdmin} onDeleteClick={setDeleteTarget} />
 			)}
 
