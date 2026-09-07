@@ -23,6 +23,16 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG SKIP_ENV_VALIDATION=true
 ENV SKIP_ENV_VALIDATION=$SKIP_ENV_VALIDATION
 
+# R2_PUBLIC_BASE_URL is consumed by next.config.ts, which is evaluated ONLY at
+# build time: the CSP header (img-src) is compiled into .next/routes-manifest.json
+# and the standalone server serves it verbatim — runtime env never affects it.
+# The build-arg is therefore load-bearing: without it the builder crashes loudly
+# (new URL(undefined)), by design — the alternative (a fallback to an empty
+# origin) would silently bake a CSP that blocks production avatars. Pass it via
+# build-args in cd.yml; runner env does not reach `docker build`.
+ARG R2_PUBLIC_BASE_URL
+ENV R2_PUBLIC_BASE_URL=$R2_PUBLIC_BASE_URL
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 

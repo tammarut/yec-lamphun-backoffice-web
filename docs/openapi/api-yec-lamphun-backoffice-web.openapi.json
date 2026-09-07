@@ -1,0 +1,3573 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Default module",
+		"description": "API for managing members.",
+		"version": "1.0.0"
+	},
+	"tags": [
+		{
+			"name": "module_member"
+		},
+		{
+			"name": "dashboard"
+		}
+	],
+	"paths": {
+		"/api/v1/members/executive-committee": {
+			"get": {
+				"summary": "Get member executive committee (/api/v1/members/executive-committee)",
+				"deprecated": false,
+				"description": "# Get member executive committee for UI Organization tree\n\nReturns the Executive Committee as a single tree rooted at the live President\nholder — every non-deleted, non-RESIGNED member holding any position except\n`GENERAL_MEMBER`, nested according to the position hierarchy.\n\n### Support UI page <Icon icon=\"material-outline-keyboard_arrow_down\"/>\n\n![screenshot_page_organizational_chart.png](https://api.apidog.com/api/v1/projects/1162330/resources/382608/image-preview)\n\n> ⚠️ **Supersedes the original pseudocode.** The assembly no longer reads\n> `members.parent_id` (that column was removed from the schema — supervisor\n> is derived at read time) and no code-level `POSITION_MAP` exists; Thai\n> position names come from the `positions` table. See ADR-0020.\n\n## 📐Rules summary\n\n- **Filters:** `deleted_at IS NULL`, `status IN ('ACTIVE','PENDING_RENEWAL','EXPIRED')`\n  (RESIGNED excluded), `position_code != 'GENERAL_MEMBER'`.\n- **Auth:** public (`security: []`), like every sibling GET.\n- **Errors:** `500 { \"error_message\": \"Internal Server Error\" }` on infra failure only.\n\n## ✍️Pseudocode\n\n1. Execute Database Queries (two static reads):\n\n   ```sql\n    -- Read 1: the position hierarchy (Thai names + parent links)\n    SELECT code, name_th, cardinality, parent_position_code, display_order, is_active\n    FROM positions\n    ORDER BY display_order ASC, code ASC;\n\n    -- Read 2: the flat committee rows\n    SELECT\n        m.id,\n        m.profile_avatar,\n        m.title_name_th,\n        m.first_name_th,\n        m.last_name_th,\n        m.nickname,\n        m.position_code,\n        mb.name AS business_name\n    FROM members m\n    INNER JOIN positions p ON p.code = m.position_code\n    LEFT JOIN member_business mb\n        ON mb.member_id = m.id\n        AND mb.deleted_at IS NULL\n    WHERE m.deleted_at IS NULL\n    AND m.status IN ('ACTIVE', 'PENDING_RENEWAL', 'EXPIRED')\n    AND m.position_code != 'GENERAL_MEMBER'\n    ORDER BY p.display_order ASC, m.id ASC;\n   ```\n\n2. break Query error (either read)\n    -> Log the error\n    -> Return HTTP 500\n\n3. Transform the data in memory:\n    -> Build positions_map: position_code -> { name_th, parent_position_code, display_order } from Read-1\n    -> For each row in Read-2 result, build a member node:\n\n```\n{\n    id: row.id,\n    profile_avatar: row.profile_avatar\n        ? `${R2_PUBLIC_BASE_URL}/${row.profile_avatar}` // public bucket concat\n        : null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    position: positions_map[row.position_code]?.name_th, // Thai name from the positions table\n    business_name: row.business_name,                     // null if no live business record\n    children: []\n}\n```\n\n    -> Group member nodes by position_code (query order = display_order, id preserved)\n\n4. Build tree structure from the POSITION hierarchy (there is no members.parent_id):\n    -> Root := the single live holder of PRESIDENT\n    -> For each other occupied position (in display_order):\n        -> parent := FIRST live holder of positions_map[code].parent_position_code\n        -> If the parent rung has no live holder:\n            -> Materialize a Vacant Position placeholder node:\n\n```\n{\n    id: null, // <- the vacancy marker on the wire\n    profile_avatar: null,\n    title_name_th: null,\n    first_name_th: null,\n    last_name_th: null,\n    nickname: null,\n    position: positions_map[parent_code]?.name_th,\n    business_name: null,\n    children: []\n}\n```\n\n            -> Cache ONE shared placeholder per missing position (siblings and\n               deeper positions reuse it); a missing chain materializes a\n               chain of placeholders, each attached by continuing the walk upward\n        -> Append this position's nodes to parent.children\n    -> Corruption guards (cycles / chains that never reach PRESIDENT):\n       affected nodes attach directly to the root — never dropped,\n       the tree is always serializable\n\n5. break if root is not found (no live PRESIDENT holder, e.g. RESIGNED):\n    -> Return HTTP 200 OK null\n\n6. Return HTTP 200 OK { root }\n\n\n## 🖼️Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/members/executive-committee\n\n    nextjsapi->>+database: SELECT code, name_th, parent_position_code, display_order<br/>FROM positions ORDER BY display_order, code\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    database-->>-nextjsapi: positions (flat)\n\n    nextjsapi->>+database: SELECT m.id, m.profile_avatar, m.title_name_th,<br/>m.first_name_th, m.last_name_th, m.nickname,<br/>m.position_code, b.name AS business_name<br/>FROM members m<br/>INNER JOIN positions p ON p.code = m.position_code<br/>LEFT JOIN member_business b ON b.member_id = m.id AND b.deleted_at IS NULL<br/>WHERE m.deleted_at IS NULL<br/>AND m.status IN ('ACTIVE','PENDING_RENEWAL','EXPIRED')<br/>AND m.position_code != 'GENERAL_MEMBER'<br/>ORDER BY p.display_order ASC, m.id ASC\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    database-->-nextjsapi: rows (flat array)\n\n    nextjsapi ->> nextjsapi: Transform rows:<br/>1. Resolve profile_avatar to public URLs<br/>2. Map position codes to Thai names (positions table)<br/>3. Group member nodes by position_code\n\n    nextjsapi ->> nextjsapi: Build tree from position hierarchy:<br/>1. Root = live PRESIDENT holder<br/>(none found -> respond 200 null)<br/>2. Attach each occupied position under the first live<br/>holder of its parent position<br/>3. Materialize Vacant Position placeholders (id: null)<br/>for unheld rungs with live descendants\n\n    nextjsapi-->>browser: 200 OK (root node tree | null)\n```",
+				"tags": ["module_member"],
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ExecutiveCommitteeNode"
+								},
+								"examples": {
+									"2": {
+										"summary": "No live PRESIDENT",
+										"value": null
+									},
+									"First Page Request": {
+										"summary": "Full tree",
+										"value": {
+											"id": 1,
+											"profile_avatar": "https://file.domain.xyz/members/profile_avatars/01J8ZQ4X9V2NKM3ABC6D5E7FHI.png",
+											"title_name_th": "นาย",
+											"first_name_th": "สมชาย",
+											"last_name_th": "ใจดี",
+											"nickname": "cham",
+											"position": "ประธาน YEC Lamphun",
+											"business_name": "บริษัท วี ฟู้ดส์ (ประเทศไทย) จำกัด",
+											"children": [
+												{
+													"id": 2,
+													"profile_avatar": null,
+													"title_name_th": "ดร.",
+													"first_name_th": "สมศักดิ์",
+													"last_name_th": "ปรึกษาดี",
+													"nickname": "ศักดิ์",
+													"position": "กรรมการที่ปรึกษา",
+													"business_name": "บริษัทปรึกษา SME",
+													"children": []
+												},
+												{
+													"id": 3,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatars/01J8ZQ5Y2W4NLN8DEF7C6G9IJT.png",
+													"title_name_th": "นางสาว",
+													"first_name_th": "เลขา",
+													"last_name_th": "ตัวหลัก",
+													"nickname": "ส้ม",
+													"position": "เลขาธิการ",
+													"business_name": "บริษัทส้มหวาน",
+													"children": [
+														{
+															"id": 4,
+															"profile_avatar": null,
+															"title_name_th": "นาย",
+															"first_name_th": "เลขา",
+															"last_name_th": "ตัวรอง",
+															"nickname": "รอง",
+															"position": "ผู้ช่วยเลขาธิการ",
+															"business_name": null,
+															"children": []
+														}
+													]
+												},
+												{
+													"id": 5,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatars/01J8ZQ6Z3X5NMN9FGA8D7H0JKV.png",
+													"title_name_th": "นาย",
+													"first_name_th": "บริหาร",
+													"last_name_th": "จริงจัง",
+													"nickname": "บอย",
+													"position": "รองประธานฝ่ายบริหารและประสานงานภายใน",
+													"business_name": "บริษัทคอนซัลติ้ง จำกัด",
+													"children": [
+														{
+															"id": 6,
+															"profile_avatar": null,
+															"title_name_th": "นาง",
+															"first_name_th": "ประสาน",
+															"last_name_th": "งานภายใน",
+															"nickname": "หนึ่ง",
+															"position": "กรรมการฝ่ายบริหารและประสานงานภายใน",
+															"business_name": "บริษัทประสานงาน จำกัด",
+															"children": []
+														}
+													]
+												},
+												{
+													"id": null,
+													"profile_avatar": null,
+													"title_name_th": null,
+													"first_name_th": null,
+													"last_name_th": null,
+													"nickname": null,
+													"position": "รองประธานฝ่ายประชาสัมพันธ์และภาพลักษณ์",
+													"business_name": null,
+													"children": [
+														{
+															"id": 7,
+															"profile_avatar": "https://file.domain.xyz/members/profile_avatars/01J8ZQ7A4Y6NON0GHB9E8I1LMN.png",
+															"title_name_th": "นางสาว",
+															"first_name_th": "ประชาสัมพันธ์",
+															"last_name_th": "ภาพดี",
+															"nickname": "ปรี้",
+															"position": "กรรมการฝ่ายประชาสัมพันธ์และภาพลักษณ์",
+															"business_name": "บริษัทภาพลักษณ์ไทย",
+															"children": []
+														}
+													]
+												}
+											]
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/members/{id}": {
+			"get": {
+				"summary": "Get a member by id (/api/v1/members/{id})",
+				"deprecated": false,
+				"description": "# GET a member's details by id for a detail view/edit form\n\n## ✍️Pseudocode\n1. **Auth** — `withAuth` middleware validates the `session_id` cookie.\n      - missing/invalid → **401** `{ error_message: \"Unauthorized\" }`\n\n2. **Validate path param `id`** — Valibot `pipe(string(), transform(Number), integer(), minValue(1))`.\n      - non-integer / ≤ 0 → **400** `{ error_message: \"id parameter must be a valid integer\" }`\n\n3. **Query 1 — member + business** (one `LEFT JOIN`, both filtered `deleted_at IS NULL`):\n      ```sql\n      SELECT m.*, b.*\n      FROM members m\n      LEFT JOIN member_business b\n             ON b.member_id = m.id AND b.deleted_at IS NULL\n      WHERE m.id = $1 AND m.deleted_at IS NULL;\n      ```\n\n      - 0 rows (not found / soft-deleted) → **404** `{ error_message: \"not found this member id\" }`\n      - member row present but `business_id IS NULL` → treated as **data corruption** → **500** `{ error_message: \"Internal Server Error\" }`\n\n4. **Query 2 — documents** (latest-wins per type; `PAYMENT_SLIP` excluded):\n      ```sql\n      SELECT type, file_path, created_at\n      FROM member_documents\n      WHERE member_id = $1 AND deleted_at IS NULL\n        AND type IN ('ID_CARD','COMPANY_CERTIFICATE')\n      ORDER BY type, created_at DESC\n      ```\n      - first row per `type` is the newest (latest-wins, Q5/A)\n\n5. **Decrypt + mask `id_card_no`** (AES-256-GCM ciphertext → 13-digit plaintext → mask).\n\n      - mask format: `###XXXXXX####` (first 3 + six `X` + last 4), e.g. `632XXXXXX1483`\n      - **decrypt or mask failure is non-fatal** → `id_card_no: null` in the response, request stays **200** (logged server-side; data-level failure, not infra — ADR-0008)\n\n6. **Resolve file URLs** — two modes, run separately:\n\n      - **Public bucket** (`profile_avatar`, `logo`, `product`) → concatenated permanent URL `${R2_PUBLIC_BASE_URL}/${key}` (synchronous, infallible). Null paths pass through as `null`.\n      - **Private bucket** (`id_card_image`, `company_certificate`) → presigned URL via `@aws-sdk/s3-request-presigner`, TTL = `PRESIGNED_URL_EXPIRES_IN`. The two presigns run in parallel (`ResultAsync.combine`); **a presign failure is infra-level and propagates** → **500** (not degraded to `null` — that would silently lie that the member has no documents).\n\n7. **Assemble response**\n    - snake_case; serialize `date_of_birth`/`id_card_expiry_date` as date-only `YYYY-MM-DD`, timestamps as ISO datetime\n    - Swap `business.location` from DB order `[long, lat]` → `[lat, long]` (round-trip symmetry with the create request body)\n    - `position` ships the raw code (e.g. `GENERAL_MEMBER`) — the frontend maps it to a Thai display name.\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n    participant R2 as Cloudflare R2\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members/:id (Cookie: session_id=...)\n\n    nextjsapi->>nextjsapi: withAuth — validate session_id cookie\n\n    break no/invalid session\n        nextjsapi-->>browser: 401 Unauthorized\n    end\n\n    nextjsapi->>nextjsapi: Validate id (integer > 0)\n\n    break invalid id\n        nextjsapi-->>browser: 400 { error_message: \"id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: Q1: SELECT member LEFT JOIN business WHERE id=? AND deleted_at IS NULL\n    database-->>-nextjsapi: member+business row (or null)\n\n    break member not found / soft-deleted\n        nextjsapi-->>browser: 404 { error_message: \"not found this member id\" }\n    end\n\n    break member found but business_id IS NULL (corruption)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>+database: Q2: SELECT documents WHERE member_id=? AND type IN (ID_CARD, COMPANY_CERTIFICATE) ORDER BY type, created_at DESC\n    database-->>-nextjsapi: document rows (latest-wins per type)\n\n    nextjsapi->>nextjsapi: Decrypt id_card_no (AES-GCM)\n\n    alt decrypt ok\n        nextjsapi->>nextjsapi: Mask plaintext → \"632XXXXXX1483\"\n    else decrypt/mask failed (data-level)\n        nextjsapi->>nextjsapi: Log + set id_card_no = null (request continues, 200)\n    end\n\n    par public bucket (sync concat)\n        nextjsapi->>nextjsapi: publicUrl(profile_avatar), publicUrl(logo), publicUrl(product)\n    and private bucket (parallel presign)\n        nextjsapi->>+R2: presign(id_card_image) + presign(company_certificate)\n        R2-->>-nextjsapi: 2× pre-signed URLs\n    end\n\n    break presign failed (infra-level — R2/creds/network)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>nextjsapi: Assemble response (location swapped [long,lat]→[lat,long], dates serialized)\n\n    nextjsapi-->>browser: 200 OK (member detail)\n```",
+				"tags": ["module_member"],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "id",
+						"in": "path",
+						"description": "member_id",
+						"required": true,
+						"example": 2,
+						"schema": {
+							"type": "integer",
+							"examples": [101]
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/MemberResponse"
+								},
+								"examples": {
+									"Successful Request": {
+										"summary": "Example of a successful request for member ID 101.",
+										"value": {
+											"id": 2,
+											"registration_type": "JURISTIC_PERSON",
+											"company_certificate": "https://dev-yec-lamphun-private.6273323b2dcfce9a09766360f935e36d.r2.cloudflarestorage.com/members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=1e9679f3368b02ba04a4ff1637e3c6ea%2F20260717%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260717T160929Z&X-Amz-Expires=3600&X-Amz-Signature=13222700c7fee61bec563de292e6c5ebde99c201f2f67bd24ddbc16bd77251dd&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+											"id_card_image": "https://dev-yec-lamphun-private.6273323b2dcfce9a09766360f935e36d.r2.cloudflarestorage.com/members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=1e9679f3368b02ba04a4ff1637e3c6ea%2F20260717%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260717T160929Z&X-Amz-Expires=3600&X-Amz-Signature=28b307f4b4fba5345bdd91238af9a1a734ff218cbbfa6cf16898f499c311e4ed&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+											"profile_avatar": "https://pub-0a709ba96dc74f718f9c410d4937936f.r2.dev/members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
+											"title_name_th": "นาย",
+											"first_name_th": "ปาทาน",
+											"last_name_th": "องกร",
+											"title_name_en": "Mr.",
+											"first_name_en": "Patan",
+											"last_name_en": "Ogorn",
+											"nickname": "patanZ",
+											"gender": "MALE",
+											"date_of_birth": "1987-09-20",
+											"nationality": "Thai",
+											"id_card_no": "106XXXXXX7296",
+											"id_card_expiry_date": "2036-07-13",
+											"member_since": "2026-07-15T09:09:02.932Z",
+											"expires_at": "2027-07-15T16:59:59.999Z",
+											"phone_no": "0872531485",
+											"email": "sxmpib@airsworld.net",
+											"line_id": "patan.line_id",
+											"shirt_size": "XL",
+											"position": "PRESIDENT",
+											"status": "ACTIVE",
+											"created_at": "2026-07-15T09:09:03.174Z",
+											"updated_at": "2026-07-15T09:09:03.174Z",
+											"business": {
+												"id": 1,
+												"name": "บริษัท วี ฟู้ดส์",
+												"description": "ส่งออก ขายส่งสินค้าเกษตร อาหารสด อาหารสำเร็จรูป",
+												"juristic_registration_no": "0105557026729",
+												"category_id": 1,
+												"address": "อาคาร ทู เอฟวายไอ เซ็นเตอร์ ชั้น 5 2525 ถ. พระรามที่ 4 แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110",
+												"location": [13.7207, 100.5596],
+												"core_business": "อาหารปี๊ป",
+												"website": "https://www.vfoods.co.th/th",
+												"logo": "https://pub-0a709ba96dc74f718f9c410d4937936f.r2.dev/members/business/logo_01KXJEVTQY04JJD1HV8KBSA74T.webp",
+												"product": "https://pub-0a709ba96dc74f718f9c410d4937936f.r2.dev/members/business/product_01KXJEVV6S2EV71XNV9BT9MYSM.webp",
+												"created_at": "2026-07-15T09:09:03.174Z",
+												"updated_at": "2026-07-15T09:09:03.174Z"
+											}
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"Invalid ID": {
+										"summary": "Example when the ID is not a valid integer.",
+										"value": {
+											"error_message": "id parameter must be a valid integer"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"title": "",
+									"type": "object",
+									"properties": {
+										"error_message": {
+											"type": "string"
+										}
+									},
+									"required": ["error_message"]
+								},
+								"example": {
+									"error_message": "Authentication token is invalid or user is not an administrator."
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"Member Not Found": {
+										"summary": "Example when the requested member ID does not exist.",
+										"value": {
+											"error_message": "not found this member id"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			},
+			"patch": {
+				"summary": "Update a member by id (/api/v1/members/:id)",
+				"deprecated": false,
+				"description": "# Update a member by id record from a UI form submission\n> Execute under the same DB transaction\n\nStaff-only endpoint (validates `session_id` cookie via `withAuth`).\nReceives already-uploaded R2 file paths from `POST /api/v1/members/file/upload`.\n\n## PATCH semantics (hybrid, ADR-0012)\n\nThe body is the **full** `CreateNewMemberRequest` object (every key required, identical structure to `POST /api/v1/members`).\n\n- **Scalar fields** (names, phone, email, etc.): always overwritten. A JSON `null` on a nullable scalar **clears** the column (e.g. `email: null` removes the email).\n- **File-path fields are sticky on `null`**: the following five fields treat JSON `null` as **\"leave the existing stored value unchanged\"** — sending `null` does NOT clear them:\n  - `profile_avatar`\n  - `id_card_image`\n  - `company_certificate`\n  - `business.logo`\n  - `business.product`\n\nThis prevents a form that doesn't re-upload a file from accidentally wiping an avatar / orphaning an uploaded R2 object. Lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) are **never** modified by PATCH.\n\n## ✍️ Pseudocode\n\n1. Authenticate via `session_id` cookie (`withAuth`) — 401 on failure\n2. Parse path `id` → integer > 0 (400 on invalid)\n3. Parse JSON body; structural-validate via Valibot `PatchMemberSchema` (types, enums, formats, required-ness) — 400 on failure\n4. **Resolve the five sticky file-path fields**: for each of `profile_avatar`, `id_card_image`, `company_certificate`, `business.logo`, `business.product`, if the request sent `null`, substitute the existing stored value\n5. Fetch the existing member by id (`getMemberDetailById`)\n    - Not found / soft-deleted → **404 Not Found** (indistinguishable)\n6. Fetch the requested position by code\n    - Unknown code → **400** (`Unknown position code`)\n7. **Conditional position-conflict check — only if the requested position differs from the stored one**\n    - If unchanged → skip (the member holding their own position is not a conflict)\n    - If changed → count active holders of the target position; if it is a `SINGLE`-cardinality position and someone already holds it → **409 Conflict** (`Position <code> is already held`)\n8. Re-validate self-invariants and rebuild the aggregate (`Member.update`):\n    - `id_card_expiry_date` must not be before today → **400**\n    - `id_card_no` must be 13 digits → **400**\n    - position must be active → **400**\n    - Encrypt `id_card_no` (AES-256-GCM, base64) + hash (HMAC-SHA256, hex)\n    - Swap business `location` `[lat, long]` → `[long, lat]`\n    - Preserve lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) from the existing member\n9. **Conditional duplicate-id_card check — only if the new id_card hash differs from the stored hash**\n    - If unchanged → skip (otherwise the member would conflict with themselves)\n    - If changed → query for an existing member with the new hash; if found → **409 Conflict** (`A member with this ID card already exists`)\n10. **Begin DB transaction** (single transaction for all writes below)\n11. `UPDATE members SET <mutable columns>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`\n    - Omits lifecycle columns (status, member_since, expires_at, renewal_successful_count) — they are preserved\n    - On failure → ROLLBACK → **500**\n12. `UPDATE member_business SET <columns>, updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL`\n    - `location` written in `[long, lat]` order\n    - On failure → ROLLBACK → **500**\n13. **Only for document types whose resolved path DIFFERED from the stored path** (`id_card_image` and/or `company_certificate`):\n    - Soft-delete existing rows: `UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL`\n    - Insert the new row(s) of the replaced type(s)\n    - On failure → ROLLBACK → **500**\n14. **Commit** DB transaction\n15. No response body — **204 No Content**\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/members/:id { payload }\n\n    nextjsapi ->> nextjsapi: withAuth: validate session_id cookie\n    break Unauthorized (missing/invalid session)\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi ->> nextjsapi: Validate id path param (integer > 0) + body (PatchMemberSchema)\n    break Invalid id or body (missing fields, invalid types, bad enums/formats)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi ->> nextjsapi: Resolve 5 sticky file-path fields<br/>(null → keep stored value)\n\n    nextjsapi->>+database: SELECT member + business + docs WHERE id = ?\n    database-->>-nextjsapi: Return member row or null\n\n    break Member id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"not found this member id\" }\n    end\n\n    nextjsapi->>+database: SELECT position WHERE code = ?\n    database-->>-nextjsapi: Return position row or null\n\n    break Unknown position code\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Unknown position code: <code>\" }\n    end\n\n    opt Requested position != stored position\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE position_code = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return holder count\n        break SINGLE position already held by another member\n            nextjsapi-->>browser: 409 Conflict { error_message: \"Position <code> is already held\" }\n        end\n    end\n\n    Note over nextjsapi: Validate self-invariants (Member.update):<br/>- id_card_expiry_date ≥ today<br/>- id_card_no 13 digits<br/>- position active<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Swap location [lat,long] → [long,lat]<br/>- Preserve lifecycle fields (status, member_since,<br/>  expires_at, renewal_successful_count)\n    break Past expiry / bad id_card / inactive position\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    opt New id_card hash != stored id_card hash\n        nextjsapi ->> nextjsapi: Hash input id_card_no (HMAC-SHA256)\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE id_card_no_hash = ?\n        database-->>-nextjsapi: Return count\n        break Found duplicate id_card\n            nextjsapi-->>browser: 409 Conflict { error_message: \"A member with this ID card already exists\" }\n        end\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction\n\n        nextjsapi->>database: BEGIN TRANSACTION\n\n        nextjsapi->>+database: UPDATE members SET <mutable>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi: location already swapped to [long, lat]\n        nextjsapi->>+database: UPDATE member_business SET ..., updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        opt id_card_image and/or company_certificate path CHANGED\n            Note over nextjsapi: Soft-delete ONLY the replaced type(s)\n            nextjsapi->>+database: UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL\n            database-->>-nextjsapi: Return result\n            break Soft-delete fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n            nextjsapi->>+database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n            database-->>-nextjsapi: Return result\n            break Insert fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n        end\n\n        nextjsapi->>+database: COMMIT\n        database-->>-nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 204 No Content (empty body)\n```\n",
+				"tags": ["module_member"],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "id",
+						"in": "path",
+						"description": "member.id from table members",
+						"required": true,
+						"example": 197,
+						"schema": {
+							"type": "integer",
+							"format": "uint"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateNewMemberRequest"
+							},
+							"example": {
+								"registration_type": "JURISTIC_PERSON",
+								"company_certificate": "members/documents/company_cert_01KYM0R5YPR5ZJVPQPX0Q0TKMH.webp",
+								"id_card_image": "members/documents/id_card_image_01KYM0R6BQ6YFGKVY7HM5GMH1Q.webp",
+								"profile_avatar": "members/profile_avatars/profile_avatar_01KYM0RWR7KZCYEGBRWQ1BJXBD.webp",
+								"title_name_th": "นาย",
+								"first_name_th": "เอกนิติ",
+								"last_name_th": "อัพเดท",
+								"title_name_en": "Mr.",
+								"first_name_en": "Aekniti",
+								"last_name_en": "Update",
+								"nickname": "aek",
+								"gender": "MALE",
+								"date_of_birth": "1980-10-19",
+								"nationality": "Thai",
+								"id_card_no": "6134876163390",
+								"id_card_expiry_date": "2036-07-13",
+								"phone_no": "0952532000",
+								"email": "aek_update@airsworld.net",
+								"line_id": "aek.line_id",
+								"shirt_size": "M",
+								"position": "GENERAL_MEMBER",
+								"business": {
+									"name": "บริษัท 28 ไลฟ์มาร์เก็ต จำกัด",
+									"juristic_registration_no": "0105566165566",
+									"category_id": 2,
+									"address": "54/3 ซอยลาดปลาเค้า 60 แขวงอนุสาวรีย์ เขตบางเขน กรุงเทพมหานคร 10220",
+									"location": [13.8513, 100.6077],
+									"description": "ประกอบกิจการให้บริการ ร้านจำหน่ายอาหารและเครื่องดื่ม",
+									"core_business": "อาหารตามสั่ง",
+									"website": "https://www.28life.co.th/th",
+									"logo": "members/business/logo_01KYM18Z3QWGRAPNM5BA2TRSZ4.webp",
+									"product": "members/business/product_01KYM18Z3RPN29DHBWT8RNMDR7.webp"
+								}
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"204": {
+						"description": "Member updated successfully",
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed (invalid id, malformed body, missing required field, bad enum/format, past id_card_expiry_date, unknown/inactive position, bad id_card format)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"Validation Error": {
+										"summary": "Example of a validation error response.",
+										"value": {
+											"error_message": "field first_name_th is required"
+										}
+									},
+									"Unknown position code": {
+										"summary": "The requested position code does not exist",
+										"value": {
+											"error_message": "Unknown position code: CHANCELLOR"
+										}
+									},
+									"Past id_card_expiry_date": {
+										"summary": "id_card_expiry_date is before today",
+										"value": {
+											"error_message": "id_card_expiry_date must not be before today"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "Member id not found (or soft-deleted; the two are indistinguishable)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "not found this member id"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"409": {
+						"description": "Resource conflict — either the id_card_no already belongs to another member, or a SINGLE-cardinality position is already held",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"7": {
+										"summary": "Target SINGLE position already has an active holder",
+										"value": {
+											"error_message": "Position PRESIDENT is already held"
+										}
+									},
+									"Duplicate ID Card": {
+										"summary": "Another member already has this id_card (by blind index)",
+										"value": {
+											"error_message": "this email already exists"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			},
+			"delete": {
+				"summary": "Delete member by id (/api/v1/members/{id})",
+				"deprecated": false,
+				"description": "# Delete member by id and related all resource\n\n## ✍️Pseudocode\n**Soft delete record each table in order:**\n1. member_documents\n2. member_business\n3. membership_renewals\n4. members\n\n:::highlight yellow 📌\nIf record has been deleted, it should not delete again (no update column `updated_at`, `deleted_at`)\n-- **API is idempotent**\n:::\n\n> Execute under the same DB transaction\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: DELETE /api/v1/members/:id\n\n    nextjsapi ->> nextjsapi: Validate path param\n\n    break Invalid id (missing or <= 0)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction (Atomic Soft Delete)\n        \n        nextjsapi->>database: BEGIN TRANSACTION\n\n        Note over nextjsapi,database: 1. Soft delete documents (Idempotent: skips if already deleted)\n        nextjsapi->>database: UPDATE member_documents <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE member_id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi,database: 2. Soft delete business record\n        nextjsapi->>database: UPDATE member_business <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE member_id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi,database: 3. Soft delete renewals\n        nextjsapi->>database: UPDATE membership_renewals <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE member_id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi,database: 4. Soft delete member\n        nextjsapi->>database: UPDATE members <br/>SET deleted_at = NOW(), updated_at = NOW() <br/>WHERE id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        nextjsapi->>database: COMMIT\n        database-->>nextjsapi: Success\n    end\n\n    Note over nextjsapi: Returns 200 OK regardless of whether <br/>rows were actually updated or already deleted.<br/>This guarantees idempotency.\n    nextjsapi-->>browser: 204 No Content\n```",
+				"tags": ["module_member"],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "id",
+						"in": "path",
+						"description": "member.id from table members",
+						"required": true,
+						"example": 36,
+						"schema": {
+							"type": "integer",
+							"format": "uint"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "",
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed (invalid id)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/members": {
+			"get": {
+				"summary": "Get list of members (/api/v1/members)",
+				"deprecated": false,
+				"description": "# Get list of members (UI table with infinite scroll)\n\n- Filtering\n- Pagination\n- Sorting by field\n- Search by field\n- Sorting order\n\n(Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar (if not null)\n\n## Pseudocode\n\n1. Structural validation (Valibot)\nparse query params → 400 on type/enum/range violation\n  - limit: integer 1..50 (default 10)\n  - cursor: positive-integer-as-string | absent (default null)\n  - status: raw CSV string\n  - search: raw string\n  - sort_by: created_at | first_name_th | expires_at (default created_at)\n  - sort_order: asc | desc (default desc)\n\n2. Semantic post-processing\nstatus CSV → split, trim, drop-empty tokens\n  - all-empty / absent   → statuses = null (no filter)\n  - any unknown token    → 400 \"Invalid status filter: `<token>`\"\nsearch → trim; empty → null\n\n3. Repository query (Bun SQL native, keyset pagination)\n```\nif cursor is not null:                       # page 2+\n    anchor = SELECT <sort_field> FROM members WHERE id = cursor AND deleted_at IS NULL\n    if anchor not found → 400 \"Invalid cursor\"   # deleted between pages\n```\nbuild dynamic fragments (all values bound, identifiers from closed enum):\n```\n    status  : AND m.status IN (...)\n    search  : AND (first_name_th | phone_no | position_code) ILIKE '<escaped>%' ESCAPE '\\'\n    keyset  : AND (<sort_field>, m.id) < | > (<anchor_sort>, <cursor_id>)\n    order by: <sort_field> <dir> NULLS LAST|FIRST, m.id <dir>\n```\n\n```\nrows = SELECT m.*, b.name, b.description\n       FROM members m\n       INNER JOIN member_business b ON b.member_id = m.id AND b.deleted_at IS NULL\n       WHERE m.deleted_at IS NULL\n         + status + search + keyset fragments\n       ORDER BY ... LIMIT (limit + 1)        # n+1 trick\n\nhas_more      = rows.length > limit\nnext_cursor   = has_more ? id of (limit)th row : null\nrows          = first `limit` rows only\n```\n\n4. Map to response (service layer)\n```\nfor each row:\n    profile_avatar = public URL concat (null stays null)\nreturn { data: rows, has_more, next_cursor: String(next_cursor) }\n```\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members<br/>(limit, cursor, status, search, sort_by, sort_order)\n\n    Note over nextjsapi: No auth check (public endpoint)\n\n    nextjsapi->>nextjsapi: Validate query params (Valibot)\n    break invalid query params\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi->>nextjsapi: Parse status CSV + per-token enum check<br/>Trim search → null if empty\n    break unknown status token\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid status filter: <token>\" }\n    end\n\n    opt cursor provided (page 2+)\n        nextjsapi->>+database: Anchor lookup<br/>SELECT sort_field FROM members WHERE id = cursor AND deleted_at IS NULL\n        database-->>-nextjsapi: anchor row (or none)\n        break anchor row not found (deleted)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n    end\n\n    nextjsapi->>+database: Main query (Bun SQL native)<br/>members INNER JOIN member_business<br/>WHERE deleted_at IS NULL + status/search/keyset<br/>ORDER BY (sort_field, id) LIMIT n+1\n    database-->>-nextjsapi: up to (limit + 1) rows\n\n    nextjsapi->>nextjsapi: Compute has_more, next_cursor<br/>(drop the (n+1)th row)\n    nextjsapi->>nextjsapi: Build public URLs for profile_avatar<br/>(concat R2_PUBLIC_BASE_URL + file path, per row)\n\n    nextjsapi-->>browser: 200 OK<br/>{ data: [...], has_more, next_cursor }\n ```\n \n ## Notes\n\n- **Empty result is NOT an error.** A filter/search that matches nothing returns `200 { data: [], has_more: false, next_cursor: null }`. No `404` is ever returned by this endpoint.\n- **Cursor format.** `next_cursor` is a bare member `id` rendered as a string (e.g. `\"11\"`). Send it back unchanged as the `cursor` query param to fetch the next page.\n- **`status` is CSV.** `?status=ACTIVE,EXPIRED` → `status IN ('ACTIVE','EXPIRED')`. Empty/all-empty tokens mean \"no filter\".\n- **Search is prefix-only and case-insensitive** (`ILIKE 'q%'`), matched against `first_name_th`, `phone_no`, `position_code`. LIKE wildcards (`%`, `_`) in the input are escaped literally.\n- **Corrupted members** (live member with no live business row) are silently excluded by the `INNER JOIN` — they simply do not appear in the list.\n- **Pagination is keyset, not offset.** Stable across inserts/deletes; `(sort_field, id)` tuple is the total order, `id` is the deterministic tiebreaker. NULL `expires_at` sorts `NULLS LAST` in desc, `NULLS FIRST` in asc.",
+				"tags": ["module_member"],
+				"parameters": [
+					{
+						"name": "limit",
+						"in": "query",
+						"description": "number of members to return",
+						"required": false,
+						"example": 2,
+						"schema": {
+							"type": "integer",
+							"default": 10,
+							"minimum": 1,
+							"maximum": 50,
+							"format": "uint"
+						}
+					},
+					{
+						"name": "cursor",
+						"in": "query",
+						"description": "Last member_id received for pagination",
+						"required": false,
+						"example": "53",
+						"schema": {
+							"type": "string",
+							"examples": ["10"]
+						}
+					},
+					{
+						"name": "status",
+						"in": "query",
+						"description": "Filter by member status\n(CSV style)\nACTIVE,EXPIRED,PENDING_RENEWAL",
+						"required": false,
+						"example": "ACTIVE",
+						"schema": {
+							"type": "string",
+							"examples": ["ACTIVE,EXPIRED,PENDING_RENEWAL"]
+						}
+					},
+					{
+						"name": "search",
+						"in": "query",
+						"description": "Search by first_name_th, phone_no, position\nPrefix search (matches from the beginning of the field value)",
+						"required": false,
+						"example": "ปาทาน",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "sort_by",
+						"in": "query",
+						"description": "Field to sort by",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"enum": ["created_at", "first_name_th", "expires_at"],
+							"default": "created_at"
+						}
+					},
+					{
+						"name": "sort_order",
+						"in": "query",
+						"description": "Sort direction",
+						"required": false,
+						"example": "desc",
+						"schema": {
+							"type": "string",
+							"enum": ["asc", "desc"],
+							"default": "desc"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"has_more": {
+											"type": "boolean",
+											"description": "true if there are more members to fetch",
+											"examples": [true]
+										},
+										"next_cursor": {
+											"type": ["string", "null"],
+											"description": "member_id to use for the next request",
+											"examples": ["11"]
+										},
+										"data": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/MemberListItem"
+											}
+										}
+									},
+									"required": ["has_more", "data", "next_cursor"]
+								},
+								"examples": {
+									"2": {
+										"summary": "Empty",
+										"value": {
+											"data": [],
+											"next_cursor": null,
+											"has_more": false
+										}
+									},
+									"First Page Request": {
+										"summary": "Example",
+										"value": {
+											"has_more": true,
+											"next_cursor": "4",
+											"data": [
+												{
+													"id": 3,
+													"profile_avatar": "https://public-assets.domainname.xyz/member/profile-avatar/profile_avatar_01KV65801K32FNCAQQJH3XTW4C.png",
+													"registration_type": "INDIVIDUAL",
+													"title_name_th": "นาย",
+													"first_name_th": "สมชาย",
+													"last_name_th": "ใจดี",
+													"nickname": "cham",
+													"phone_no": "05210892309",
+													"email": "user@example.com",
+													"line_id": "53",
+													"position": "amet ullamco laborum",
+													"status": "ACTIVE",
+													"business": {
+														"name": "บริษัท วี ฟู้ดส์ (ประเทศไทย) จำกัด",
+														"description": "Officia solio eligendi denique astrum angustus concedo arbor. Trucido nostrum voluptatum atque voluptatum delinquo facere. Ipsum benigne decens ulterius custodia deinde. Architecto voco animus desolo acies terga."
+													}
+												},
+												{
+													"id": 2,
+													"profile_avatar": "https://public-assets.domainname.xyz/member/profile-avatar/profile_avatar_01KV65TZ6TSJ0ZKDN39FCZZ9SC.png",
+													"registration_type": "INDIVIDUAL",
+													"title_name_th": "นาย",
+													"first_name_th": "สมชาย",
+													"last_name_th": "ใจดี",
+													"nickname": "cham",
+													"phone_no": "05915471013",
+													"email": "user@example.com",
+													"line_id": "93",
+													"position": "laboris qui Ut Excepteur",
+													"status": "ACTIVE",
+													"business": {
+														"name": "บริษัท วี ฟู้ดส์ (ประเทศไทย) จำกัด",
+														"description": "Custodia undique amicitia aro deleo. Aqua custodia via. Infit totidem cupio ipsum aequitas odio denego. Calculus sed capto casus. Provident delego arbitro templum. Temporibus concedo conservo adamo adimpleo tot quibusdam comptus contabesco. Cerno ustulo astrum."
+													}
+												},
+												{
+													"id": 1,
+													"profile_avatar": null,
+													"registration_type": "INDIVIDUAL",
+													"title_name_th": "นาย",
+													"first_name_th": "สมชาย",
+													"last_name_th": "ใจดี",
+													"nickname": "cham",
+													"phone_no": "08533982879",
+													"email": "user@example.com",
+													"line_id": "20",
+													"position": "in esse adipisicing aute dolor",
+													"status": "ACTIVE",
+													"business": {
+														"name": "บริษัท วี ฟู้ดส์ (ประเทศไทย) จำกัด",
+														"description": "Turbo impedit vapulus magnam depopulo cultura tabernus. Aggredior venustas succurro patria vulpes sto utilis."
+													}
+												}
+											]
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "id parameter must be a valid integer"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			},
+			"post": {
+				"summary": "Create a new member (/api/v1/members)",
+				"deprecated": false,
+				"description": "# Creates a new member record from a UI form submission\n> Execute under the same DB transaction\n\nReceive file path from API POST `/api/v1/members/file/upload`\n\n## ✍️Pseudocode\n\n1. Receive request body and validate required fields, types\n2. Validate each field value object\n3. Query check duplicate member by id_card_no\n    - Hash input id_card_no and compare blind index id_card_no_hash\n5. If duplicate ➞ 409 Conflict\n6. id_card_expiry_date must not < today\n7. Query check input position is already exist\n    - If input position already exist (other member seat) ➞ 409 Conflict\n8. Encrypt `AES-256-GCM` id_card_no (base64)\n9. Hash `HMAC-SHA256` id_card_no ➞ id_card_no_hash (hex)\n10. member status = ACTIVE\n11. member_since = now\n12. expires_at = now + 1 Y (end of day)\n13. renewal_successful_count = 0\n14. If profile_avatar not null, then set profile_avatar\n15. Begin DB transaction\n16. Insert a new record into table members, **return id**\n17. If company_certificate or id_card_image not null, insert many into table member_documents\n18. Swap location [lat, long] ➞ [long, lat]\n19. Insert a new record into table member_business\n20. Commit DB transaction\n21. Return member_id\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser ->> nextjsapi: POST /api/v1/members { payload }\n    nextjsapi ->> nextjsapi: Validate request body\n\n    break Invalid request body (missing fields, invalid types, or id_card_expiry_date < today)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi->>database: SELECT 1 FROM members WHERE id_card_no_hash = ?\n    database-->>nextjsapi: Return row or null\n    break Found duplicate id_card_no\n        nextjsapi-->>browser: 409 Conflict { error: \"Member already exists\" }\n    end\n\n    nextjsapi->>database: Query check input position is already exist\n    database-->>nextjsapi: Return row\n    break Found input position already exist\n        nextjsapi-->>browser: 409 Conflict { error: \"Position already exists\" }\n    end\n\n    Note over nextjsapi: Prepare Data:<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Set defaults: status=ACTIVE, member_since=now,<br/>expires_at=now+1Y (EOD), renewal_count=0<br/>- Conditionally include profile_avatar if provided\n\n    rect rgb(235, 245, 255)\n    Note over nextjsapi,database: Execute Under Database Transaction\n    nextjsapi->>database: BEGIN TRANSACTION\n\n    nextjsapi->>database: INSERT INTO members (...) RETURNING id\n    break if insert fails\n        nextjsapi->>database: ROLLBACK\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n    database-->>nextjsapi: { member_id }\n\n    opt company_certificate or id_card_image provided\n        nextjsapi->>database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n        break if insert fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n    end\n\n    nextjsapi ->> nextjsapi: Transform payload:<br/>Swap location [lat, long] ➞ [long, lat]\n\n    nextjsapi->>database: INSERT INTO member_business (member_id, location, ...)\n    break if insert fails\n        nextjsapi->>database: ROLLBACK\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 201 Created { member_id }\n```\n\n## Diagram Browser → Next.js API\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n\n    Note over browser: Step 1: User fills form, selects files, clicks Submit\n    \n    rect rgb(240, 248, 255)\n        Note over browser,nextjsapi: Single Multipart Upload\n        browser->>nextjsapi: POST /api/v1/files/upload<br/>(multipart/form-data)\n\n        nextjsapi-->>browser: 200 OK { profilePath: \"...\", idCardPath: \"...\" }\n    end\n\n    Note over browser: Step 2: Frontend constructs payload with returned paths\n    \n    rect rgb(240, 255, 240)\n        Note over browser,nextjsapi: Create Member\n        browser->>nextjsapi: POST /api/v1/members\n\n        nextjsapi-->>browser: 201 Created\n    end\n```",
+				"tags": ["module_member"],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateNewMemberRequest"
+							},
+							"example": {
+								"registration_type": "JURISTIC_PERSON",
+								"company_certificate": "members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp",
+								"id_card_image": "members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp",
+								"profile_avatar": "members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
+								"title_name_th": "นาย",
+								"first_name_th": "ปาทาน",
+								"last_name_th": "องกร",
+								"title_name_en": "Mr.",
+								"first_name_en": "Patan",
+								"last_name_en": "Ogorn",
+								"nickname": "patanZ",
+								"gender": "MALE",
+								"date_of_birth": "1987-09-20",
+								"nationality": "Thai",
+								"id_card_no": "1069097917296",
+								"id_card_expiry_date": "2036-07-13",
+								"phone_no": "0952532000",
+								"email": "sxmpib@airsworld.net",
+								"line_id": "patan.line_id",
+								"shirt_size": "XL",
+								"position": "PRESIDENT",
+								"business": {
+									"name": "บริษัท วี ฟู้ดส์",
+									"juristic_registration_no": "0105557026729",
+									"category_id": 1,
+									"address": "อาคาร ทู เอฟวายไอ เซ็นเตอร์ ชั้น 5 2525 ถ. พระรามที่ 4 แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110",
+									"location": [13.7207, 100.5596],
+									"description": "ส่งออก ขายส่งสินค้าเกษตร อาหารสด อาหารสำเร็จรูป",
+									"core_business": "อาหารปี๊ป",
+									"website": "https://www.vfoods.co.th/th",
+									"logo": "members/business/logo_01KXJEVTQY04JJD1HV8KBSA74T.webp",
+									"product": "members/business/product_01KXJEVV6S2EV71XNV9BT9MYSM.webp"
+								}
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"201": {
+						"description": "Member created successfully.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"id": {
+											"type": "integer",
+											"format": "uint"
+										}
+									},
+									"required": ["id"]
+								},
+								"examples": {
+									"Successful Creation": {
+										"summary": "The API returns the full new member object.",
+										"value": {
+											"id": 102
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"Validation Error": {
+										"summary": "Example of a validation error response.",
+										"value": {
+											"error_message": "field first_name_th is required"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"error_message": {
+											"type": "string"
+										}
+									},
+									"required": ["error_message"]
+								},
+								"example": {
+									"error_message": "Authentication token is invalid or user is not an administrator."
+								}
+							}
+						},
+						"headers": {}
+					},
+					"409": {
+						"description": "Resource conflict (e.g., duplicate email).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"Duplicate Email": {
+										"summary": "Example when the email already exists.",
+										"value": {
+											"error_message": "this email already exists"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/business/categories": {
+			"get": {
+				"summary": "Get a list of business category (/api/v1/business/categories)",
+				"deprecated": false,
+				"description": "# Get master data business category to support dropdown select menu (combo box)\n\n:::highlight green 💡\nNo pagination, just response simple array objects\n:::\n\n## ✍️Pseudocode\n\n1. Receive GET request at `/api/v1/business/categories`\n2. Try to execute Database Query:\n```sql\n   SELECT id, name \n   FROM business_categories \n   ORDER BY id ASC\n```\n3. If Database Query fails:\n   -> Log the error\n   -> Return HTTP 500 Internal Server Error\n\n4. If Database Query succeeds:\n   -> Receive list of rows (e.g., `[{ id: 1, name: \"เกษตร...\" }, ...]`)\n\n5. Transform the data:\n   -> Create an empty array: `formatted_categories`\n   -> For each `row` in the database result:\n        -> Create a new object:\n           ```json\n             {\n                 id: row.id,\n                 category_name: row.name  // Explicit mapping\n             }\n           ```\n6. Construct the final response payload:\n   -> `{ business_categories: <formatted_categories> }`\n7. Return HTTP 200 OK with the response payload\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    browser->>nextjsapi: GET /api/v1/business/categories\n\n    nextjsapi->>database: SELECT id, name FROM business_categories ORDER BY id ASC\n    \n    break Query fails\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n    \n    database-->>nextjsapi: Return rows [{id, name}, ...]\n\n    Note over nextjsapi: Transform Data:<br/>- Map DB column 'name' ➞ 'category_name'<br/>- Wrap array in { business_categories: [...] }\n\n    nextjsapi-->>browser: 200 OK { business_categories: [...] }\n```",
+				"tags": [],
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"business_categories": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/BusinessCategory"
+											}
+										}
+									},
+									"required": ["business_categories"]
+								},
+								"examples": {
+									"First Page Request": {
+										"summary": "Example of the first request to get members.",
+										"value": {
+											"business_categories": [
+												{
+													"id": 1,
+													"category_name": "เกษตร อาหาร และทรัพยากรชีวภาพ"
+												},
+												{
+													"id": 2,
+													"category_name": "อุตสาหกรรมการผลิต"
+												},
+												{
+													"id": 3,
+													"category_name": "พลังงาน สิ่งแวดล้อม และความยั่งยืน"
+												},
+												{
+													"id": 4,
+													"category_name": "ก่อสร้าง อสังหาริมทรัพย์ และโครงสร้างพื้นฐาน"
+												},
+												{
+													"id": 5,
+													"category_name": "พาณิชยกรรม การค้า และค้าระหว่างประเทศ"
+												},
+												{
+													"id": 6,
+													"category_name": "โลจิสติกส์ และซัพพลายเชน"
+												},
+												{
+													"id": 7,
+													"category_name": "บริการ ธุรกิจมืออาชีพ และที่ปรึกษา"
+												},
+												{
+													"id": 8,
+													"category_name": "เทคโนโลยี ดิจิทัล และนวัตกรรม"
+												},
+												{
+													"id": 9,
+													"category_name": "สุขภาพ การแพทย์ และความเป็นอยู่"
+												},
+												{
+													"id": 10,
+													"category_name": "การศึกษา การพัฒนา และทรัพยากรมนุษย์"
+												},
+												{
+													"id": 11,
+													"category_name": "ท่องเที่ยว บริการ และไลฟ์สไตล์"
+												},
+												{
+													"id": 12,
+													"category_name": "การเงิน การลงทุน และประกัน"
+												},
+												{
+													"id": 13,
+													"category_name": "สื่อ สร้างสรรค์ และอุตสาหกรรมวัฒนธรรม"
+												},
+												{
+													"id": 14,
+													"category_name": "SMEs วิสาหกิจชุมชน และผู้ประกอบการ"
+												}
+											]
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/membership/renewals/stat": {
+			"get": {
+				"summary": "Get total count membership expired and renewal (/api/v1/membership/renewals/stat)",
+				"deprecated": false,
+				"description": "## Get total count membership renewal now (Renewal Stat)\n\nThe three badge counts shown above the renewal-review table:\n\n1. Total expired members — Member Status `EXPIRED` **or** latest renewal `REJECTED`\n2. Total `PENDING_REVIEW` renewal members\n3. Total `APPROVED` renewal members\n\n### Support UI page <Icon icon=\"material-outline-keyboard_arrow_down\"/>\n\n![CleanShot 2569-01-02 at 00.43.14@2x.png](https://api.apidog.com/api/v1/projects/1162330/resources/369210/image-preview)\n\n## Business rules\n\n- **No parameters.** The endpoint takes no query params and requires no authentication (`security: []` — public, like `GET /renewals` and `GET /renewals/expired`).\n- **Soft-deleted members are excluded** (`deleted_at IS NULL`).\n- **Expired count is a superset of the Expired Membership List.** The list (`GET /renewals/expired`) keys on `status = 'EXPIRED'` alone; this badge additionally counts members whose latest renewal is `REJECTED` even if their Member Status is not (yet) `EXPIRED`. Under normal flows the two coincide; under cache drift, or once a review-reject flow exists, the badge may legitimately exceed the tab's row count.\n- **Cache-columns-only read.** Counts key off the denormalized `latest_renewal_status` cache column; a live renewal row is NOT verified (unlike the list endpoints' `mr_latest.id IS NOT NULL` guard).\n- `COUNT` with no `GROUP BY` always returns exactly one row — an empty members table yields `{ 0, 0, 0 }`, never 404.\n\n## ✍️Pseudocode\n\n1. Execute Single Aggregated Database Query (one static sqlc query, reads only the `members` cache columns — `membership_renewals` is never joined):\n   ```sql\n   SELECT\n     (COUNT(*) FILTER (WHERE status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'))::int AS total_expired_members,\n     (COUNT(*) FILTER (WHERE latest_renewal_status = 'PENDING_REVIEW'))::int AS total_pending_review_members,\n     (COUNT(*) FILTER (WHERE latest_renewal_status = 'APPROVED'))::int AS total_approved_members\n   FROM members\n   WHERE deleted_at IS NULL;\n   ```\n\n2. break Query error:\n    -> Log error\n    -> Return HTTP 500 Internal Server Error `{ \"error_message\": \"Internal Server Error\" }`\n\n3. Build response object:\n    ```\n    {\n        total_expired_members: result.total_expired_members,\n        total_pending_review_members: result.total_pending_review_members,\n        total_approved_members: result.total_approved_members\n    }\n    ```\n\n4. Return HTTP 200 OK\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/stat\n\n    nextjsapi->>+database: SELECT (COUNT(*) FILTER (...))::int AS total_expired,<br/>(COUNT(*) FILTER (...))::int AS total_pending,<br/>(COUNT(*) FILTER (...))::int AS total_approved<br/>FROM members WHERE deleted_at IS NULL\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error<br/>{ \"error_message\": \"Internal Server Error\" }\n    end\n\n    database-->-nextjsapi: Return single row with 3 count columns\n\n    nextjsapi -->> nextjsapi: Map database columns to JSON response keys\n\n    nextjsapi-->>browser: 200 OK {<br/>  \"total_expired_members\": 5,<br/>  \"total_pending_review_members\": 1,<br/>  \"total_approved_members\": 6<br/>}\n```\n",
+				"tags": [],
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"total_expired_members": {
+											"type": "integer",
+											"format": "uint"
+										},
+										"total_pending_review_members": {
+											"type": "integer",
+											"format": "uint"
+										},
+										"total_approved_members": {
+											"type": "integer",
+											"format": "uint"
+										}
+									},
+									"required": ["total_expired_members", "total_pending_review_members", "total_approved_members"]
+								},
+								"example": {
+									"total_expired_members": 5,
+									"total_pending_review_members": 1,
+									"total_approved_members": 6
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/membership/renewals/expired": {
+			"get": {
+				"summary": "Get list expired membership (/api/v1/membership/renewals/expired)",
+				"deprecated": false,
+				"description": "## Get list of membership expired (pagination supports) for UI tables with infinite scroll\n\n1. Query records sort by\n    - Group `status=EXPIRED` but his `latest_renewal_status=REJECTED`, this group should be on top *(if exists)*\n    - Group `status=EXPIRED`\n\n> Each group sort by `id ASC`\n\n2. (Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar *(if not null)*\n\n### Notes (as implemented)\n\n- **Public endpoint** — no session cookie required (`security: []`).\n- **`position`** returns the **raw position code** (e.g. `GENERAL_MEMBER`, `PRESIDENT`); the frontend maps it to a display name.\n- **`status`** is always `\"EXPIRED\"`.\n- **`latest_renewal_status`** marks which members' most recent renewal was REJECTED — badge those rows in the UI (`=== \"REJECTED\"`). It is `\"PENDING_REVIEW\" | \"APPROVED\" | \"REJECTED\"`, or `null` when the member never filed a renewal. Ordering still floats the REJECTED rows to the top; the field is what identifies them per row.\n- **NULL-safe pagination** — the keyset predicate uses `IS DISTINCT FROM 'REJECTED'` (not `!=`), so expired members who never filed a renewal (`latest_renewal_status IS NULL`) are never dropped from cursor pages.\n\n## ✍️Pseudocode\n\n1. Extract query params:\n    -> limit = parseInt(query.limit) || 10\n    -> cursor = query.cursor (string or null)\n    -> search = query.search (string or null)\n\n2. Structural validation (Valibot):\n    break limit non-integer, < 1, or > 100:\n        -> Return 400 Bad Request { error_message: \"limit must be at least 1\" | \"limit must be at most 100\" }\n    break cursor present and (non-numeric, < 1, or fractional):\n        -> Return 400 Bad Request { error_message: \"cursor must be a positive integer\" }\n\n3. Normalize search:\n    -> search = search.trim(); empty string -> null\n   \n4. If cursor is provided, anchor lookup:\n    -> `SELECT latest_renewal_status FROM members WHERE id = $cursor AND deleted_at IS NULL AND status = 'EXPIRED';`\n   -> break if anchor not found (deleted, or no longer expired — e.g. renewed between pages):\n        -> Return 400 Bad Request { error_message: \"Invalid cursor\" }\n\n5. Build base WHERE clause:\n```typescript\nwhere_conditions = [\n        \"deleted_at IS NULL\",\n        \"status = 'EXPIRED'\"\n]\n```\n\n6. If search is provided (LIKE wildcards `\\`, `%`, `_` escaped; bound parameter):\n   -> `(first_name_th ILIKE '%${search}%' ESCAPE '\\' OR phone_no ILIKE '%${search}%' ESCAPE '\\')`\n\n7. Build pagination WHERE clause:\n   If cursor is null (first page):\n      -> No additional filter\n   Else if cursor_group === 0 (anchor was in REJECTED group):\n      -> `(latest_renewal_status = 'REJECTED' AND id > $cursor)\n          OR (latest_renewal_status IS DISTINCT FROM 'REJECTED')`\n   Else (cursor_group === 1, anchor was in other group):\n      -> `latest_renewal_status IS DISTINCT FROM 'REJECTED' AND id > $cursor`\n\n8. Execute main query:\n   ```sql\n   SELECT\n     id, profile_avatar, title_name_th, first_name_th, last_name_th,\n     nickname, phone_no, position_code, status, latest_renewal_status, member_since\n   FROM members\n   WHERE {where_conditions joined by AND}\n   ORDER BY\n     CASE WHEN latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END,\n     id ASC\n   LIMIT {limit + 1};\n   ```\n\n9. break if query fails:\n    -> Log error\n    -> Return 500 Internal Server Error { error_message: \"Internal Server Error\" }\n\n10. Determine has_more and prepare data:\n    -> has_more = result.length > limit\n    -> data = has_more ? result.slice(0, limit) : result\n\n11. Transform response data:\n```typescript\ntransformed_data = data.map(row => ({\n    id: row.id,\n    profile_avatar: row.profile_avatar ? `${R2_PUBLIC_BASE_URL}/${row.profile_avatar}`: null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    phone_no: row.phone_no,\n    position: row.position_code,               // raw code — frontend maps to display name\n    status: row.status,                        // always \"EXPIRED\"\n    latest_renewal_status: row.latest_renewal_status,  // \"REJECTED\" | \"APPROVED\" | \"PENDING_REVIEW\" | null\n    member_since: row.member_since.toISOString(),\n}))\n```\n\n12. Determine next_cursor:\n    -> next_cursor = has_more ? String(data[data.length - 1].id) : null\n\n13. Return 200 OK\n```json\n{\n    \"has_more\": has_more,\n    \"next_cursor\": next_cursor,\n    \"data\": transformed_data\n}\n```\n\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/expired<br/>?limit=10&cursor=25&search=สมชาย\n\n    nextjsapi -->> nextjsapi: Extract query parameters<br/>limit=10, cursor=\"25\", search=\"สมชาย\"\n\n    break limit non-integer, < 1 or > 100<br/>(or cursor non-numeric / < 1)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"limit must be...\" }\n    end\n\n    nextjsapi -->> nextjsapi: Normalize search<br/>trim, empty → null\n\n    opt cursor is provided\n        nextjsapi->>+database: SELECT latest_renewal_status<br/>FROM members WHERE id = 25<br/>AND deleted_at IS NULL<br/>AND status = 'EXPIRED'\n        database-->>-nextjsapi: { latest_renewal_status: 'REJECTED' }\n\n        break anchor row not found or not expired<br/>(deleted / renewed between pages)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n\n        nextjsapi -->> nextjsapi: Determine cursor_group<br/>(0 if REJECTED, 1 otherwise incl. NULL)\n    end\n\n    nextjsapi -->> nextjsapi: Build WHERE clause:<br/>1. Base: deleted_at IS NULL AND status = 'EXPIRED'<br/>2. Search: contains-ILIKE on first_name_th / phone_no<br/>(wildcards escaped, ESCAPE '\\')<br/>3. Group-aware keyset — NULL-safe via<br/>IS DISTINCT FROM 'REJECTED'\n\n    nextjsapi->>+database: SELECT id, profile_avatar, title_name_th,<br/>first_name_th, last_name_th, nickname, phone_no,<br/>position_code, status, latest_renewal_status, member_since<br/>FROM members<br/>WHERE {conditions}<br/>ORDER BY CASE WHEN latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END,<br/>id ASC<br/>LIMIT 11\n    database-->>-nextjsapi: rows (up to 11 records)\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error<br/>{ error_message: \"Internal Server Error\" }\n    end\n\n    nextjsapi -->> nextjsapi: Determine has_more:<br/>has_more = rows.length > 10<br/>data = rows.slice(0, 10) if has_more\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. profile_avatar → public URL concat (null → null)<br/>2. position → raw code (frontend maps)<br/>3. latest_renewal_status → passthrough (badge signal)<br/>4. member_since → ISO string\n\n    nextjsapi -->> nextjsapi: Determine next_cursor:<br/>next_cursor = has_more ? String(data[last].id) : null\n\n    nextjsapi-->>browser: 200 OK {<br/>  has_more: true,<br/>  next_cursor: \"22\",<br/>  data: [...]<br/>}\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "limit",
+						"in": "query",
+						"description": "number of members to return",
+						"required": false,
+						"example": 10,
+						"schema": {
+							"type": "integer",
+							"format": "uint",
+							"default": 10
+						}
+					},
+					{
+						"name": "cursor",
+						"in": "query",
+						"description": "The ID of the last member received for pagination",
+						"required": false,
+						"example": "10",
+						"schema": {
+							"type": ["string", "null"]
+						}
+					},
+					{
+						"name": "search",
+						"in": "query",
+						"description": "Search by first_name_th, phone_no",
+						"required": false,
+						"example": "สมชาย",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"has_more": {
+											"type": "boolean"
+										},
+										"next_cursor": {
+											"type": ["string", "null"],
+											"examples": ["11"]
+										},
+										"data": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/ExpiredMembershipResponse"
+											}
+										}
+									},
+									"required": ["has_more", "next_cursor", "data"]
+								},
+								"examples": {
+									"1": {
+										"summary": "Only regular EXPIRED members (no rejected group)",
+										"value": {
+											"has_more": false,
+											"next_cursor": null,
+											"data": [
+												{
+													"id": 12,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZQ9H4K6M2P7RSTVWXYZA8C.jpg",
+													"title_name_th": "นาย",
+													"first_name_th": "สมชาย",
+													"last_name_th": "ใจดี",
+													"nickname": "cham",
+													"phone_no": "0811223344",
+													"position": "GENERAL_MEMBER",
+													"status": "EXPIRED",
+													"latest_renewal_status": "APPROVED",
+													"member_since": "2020-12-20T16:45:39.000Z"
+												},
+												{
+													"id": 25,
+													"profile_avatar": null,
+													"title_name_th": "นางสาว",
+													"first_name_th": "วิภาดา",
+													"last_name_th": "รักงาน",
+													"nickname": "วิ",
+													"phone_no": "0511223344",
+													"position": "PRESIDENT",
+													"status": "EXPIRED",
+													"latest_renewal_status": null,
+													"member_since": "2021-03-15T09:30:00.000Z"
+												}
+											]
+										}
+									},
+									"2": {
+										"summary": "Combined: ids 3 and 7 carry \"REJECTED\"",
+										"value": {
+											"has_more": true,
+											"next_cursor": "41",
+											"data": [
+												{
+													"id": 3,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZQ9H4K6M2P7RSTVWXYZA8C.jpg",
+													"title_name_th": "นาย",
+													"first_name_th": "ช่วยเลขา",
+													"last_name_th": "ว่องไว",
+													"nickname": "ไว",
+													"phone_no": "0911223345",
+													"position": "GENERAL_MEMBER",
+													"status": "EXPIRED",
+													"latest_renewal_status": "REJECTED",
+													"member_since": "2019-12-20T16:45:39.000Z"
+												},
+												{
+													"id": 7,
+													"profile_avatar": null,
+													"title_name_th": "นาง",
+													"first_name_th": "มาลี",
+													"last_name_th": "รักสุข",
+													"nickname": "malee",
+													"phone_no": "0897778888",
+													"position": "GENERAL_MEMBER",
+													"status": "EXPIRED",
+													"latest_renewal_status": "REJECTED",
+													"member_since": "2020-05-01T10:00:00.000Z"
+												},
+												{
+													"id": 12,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZR2T6W8N4Q9UVWXYZABCD3E.jpg",
+													"title_name_th": "นาย",
+													"first_name_th": "สมชาย",
+													"last_name_th": "ใจดี",
+													"nickname": "cham",
+													"phone_no": "0811223344",
+													"position": "GENERAL_MEMBER",
+													"status": "EXPIRED",
+													"latest_renewal_status": "APPROVED",
+													"member_since": "2020-12-20T16:45:39.000Z"
+												},
+												{
+													"id": 25,
+													"profile_avatar": null,
+													"title_name_th": "นางสาว",
+													"first_name_th": "วิภาดา",
+													"last_name_th": "รักงาน",
+													"nickname": "วิ",
+													"phone_no": "0511223344",
+													"position": "PRESIDENT",
+													"status": "EXPIRED",
+													"latest_renewal_status": null,
+													"member_since": "2021-03-15T09:30:00.000Z"
+												},
+												{
+													"id": 41,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZS4Y8A0P6R2WXYZABCDEF5G.jpg",
+													"title_name_th": "นาย",
+													"first_name_th": "ประเสริฐ",
+													"last_name_th": "มั่นคง",
+													"nickname": "เสริฐ",
+													"phone_no": "0625554444",
+													"position": "GENERAL_MEMBER",
+													"status": "EXPIRED",
+													"latest_renewal_status": null,
+													"member_since": "2022-08-09T14:20:11.000Z"
+												}
+											]
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"3": {
+										"summary": "Invalid input limit",
+										"value": {
+											"error_message": "limit must be at least 1"
+										}
+									},
+									"4": {
+										"summary": "Invalid input cursor",
+										"value": {
+											"error_message": "cursor must be a positive integer"
+										}
+									},
+									"5": {
+										"summary": "Input cursor member no exists",
+										"value": {
+											"error_message": "Invalid cursor"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/membership/renewals": {
+			"get": {
+				"summary": "Get list membership renewal (/api/v1/membership/renewals)",
+				"deprecated": false,
+				"description": "# Get list membership renewal (/api/v1/membership/renewals)\n\nMembership Renewal List (pagination supports) for UI tables with infinite scroll — one tab of the backoffice renewal-review table.\n`status`: `PENDING_REVIEW` or `APPROVED` from the `members.latest_renewal_status` cache column.\n\n1. Query records ordered by the member's **latest renewal's `payment_date_at` DESC**, then `member id` DESC (tiebreak)\n2. Each row carries `renewal_id` — the id of the member's most recent non-deleted renewal (the review workflow's target)\n3. `position` is the **raw position code** (e.g. `SECRETARY`) — the frontend maps it to a display name\n4. (Public bucket) `profile_avatar` file path is concatenated with the public base URL (`R2_PUBLIC_BASE_URL`) when not null\n5. **PUBLIC endpoint** — no session cookie required\n\n## ✍️ Pseudocode\n\n1. Extract query parameters:\n   -> limit = parseInt(query.limit) ?? 10 (default 10 when absent)\n   -> cursor = query.cursor (string or null)\n   -> status = query.status (REQUIRED: 'PENDING_REVIEW' or 'APPROVED')\n   -> search = query.search (string or null; trimmed, empty → null)\n\n2. Validate (Valibot, types & ranges only):\n   break if status is missing or not one of the two enum values:\n      -> Return HTTP 400 { error_message: \"status must be PENDING_REVIEW or APPROVED\" }\n   break if limit < 1 or limit > 100 or non-integer:\n      -> Return HTTP 400 { error_message: \"limit must be at least 1\" | \"limit must be at most 100\" }\n   break if cursor is non-numeric, zero, or negative:\n      -> Return HTTP 400 { error_message: \"cursor must be a positive integer\" }\n\n3. If cursor is provided, perform hardened anchor lookup (one query):\n```sql\nSELECT mr.payment_date_at\n      FROM members m\n      JOIN LATERAL (\n        SELECT payment_date_at FROM membership_renewals\n        WHERE member_id = m.id AND deleted_at IS NULL\n        ORDER BY created_at DESC, id DESC LIMIT 1\n      ) mr ON true\n      WHERE m.id = cursor\n        AND m.deleted_at IS NULL\n        AND m.latest_renewal_status = $status\n```\n   -> break if anchor not found (member deleted, left the status's set,\n      or has no live renewal — e.g. renewal approved between pages):\n        -> Return HTTP 400 { error_message: \"Invalid cursor\" }\n   -> last_payment_date_at = result.payment_date_at (bound as ISO string)\n\n4. Build base WHERE clause:\n```\nwhere_conditions = [\n    \"m.deleted_at IS NULL\",\n    \"m.latest_renewal_status = $status\",\n    \"mr_latest.id IS NOT NULL\"\n]\n```\n\n5. If search is provided:\n   -> where_conditions.push(\"(m.first_name_th ILIKE $search OR m.phone_no ILIKE $search)\")\n   -> params.push(`%${escaped_search}%`)   (contains-match; % _ \\ escaped)\n\n6. If cursor is provided (keyset pagination):\n`where_conditions.push(\"(mr_latest.payment_date_at, m.id) < ($last_payment_date_at, $cursor)\")`\n\n7. Execute main query (Bun SQL dynamic construction):\n   ```sql\n   SELECT\n     m.id,\n     m.profile_avatar,\n     m.title_name_th,\n     m.first_name_th,\n     m.last_name_th,\n     m.nickname,\n     m.phone_no,\n     m.position_code,\n     m.latest_renewal_status AS status,\n     mr_latest.id AS renewal_id,\n     mr_latest.payment_date_at,\n     m.member_since\n   FROM members m\n   LEFT JOIN LATERAL (\n     SELECT id, payment_date_at\n     FROM membership_renewals\n     WHERE member_id = m.id AND deleted_at IS NULL\n     ORDER BY created_at DESC, id DESC\n     LIMIT 1\n   ) mr_latest ON true\n   WHERE {where_conditions.join(' AND ')}\n   ORDER BY mr_latest.payment_date_at DESC, m.id DESC\n   LIMIT {limit + 1}\n   ```\n\n8. break Query error:\n   -> Log the error\n   -> Return HTTP 500\n\n9. Determine has_more and prepare data:\n   -> has_more = result.length > limit\n   -> data = has_more ? result.slice(0, limit) : result\n\n10. Transform response data:\n```typescript\ntransformed_data = data.map(row => ({\n        id: row.id,\n        renewal_id: row.renewal_id,\n        profile_avatar: row.profile_avatar ? `${R2_PUBLIC_BASE_URL}/${row.profile_avatar}` : null,\n        title_name_th: row.title_name_th,\n        first_name_th: row.first_name_th,\n        last_name_th: row.last_name_th,\n        nickname: row.nickname,\n        phone_no: row.phone_no,\n        position: row.position_code,          // raw code — frontend maps to display name\n        status: row.status,\n        member_since: row.member_since,        // ISO 8601\n        payment_date_at: row.payment_date_at   // ISO 8601\n       }))\n```\n\n11. Determine next_cursor:\n`next_cursor = has_more ? String(data[data.length - 1].id) : null`\n\n12. Return 200 OK\n```json\n{\n    \"has_more\": true,\n    \"next_cursor\": \"11\",\n    \"data\": [transformed_data]\n}\n```\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals<br/>?limit=10&cursor=15&status=PENDING_REVIEW&search=สมชาย\n\n    nextjsapi -->> nextjsapi: Extract query parameters<br/>limit=10, cursor=\"15\", status=\"PENDING_REVIEW\", search=\"สมชาย\"\n\n    break if status missing / not PENDING_REVIEW or APPROVED\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"status must be PENDING_REVIEW or APPROVED\" }\n    end\n\n    break if limit < 1 or > 100 or non-integer\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid limit\" }\n    end\n\n    opt cursor is provided\n        nextjsapi->>+database: Hardened anchor lookup:<br/>SELECT mr.payment_date_at FROM members m<br/>JOIN LATERAL (latest non-deleted renewal) mr<br/>WHERE m.id = 15 AND m.deleted_at IS NULL<br/>AND m.latest_renewal_status = 'PENDING_REVIEW'\n        database-->>-nextjsapi: Return { payment_date_at: '2025-01-15T10:30:00Z' }\n\n        break if anchor not found<br/>(member deleted / left the status's set / no live renewal)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n\n        nextjsapi -->> nextjsapi: Store last_payment_date_at\n    end\n\n    nextjsapi -->> nextjsapi: Build WHERE clause:<br/>1. Base: m.deleted_at IS NULL<br/>   AND m.latest_renewal_status = 'PENDING_REVIEW'<br/>   AND mr_latest.id IS NOT NULL<br/>2. Search filter (if provided)<br/>3. Keyset filter (if cursor provided)\n\n    nextjsapi->>+database: SELECT m.*, mr_latest.id AS renewal_id,<br/>mr_latest.payment_date_at<br/>FROM members m<br/>LEFT JOIN LATERAL (latest renewal) mr_latest<br/>WHERE {conditions}<br/>ORDER BY mr_latest.payment_date_at DESC, m.id DESC<br/>LIMIT 11\n    database-->>-nextjsapi: Return rows (up to 11 records)\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error<br/>{ error_message: \"Internal Server Error\" }\n    end\n\n    nextjsapi -->> nextjsapi: Determine has_more:<br/>has_more = rows.length > 10<br/>data = rows.slice(0, 10) if has_more\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. Map profile_avatar to public URL<br/>2. Keep position as raw code\n\n    nextjsapi -->> nextjsapi: Determine next_cursor:<br/>next_cursor = has_more ? String(data[last].id) : null\n\n    nextjsapi-->>browser: 200 OK { has_more, next_cursor, data }\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "limit",
+						"in": "query",
+						"description": "number of members to return",
+						"required": false,
+						"example": 10,
+						"schema": {
+							"type": "integer",
+							"format": "uint",
+							"default": 10
+						}
+					},
+					{
+						"name": "cursor",
+						"in": "query",
+						"description": "The ID of the last member received for pagination",
+						"required": false,
+						"example": "10",
+						"schema": {
+							"type": ["string", "null"]
+						}
+					},
+					{
+						"name": "status",
+						"in": "query",
+						"description": "",
+						"required": true,
+						"example": "PENDING_REVIEW",
+						"schema": {
+							"type": "string",
+							"enum": ["PENDING_REVIEW", "APPROVED"]
+						}
+					},
+					{
+						"name": "search",
+						"in": "query",
+						"description": "Search by first_name_th or phone_no",
+						"required": false,
+						"example": "สมชาย",
+						"schema": {
+							"type": ["string", "null"]
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"has_more": {
+											"type": "boolean"
+										},
+										"next_cursor": {
+											"type": ["string", "null"],
+											"examples": ["11"]
+										},
+										"data": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/RenewalResponseListItem"
+											}
+										}
+									},
+									"required": ["has_more", "next_cursor", "data"]
+								},
+								"examples": {
+									"1": {
+										"summary": "Example 1",
+										"value": {
+											"has_more": true,
+											"next_cursor": "11",
+											"data": [
+												{
+													"id": 2,
+													"renewal_id": 71,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatars/profile_avatar_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg",
+													"title_name_th": "นาย",
+													"first_name_th": "ช่วยเลขา",
+													"last_name_th": "ว่องไว",
+													"nickname": "ไว",
+													"phone_no": "0911223345",
+													"position": "VP_DATA_REGISTRATION",
+													"status": "PENDING_REVIEW",
+													"member_since": "2019-12-20T16:45:39.000Z",
+													"payment_date_at": "2025-12-18T07:30:00.000Z"
+												},
+												{
+													"id": 1,
+													"renewal_id": 70,
+													"profile_avatar": null,
+													"title_name_th": "นาย",
+													"first_name_th": "สมชาย",
+													"last_name_th": "ใจดี",
+													"nickname": "cham",
+													"phone_no": "0811223344",
+													"position": "GENERAL_MEMBER",
+													"status": "PENDING_REVIEW",
+													"member_since": "2020-12-20T16:45:39.000Z",
+													"payment_date_at": "2025-12-01T07:30:00.000Z"
+												}
+											]
+										}
+									},
+									"2": {
+										"summary": "Final page",
+										"value": {
+											"has_more": false,
+											"next_cursor": null,
+											"data": [
+												{
+													"id": 11,
+													"renewal_id": 42,
+													"profile_avatar": "https://file.domain.xyz/members/profile_avatars/profile_avatar_01KDNKQZ8XN4P2M6RTGQWZ7E3A.png",
+													"title_name_th": "นางสาว",
+													"first_name_th": "วิภาดา",
+													"last_name_th": "รักงาน",
+													"nickname": "วิ",
+													"phone_no": "0511223344",
+													"position": "SECRETARY",
+													"status": "APPROVED",
+													"member_since": "2021-03-15T04:20:11.000Z",
+													"payment_date_at": "2025-11-27T03:05:00.000Z"
+												}
+											]
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"3": {
+										"summary": "status must be PENDING_REVIEW or APPROVED",
+										"value": {
+											"error_message": "status must be PENDING_REVIEW or APPROVED"
+										}
+									},
+									"4": {
+										"summary": "limit must be at least 1/limit must be at most 100",
+										"value": {
+											"error_message": "limit must be at least 1"
+										}
+									},
+									"5": {
+										"summary": "cursor must be a positive integer",
+										"value": {
+											"error_message": "cursor must be a positive integer"
+										}
+									},
+									"6": {
+										"summary": "Invalid cursor",
+										"value": {
+											"error_message": "Invalid cursor"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			},
+			"post": {
+				"summary": "Create a new renewal request (/api/v1/membership/renewals)",
+				"deprecated": false,
+				"description": "## API Business Logic\n\n(PUBLIC route — no withAuth; session_id cookie is OPTIONAL)\n\n> Execute under the same DB transaction\n\n## ✍️Pseudocode\n\n1. Receive request body:\n    -> member_id = body.member_id\n    -> payment_slip = body.payment_slip\n\n2. Resolve isAdmin (inline soft session check — NO 401 path):\n```typescript\nsessionId = request.cookies[\"session_id\"]   // optional\nisAdmin = false\n    if sessionId is present:\n        sessionResult = authService.validateSession(sessionId)\n        isAdmin = sessionResult.isOk()          // valid  -> admin\n                                                // invalid-> not admin (≡ absent)\n// A present-but-invalid cookie is treated identically to no cookie.\n```\n\n3. Select the status pair from `isAdmin`:\n```typescript\nrenewalStatus = isAdmin ? \"APPROVED\" : \"PENDING_REVIEW\"\nmemberStatus  = isAdmin ? \"ACTIVE\" : \"PENDING_RENEWAL\"\n```\n\n4. Check member exists + validate status (OUTSIDE the transaction):\n```typescript\nSELECT status FROM members WHERE id = $1 AND deleted_at IS NULL\n    -> break not found (null):        Return 404 Not Found\n    -> break status = \"RESIGNED\":     Return 403 Forbidden\n                                        { error_message: \"resigned members cannot submit renewal requests\" }\n    -> break status = \"PENDING_RENEWAL\": Return 409 Conflict\n                                        { error_message: \"You already have a pending renewal request\" }\n// ACTIVE/EXPIRED proceed. Uniform for BOTH public and admin paths.\n```\n\n5. Begin DB transaction: `BEGIN`\n6. Insert renewal record (status is now a parameter, not a literal):\n```sql\nINSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status)\nVALUES ($1, $2, NOW(), $3)        -- $3 = renewalStatus\nRETURNING id\n\n-- Race-catch (only fires on the PUBLIC path):\n-- The partial unique index idx_one_pending_renewal_per_member covers\n-- status = 'PENDING_REVIEW' ONLY, so:\n--   public  insert ('PENDING_REVIEW') -> 23505 possible -> 409\n--   admin   insert ('APPROVED')      -> 23505 impossible (index excludes it)\n-> if Postgres error code = 23505:\n    ROLLBACK\n    Return 409 Conflict { error_message: \"You already have a pending renewal request\" }\n```\n        \n7. Update member status (status values are parameters, not literals):\n```sql\nUPDATE members\nSET status = $2,                  -- $2 = memberStatus\n    latest_renewal_status = $3,   -- $3 = renewalStatus\n    updated_at = NOW()\nWHERE id = $1 AND deleted_at IS NULL\n// NOTE: expires_at and renewal_successful_count are NOT touched\n// (out of scope — owned by the future review/approve API).\n```\n8. Commit transaction: `COMMIT`\n9. Return 201 Created\n\n## 🖼️Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/membership/renewals<br/>{ member_id, payment_slip }<br/>Cookie: session_id=? (optional)\n\n    nextjsapi-->>nextjsapi: Validate request body:<br/>1. member_id required, positive integer<br/>2. payment_slip required, non-empty\n\n    break if validation fails\n        nextjsapi-->>browser: 400 Bad Request { error_message }\n    end\n\n    nextjsapi-->>nextjsapi: Resolve isAdmin (soft check, NO 401):<br/>cookie present & validateSession() OK -> isAdmin=true<br/>cookie absent OR invalid -> isAdmin=false\n\n    nextjsapi->>+database: SELECT status FROM members<br/>WHERE id = $1 AND deleted_at IS NULL\n    database-->>-nextjsapi: Return member status (or no row)\n\n    break if member not found\n        nextjsapi-->>browser: 404 Not Found { error_message: 'not found this member id' }\n    end\n\n    break if member.status = 'RESIGNED'\n        nextjsapi-->>browser: 403 Forbidden { error_message: 'resigned members cannot submit renewal requests' }\n    end\n\n    break if member.status = 'PENDING_RENEWAL' (pre-check)\n        nextjsapi-->>browser: 409 Conflict { error_message: 'You already have a pending renewal request' }\n    end\n\n    Note over nextjsapi: Pick status pair from isAdmin:<br/>public -> PENDING_REVIEW / PENDING_RENEWAL<br/>admin -> APPROVED / ACTIVE\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under one DB transaction (ADR-0014)\n\n        nextjsapi->>database: INSERT INTO membership_renewals<br/>(member_id, payment_slip_file_path, payment_date_at, status)<br/>VALUES ($1, $2, NOW(), $3) -- $3 = renewalStatus<br/>RETURNING id\n\n        break Postgres error code 23505 (PUBLIC path only - index covers 'PENDING_REVIEW' only)\n            database-->>nextjsapi: Error: duplicate key violates idx_one_pending_renewal_per_member\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 409 Conflict { error_message: 'You already have a pending renewal request' }\n        end\n\n        database-->>nextjsapi: Return membership_renewals.id\n\n        nextjsapi->>database: UPDATE members<br/>SET status = $2, latest_renewal_status = $3, updated_at = NOW()<br/>WHERE id = $1 AND deleted_at IS NULL<br/>(expires_at & renewal_successful_count NOT touched)\n        database-->>nextjsapi: OK\n    end\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: OK\n\n    nextjsapi-->>browser: 201 Created { id }\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": false,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"member_id": {
+										"type": "integer",
+										"format": "uint"
+									},
+									"payment_slip": {
+										"type": "string",
+										"examples": ["members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"]
+									}
+								},
+								"required": ["member_id", "payment_slip"]
+							},
+							"example": {
+								"member_id": 197,
+								"payment_slip": "members/documents/payment_slip_01KZG6P7ZDNHJ7AQ8CGSZW4ZFH.webp"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"201": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"id": {
+											"type": "integer",
+											"format": "uint"
+										}
+									},
+									"required": ["id"]
+								},
+								"example": {
+									"id": 71
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "A detailed error message."
+								}
+							}
+						},
+						"headers": {}
+					},
+					"403": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "resigned members cannot submit renewal requests"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "not found this member id"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"409": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"5": {
+										"summary": "status = PENDING_RENEWAL (pre-check)",
+										"value": {
+											"error_message": "You already have a pending renewal request"
+										}
+									},
+									"6": {
+										"summary": "Unique-violation 23505 on INSERT",
+										"value": {
+											"error_message": "You already have a pending renewal request"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/membership/renewals/{member_id}": {
+			"get": {
+				"summary": "Get a latest renewal by member_id (/api/v1/membership/renewals/{member_id})",
+				"deprecated": false,
+				"description": "# Get a latest membership renewal for single UI view\n\nStaff-only read (withAuth — `session_id` cookie required). One round-trip query returns a non-deleted member + its 1:1 business + the single newest renewal:\n\n1. Query the latest `membership_renewals` record by `member_id`\n   - Sort by `id DESC`, `LIMIT 1` (LEFT JOIN LATERAL)\n2. Resolve file URLs (ADR-0007 bucket policy):\n   - `profile_avatar` → public bucket URL (base-URL concat), or null\n   - `payment_slip` → PRIVATE bucket **presigned** time-limited URL (not a public URL)\n3. `position` ships the RAW position code (e.g. `GENERAL_MEMBER`) — the frontend maps it to a Thai display name\n4. `payment_date_at` is a full ISO datetime (e.g. `2025-08-23T10:30:00.000Z`)\n\n## ✍️ Pseudocode\n\n1. Session check (withAuth middleware):\n   - Extract `session_id` cookie from the request, validate the session\n   - break if cookie is missing or invalid:\n         -> Return HTTP 401 Unauthorized\n\n2. Extract `member_id` from path parameters:\n       -> member_id = Number(params.member_id)\n\n3. Validate member_id (Valibot: string → Number → integer → minValue(1)):\n   - break if member_id is NaN, not an integer, or < 1:\n         -> Return HTTP 400 Bad Request\n\n4. Resolve GetLatestRenewalByMemberIdService from the DI container,\n   then execute one round-trip (static sqlc) query:\n   ```sql\n   SELECT\n     m.id,\n     m.profile_avatar,\n     m.title_name_th,\n     m.first_name_th,\n     m.last_name_th,\n     m.nickname,\n     m.phone_no,\n     m.position_code,\n     mb.name AS business_name,\n     mr.id AS renewal_id,\n     mr.payment_date_at AS renewal_payment_date_at,\n     mr.payment_slip_file_path AS renewal_payment_slip_file_path\n   FROM members m\n   JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL\n   LEFT JOIN LATERAL (\n     SELECT id, payment_date_at, payment_slip_file_path\n     FROM membership_renewals\n     WHERE member_id = m.id AND deleted_at IS NULL\n     ORDER BY id DESC\n     LIMIT 1\n   ) mr ON true\n   WHERE m.id = $1\n     AND m.deleted_at IS NULL;\n   ```\n\n5. break Query error (DatabaseError):\n    -> Log the error\n    -> Return HTTP 500 Internal Server Error\n\n6. Check if record exists:\n   break if result.rows.length === 0:\n       -> Return HTTP 404 Not Found\n\n7. Extract the single row:\n     -> row = result.rows[0]\n\n8. break if row.renewal_id = null (member exists but has no renewal records):\n    -> Return HTTP 404 Not Found\n\n9. Resolve file URLs (MemberFileUrlService, ADR-0007):\n   - profile_avatar (public bucket) → publicUrl(path) = R2_PUBLIC_BASE_URL + path\n     - null if the member has no avatar (absence is not failure)\n   - payment_slip_file_path (PRIVATE bucket) → presign(path) = time-limited signed URL\n   - break presign failure (StorageError — R2 unreachable / bad creds):\n       -> Log the error\n       -> Return HTTP 500 Internal Server Error\n\n10. Transform response data (top-level `id` is the MEMBER id):\n```typescript\n{\n    id: row.id,\n    profile_avatar: publicUrl || null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    phone_no: row.phone_no,\n    position: row.position_code,\n    business: {\n        name: row.business_name\n    },\n    renewal: {\n        id: row.renewal_id,\n        payment_date_at: row.renewal_payment_date_at.toISOString(),\n        payment_slip: presignedUrl\n    }\n}\n```\n\n11. Return HTTP 200 OK\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin staff)\n    participant nextjsapi as Next.js /api (withAuth)\n    participant database as PostgreSQL\n    participant r2 as R2 Storage (presign)\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/38\n\n    nextjsapi -->> nextjsapi: withAuth: read session_id cookie<br/>+ validateSession()\n\n    break session cookie missing / invalid\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Extract member_id from path<br/>member_id = Number(\"38\")\n\n    break invalid member_id (NaN / not integer / < 1)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"member_id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: SELECT m.id, m.profile_avatar, ..., mb.name AS business_name,<br/>mr.id AS renewal_id, mr.payment_date_at, mr.payment_slip_file_path<br/>FROM members m<br/>JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL<br/>LEFT JOIN LATERAL (<br/>SELECT id, payment_date_at, payment_slip_file_path<br/>FROM membership_renewals<br/>WHERE member_id = m.id AND deleted_at IS NULL<br/>ORDER BY id DESC LIMIT 1<br/>) mr ON true<br/>WHERE m.id = 38 AND m.deleted_at IS NULL\n    database-->>-nextjsapi: Return rows (0 or 1 record)\n\n    break Query error (DatabaseError)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    break if rows.length === 0\n        nextjsapi-->>browser: 404 Not Found { error_message: \"Member or renewal not found\" }\n    end\n\n    nextjsapi -->> nextjsapi: Extract row = rows[0]\n\n    break if row.renewal_id = null (member exists, no renewal)\n        nextjsapi-->>browser: 404 Not Found { error_message: \"No renewal records found\" }\n    end\n\n    nextjsapi -->> nextjsapi: Resolve profile_avatar<br/>(public bucket → base-URL concat, null passes through)\n\n    nextjsapi->>+r2: presign(payment_slip_file_path)<br/>(private bucket → time-limited signed URL)\n    r2-->>-nextjsapi: Presigned URL\n\n    break presign failure (StorageError — R2 unreachable / bad creds)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. position ships the RAW code (frontend maps to Thai display name)<br/>2. payment_date_at → full ISO datetime<br/>3. payment_slip → presigned URL\n\n    nextjsapi-->>browser: 200 OK (SingleRenewalResponse)\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "member_id",
+						"in": "path",
+						"description": "",
+						"required": true,
+						"example": "1",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/SingleRenewalResponse"
+								},
+								"example": {
+									"id": 38,
+									"profile_avatar": "https://file.domain.xyz/members/profile_avatars/profile_avatar_01J….jpg",
+									"title_name_th": "นาย",
+									"first_name_th": "ก้องภพ",
+									"last_name_th": "จบไว",
+									"nickname": "ก้อง",
+									"phone_no": "0982738293",
+									"position": "GENERAL_MEMBER",
+									"business": {
+										"name": "บริษัท วี ฟู้ดส์"
+									},
+									"renewal": {
+										"id": 59,
+										"payment_date_at": "2025-08-23T10:30:00.000Z",
+										"payment_slip": "https://<r2-endpoint>/members/documents/payment_slip_01J….jpg?X-Amz-Signature=…"
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "member_id parameter must be a valid integer"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Member or renewal not found"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"5": {
+										"summary": "Database query failure",
+										"value": {
+											"error_message": "Internal Server Error"
+										}
+									},
+									"6": {
+										"summary": "StorageError Presign failure",
+										"value": {
+											"error_message": "Internal Server Error"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/membership/renewals/manual": {
+			"post": {
+				"summary": "Create a new manual renewal by member_id (/api/v1/membership/renewals/manual)",
+				"deprecated": false,
+				"description": "## Business Logic\n\n> Execute under the same DB transaction\n\n1. Validate the `session_id` cookie (staff-only). If missing or invalid → `401 Unauthorized`\n2. Receive request body, validate required fields and types → `400 Bad Request` on failure\n3. Check the member exists and validate its status (read **outside** the transaction):\n   - not found / soft-deleted → `404 Not Found`\n   - `status = RESIGNED` → `403 Forbidden`\n   - `status = PENDING_RENEWAL` → `409 Conflict` (already has a pending renewal)\n   - `ACTIVE` / `EXPIRED` → proceed\n4. Calculate the new `expires_at` — **end of the NEXT calendar year**:\n   - `expires_at = `${currentYear + 1}-12-31T23:59:59` (e.g. a 2026 submission → `2027-12-31T23:59:59+07:00`)\n5. Begin DB transaction:\n   1. Insert a new record into `membership_renewals`:\n      - `member_id` = input\n      - `payment_slip_file_path` = input\n      - `payment_date_at` = `NOW()`\n      - `status` = `APPROVED`\n   2. Update the member by id:\n      - `status` = `ACTIVE`\n      - `latest_renewal_status` = `APPROVED`\n      - `expires_at` = the value from step 4\n      - `renewal_successful_count` = `renewal_successful_count + 1`\n      - `updated_at` = `NOW()`\n6. Commit transaction\n7. Return `201 Created` with the inserted `renewal_id`\n\n> Note: Because the renewal is inserted with `status = 'APPROVED'`, it is **excluded** from the partial unique index `idx_one_pending_renewal_per_member` (which only covers `PENDING_REVIEW`). So the INSERT on this endpoint can never raise a unique-violation — the only `409` comes from the status pre-check in step 3.\n\n\n## ✍️Pseudocode\n\n1. Receive and authenticate the request:\n    - `session_id` cookie required (staff session)\n    - missing or invalid `session_id` → `401 Unauthorized`\n\n2. Receive request body:\n    - `member_id` = body.member_id\n    - `payment_slip` = body.payment_slip\n\n3. Validate required fields:\n    - break `member_id` missing or not a positive integer → `400 Bad Request`\n    - break `payment_slip` missing or empty → `400 Bad Request`\n\n4. Check member exists and validate status:\n    ```sql\n    SELECT status\n    FROM members\n    WHERE id = $1\n      AND deleted_at IS NULL;\n    ```\n    - break not found member → `404 Not Found`\n    - break `member.status = 'RESIGNED'` → `403 Forbidden`\n      `{ error_message: \"resigned members cannot submit renewal requests\" }`\n    - break `member.status = 'PENDING_RENEWAL'` → `409 Conflict`\n      `{ error_message: \"You already have a pending renewal request\" }`\n\n5. Calculate new `expires_at` (End of NEXT calendar year):\n    - `next_year = current_year + 1`\n    - `expires_at = `${next_year}-12-31T23:59:59+07:00``\n    - e.g. submission in 2026 → `2027-12-31T23:59:59+07:00`\n\n6. Begin DB transaction: `BEGIN`\n\n7. Insert a new renewal record:\n    ```sql\n    INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status)\n    VALUES ($1, $2, NOW(), 'APPROVED')\n    RETURNING id;\n    ```\n\n8. Update member status and membership clock:\n    ```sql\n    UPDATE members\n    SET\n      status = 'ACTIVE',\n      latest_renewal_status = 'APPROVED',\n      expires_at = $3,\n      renewal_successful_count = renewal_successful_count + 1,\n      updated_at = NOW()\n    WHERE id = $1\n      AND deleted_at IS NULL;\n    ```\n\n9. Commit transaction: `COMMIT`\n\n10. Return `201 Created`\n    `{ id: <renewal_id> }`\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin)\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/membership/renewals/manual<br/>{ member_id: 15, payment_slip: \"...\" }<br/>Cookie: session_id=...\n\n    nextjsapi -->> nextjsapi: Validate session_id cookie (withAuth)\n\n    break Missing or invalid session_id\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Validate request body:<br/>1. member_id required, positive integer<br/>2. payment_slip required\n\n    break Validate request body failed\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"...\" }\n    end\n\n    nextjsapi->>+database: SELECT status FROM members<br/>WHERE id = 15 AND deleted_at IS NULL\n    database-->>-nextjsapi: Return member row { id: 15, status: 'EXPIRED' }\n\n    break Member not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"not found this member id\" }\n    end\n\n    break member.status = 'RESIGNED'\n        nextjsapi-->>browser: 403 Forbidden { error_message: \"resigned members cannot submit renewal requests\" }\n    end\n\n    break member.status = 'PENDING_RENEWAL'\n        nextjsapi-->>browser: 409 Conflict { error_message: \"You already have a pending renewal request\" }\n    end\n\n    nextjsapi -->> nextjsapi: Calculate expires_at:<br/>next_year = current_year + 1<br/>expires_at = `${next_year}-12-31T23:59:59+07:00`<br/>(2026 -> 2027-12-31T23:59:59+07:00)\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n    Note over nextjsapi,database: Execute Under Database Transaction\n\n    nextjsapi->>+database: INSERT INTO membership_renewals<br/>(member_id, payment_slip_file_path, payment_date_at, status)<br/>VALUES (15, '...', NOW(), 'APPROVED')<br/>RETURNING id\n    database-->>-nextjsapi: Return inserted_id { id: 71 }\n\n    nextjsapi->+database: UPDATE members<br/>SET status = 'ACTIVE',<br/>latest_renewal_status = 'APPROVED',<br/>expires_at = '2027-12-31T23:59:59+07:00',<br/>renewal_successful_count = renewal_successful_count + 1,<br/>updated_at = NOW()<br/>WHERE id = 15 AND deleted_at IS NULL\n    database-->>-nextjsapi: Return OK\n\n    end\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: OK\n\n    nextjsapi-->>browser: 201 Created { id: 71 }\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"member_id": {
+										"type": "integer",
+										"format": "uint"
+									},
+									"payment_slip": {
+										"type": "string",
+										"examples": ["members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"]
+									}
+								},
+								"required": ["member_id", "payment_slip"]
+							},
+							"example": {
+								"member_id": 197,
+								"payment_slip": "members/documents/payment_slip_01KZG6P7ZDNHJ7AQ8CGSZW4ZFH.webp"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"201": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"id": {
+											"type": "integer",
+											"format": "uint"
+										}
+									},
+									"required": ["id"]
+								},
+								"example": {
+									"id": 71
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "A detailed error message."
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"403": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "resigned members cannot submit renewal requests"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "not found this member id"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"409": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "You already have a pending renewal request"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/membership/renewals/review/{renewal_id}": {
+			"patch": {
+				"summary": "Review renewal request by id (/api/v1/membership/renewals/review/{renewal_id})",
+				"deprecated": false,
+				"description": "# Review renewal request by id\n\n`PATCH /api/v1/membership/renewals/review/:renewal_id` — staff decide a live `PENDING_REVIEW` renewal. Approve reactivates the member and advances the membership clock; reject expires the member with a mandatory reason. Both outcomes are terminal.\n\n## Business Logic\n\n1. Auth: require a valid `session_id` cookie (staff) → else `401 { \"error_message\": \"Unauthorized\" }`\n2. Validate path param `renewal_id` (positive integer) → else `400 { \"error_message\": \"invalid renewal_id\" }`\n3. Parse JSON body → else `400 { \"error_message\": \"Invalid request body\" }`\n4. Validate body:\n   - `status` must be `APPROVED` or `REJECTED` (enum)\n   - Cross-field pairing: `status=REJECTED` requires a non-empty `reason`; `status=APPROVED` requires no reason (null/absent/blank)\n   - Trim-aware, symmetrically: a whitespace-only `reason` counts as empty in **both** directions\n   - Pairing violation → `400 { \"error_message\": \"status and reason are incorrect\" }`\n5. Query `membership_renewals` by `id` (non-deleted)\n6. Renewal not found (or soft-deleted) → `404 { \"error_message\": \"not found this renewal\" }`\n7. Pre-check: renewal status ≠ `PENDING_REVIEW` → `409 { \"error_message\": \"This renewal has been reviewed\" }` (clean fast path)\n8. Begin DB transaction\n9. **Guarded** renewal UPDATE — the WHERE carries `status = 'PENDING_REVIEW' AND deleted_at IS NULL` and the statement RETURNs the row id:\n   - set `status`, `rejection_reason` (= input reason on REJECTED, NULL on APPROVED), `reviewed_at = NOW()`, `updated_at = NOW()`\n   - **zero rows returned** → a concurrent review already decided this renewal → ROLLBACK → `409` with the same message (the pre-check only catches the clean case; this guard closes the race)\n10. If `status=APPROVED` — update member by `member_id`:\n    - `status = 'ACTIVE'`\n    - `expires_at` = end of **next** calendar year: `${currentYear + 1}-12-31T23:59:59.999` (e.g. reviewing in 2026 → `2027-12-31T23:59:59.999Z`) — the same shared rule as member creation and manual renewal\n    - `renewal_successful_count += 1`\n    - `latest_renewal_status = 'APPROVED'`, `updated_at = NOW()`\n11. If `status=REJECTED` — update member by `member_id` (clock untouched):\n    - `status = 'EXPIRED'`\n    - `latest_renewal_status = 'REJECTED'`, `updated_at = NOW()`\n12. Commit → `204 No Content` (empty body)\n\n## ✍️ Pseudocode\n\n1. renewal_id = parseInt(params.renewal_id)\n   if NaN or < 1 → 400 \"invalid renewal_id\"\n\n2. body = parse JSON                  → 400 \"Invalid request body\" on parse failure\n   status = body.status               (required, enum APPROVED | REJECTED)\n   reason = body.reason ?? null       (nullable, optional)\n\n3. Pairing check (trim-aware):\n   REJECTED  && reason.trim() == \"\"   → 400 \"status and reason are incorrect\"\n   APPROVED  && reason.trim() != \"\"   → 400 \"status and reason are incorrect\"\n\n4. SELECT id, member_id, status\n   FROM membership_renewals\n   WHERE id = $1 AND deleted_at IS NULL;\n   → no row                         → 404 \"not found this renewal\"\n   → status != 'PENDING_REVIEW'     → 409 \"This renewal has been reviewed\"\n\n5. BEGIN;\n\n6. UPDATE membership_renewals\n   SET status = $1,\n       rejection_reason = $2,          -- reason on REJECTED, NULL on APPROVED\n       reviewed_at = NOW(),\n       updated_at = NOW()\n   WHERE id = $3\n     AND status = 'PENDING_REVIEW'     -- transition guard\n     AND deleted_at IS NULL\n   RETURNING id;\n   → 0 rows (race lost) → ROLLBACK → 409 \"This renewal has been reviewed\"\n\n7. IF status = 'APPROVED':\n      expires_at = `${currentYear + 1}-12-31T23:59:59.999`\n      UPDATE members\n      SET status = 'ACTIVE',\n          latest_renewal_status = 'APPROVED',\n          expires_at = $1,\n          renewal_successful_count = renewal_successful_count + 1,\n          updated_at = NOW()\n      WHERE id = $2 AND deleted_at IS NULL;\n   ELSE:\n      UPDATE members\n      SET status = 'EXPIRED',\n          latest_renewal_status = 'REJECTED',\n          updated_at = NOW()\n      WHERE id = $1 AND deleted_at IS NULL;\n\n8. COMMIT;\n9. → 204 No Content\n\n\n## Implementation notes (deltas vs the original spec draft, ADR-0018)\n\n- **Guarded UPDATE**: the spec draft's check-then-write SQL was racy; the `AND status = 'PENDING_REVIEW'` guard + `RETURNING id` makes the 409 contract hold under concurrent reviews. The pre-check read is kept only as the fast path.\n- **`rejection_reason` bound directly** (no `CASE WHEN`): the guard guarantees the row was `PENDING_REVIEW` (reason NULL), so direct binding is equivalent.\n- **Expiry is end of *next* calendar year** — resolving the draft's self-contradicting examples; unified with member creation and manual renewal via one shared rule.\n- **Reviewer identity is not recorded** (no column); only `reviewed_at` is stamped.\n\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin)\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/membership/renewals/review/:renewal_id<br/>{ status: \"REJECTED\", reason: \"สลิปไม่ชัด\" }<br/>Cookie: session_id=***\n\n    break Missing / invalid session\n        nextjsapi-->>browser: 401 { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: renewal_id = 79 (positive integer ✓)\n\n    break Invalid renewal_id\n        nextjsapi-->>browser: 400 { error_message: \"invalid renewal_id\" }\n    end\n\n    nextjsapi -->> nextjsapi: Validate body:<br/>status = \"REJECTED\"<br/>reason = \"สลิปไม่ชัด\"\n\n    break status=REJECTED and reason empty/blank<br/>(or APPROVED with a reason)\n        nextjsapi-->>browser: 400 { error_message: \"status and reason are incorrect\" }\n    end\n\n    nextjsapi->>+database: SELECT id, member_id, status<br/>FROM membership_renewals<br/>WHERE id = 79 AND deleted_at IS NULL\n    database-->>-nextjsapi: { id: 79, member_id: 15, status: 'PENDING_REVIEW' }\n\n    break Renewal not found\n        nextjsapi-->>browser: 404 { error_message: \"not found this renewal\" }\n    end\n\n    break status != 'PENDING_REVIEW' (pre-check)\n        nextjsapi-->>browser: 409 { error_message: \"This renewal has been reviewed\" }\n    end\n\n    opt status = 'APPROVED'\n        nextjsapi -->> nextjsapi: expires_at = `${nextYear}-12-31T23:59:59.999`\n    end\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n    Note over nextjsapi,database: Execute Under Database Transaction\n\n    nextjsapi->>database: UPDATE membership_renewals<br/>SET status, rejection_reason,<br/>reviewed_at = NOW(), updated_at = NOW()<br/>WHERE id = 79<br/>AND status = 'PENDING_REVIEW' ← guard<br/>AND deleted_at IS NULL<br/>RETURNING id\n    database-->>nextjsapi: id 79\n\n    break 0 rows returned — concurrent review won\n        nextjsapi->>database: ROLLBACK\n        nextjsapi-->>browser: 409 { error_message: \"This renewal has been reviewed\" }\n    end\n\n    alt status = 'APPROVED'\n        nextjsapi->>database: UPDATE members<br/>SET status = 'ACTIVE',<br/>latest_renewal_status = 'APPROVED',<br/>expires_at = '2027-12-31T23:59:59.999Z',<br/>renewal_successful_count = count + 1,<br/>updated_at = NOW()<br/>WHERE id = 15 AND deleted_at IS NULL\n        database-->>nextjsapi: OK\n    else status = 'REJECTED'\n        nextjsapi->>database: UPDATE members<br/>SET status = 'EXPIRED',<br/>latest_renewal_status = 'REJECTED',<br/>updated_at = NOW()<br/>WHERE id = 15 AND deleted_at IS NULL\n        database-->>nextjsapi: OK\n    end\n\n    end\n    nextjsapi->>database: COMMIT Transaction\n    database-->>nextjsapi: OK\n\n    nextjsapi-->>browser: 204 No Content\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "renewal_id",
+						"in": "path",
+						"description": "",
+						"required": true,
+						"example": 1,
+						"schema": {
+							"type": "integer",
+							"format": "uint"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"status": {
+										"type": "string",
+										"enum": ["APPROVED", "REJECTED"]
+									},
+									"reason": {
+										"type": ["string", "null"],
+										"examples": ["ยอดเงินไม่ถูกต้อง", "สลิปไม่ชัด"],
+										"description": "required_if status=REJECTED"
+									}
+								},
+								"required": ["status"]
+							},
+							"examples": {
+								"1": {
+									"value": {
+										"status": "APPROVED",
+										"reason": null
+									},
+									"summary": "status=APPROVED"
+								},
+								"2": {
+									"value": {
+										"status": "REJECTED",
+										"reason": "สลิปไม่ชัด"
+									},
+									"summary": "status=REJECTED"
+								}
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"204": {
+						"description": "",
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"2": {
+										"summary": "renewal_id not a positive integer",
+										"value": {
+											"error_message": "invalid renewal_id"
+										}
+									},
+									"3": {
+										"summary": "Body is not parseable JSON",
+										"value": {
+											"error_message": "Invalid request body"
+										}
+									},
+									"4": {
+										"summary": "status missing or outside the enum (\"MAYBE\", lowercase, …)",
+										"value": {
+											"error_message": "status must be APPROVED or REJECTED"
+										}
+									},
+									"5": {
+										"summary": "Pairing violation — REJECTED with null/absent/blank reason, or APPROVED with a non-blank reason (trim-aware)",
+										"value": {
+											"error_message": "status and reason are incorrect"
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "not found this renewal"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"409": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"error_message": {
+											"type": "string"
+										}
+									},
+									"required": ["error_message"]
+								},
+								"example": {
+									"error_message": "This renewal has been reviewed"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/dashboard/stat": {
+			"get": {
+				"summary": "Get total count dashboard (/api/v1/dashboard/stat)",
+				"deprecated": false,
+				"description": "## GET dashboard statistic (`/api/v1/dashboard/stat`)\n\nFive headline counts for the backoffice dashboard:\n\n1. จำนวนสมาชิกทั้งหมด (`total_members`)\n2. จำนวนกิจการ (`total_businesses`)\n3. สมาชิก active (`total_active_members`) — `status = 'ACTIVE'`\n4. สมาชิกยังไม่ได้ต่ออายุ (`total_expired_members`) — `status IN ('EXPIRED', 'PENDING_RENEWAL')`\n5. จำนวนสมาชิกที่เข้าร่วมในแต่ละปี (`total_members_each_year`) — **default = 5 years (for now)**\n\n![CleanShot 2569-01-02 at 00.55.44@2x.png](https://api.apidog.com/api/v1/projects/1162330/resources/369211/image-preview)\n\n### Semantics notes\n\n- **RESIGNED members** count toward `total_members` and the yearly breakdown, but **neither** status bucket — so the three member counts do **not** necessarily sum.\n- `total_expired_members` here is the \"not yet renewed\" reading (`EXPIRED` or `PENDING_RENEWAL`). It is **deliberately different** from the Renewal Stat endpoint's same-named field (`status = 'EXPIRED' OR latest_renewal_status = 'REJECTED'`) — the two endpoints' numbers are not expected to match.\n- **Years are Asia/Bangkok wall-clock years** (UTC+7), independent of any server timezone. A member registered New Year's Eve 23:30 Bangkok time belongs to that Bangkok year.\n- `total_members_each_year` keys are calendar-year strings in **ascending** order (integer-like JSON keys serialize ascending), zero-filled across the whole lookback window — a year with no members appears as `0`.\n\n\n## ✍️Pseudocode\n\n1. Extract `lookback_years` from query parameters:\n       -> lookback_years = parseInt(query.lookback_years) || 5\n\n2. Validate lookback_years:\n   break if lookback_years < 1 or lookback_years > 20 (or not an integer):\n      -> Return HTTP 400 Bad Request { error_message: \"lookback_years must be between 1 and 20\" }\n\n3. Compute the year window (one shared timezone policy — Asia/Bangkok):\n       -> current_year = current calendar year in Asia/Bangkok\n       -> min_year = current_year - lookback_years + 1\n\n4. Execute Database Queries (sqlc, all static):\n   ```sql\n   -- Query 1 - Combined Member Stats (using FILTER)\n   SELECT\n     COUNT(*)::int AS total_members,\n     COUNT(*) FILTER (WHERE status = 'ACTIVE')::int AS total_active_members,\n     COUNT(*) FILTER (WHERE status IN ('EXPIRED', 'PENDING_RENEWAL'))::int AS total_expired_members\n   FROM members\n   WHERE deleted_at IS NULL;\n\n   -- Query 2 - Total Businesses\n   SELECT COUNT(*)::int AS total_businesses\n   FROM member_business\n   WHERE deleted_at IS NULL;\n\n   -- Query 3 - Members Each Year (Bangkok wall-clock years, bound int param)\n   SELECT\n       EXTRACT(YEAR FROM (member_since AT TIME ZONE 'Asia/Bangkok'))::int AS year,\n       COUNT(*)::int AS count\n   FROM members\n   WHERE deleted_at IS NULL\n     AND EXTRACT(YEAR FROM (member_since AT TIME ZONE 'Asia/Bangkok'))::int >= $1  -- min_year\n   GROUP BY 1\n   ORDER BY 1 ASC;\n   ```\n\n5. break if any Query fails:\n    -> Log the error\n    -> Return HTTP 500 Internal Server Error { error_message: \"Internal Server Error\" }\n\n6. Build yearly breakdown object (zero-fill, ascending):\n    -> For year from min_year to current_year:\n    ->    yearly_counts[String(year)] = 0\n    -> Fill in actual counts from Query 3 (rows outside the window are ignored)\n\n7. Build response object:\n```\n{\n    total_members: Query1.total_members,\n    total_active_members: Query1.total_active_members,\n    total_expired_members: Query1.total_expired_members,\n    total_businesses: Query2.total_businesses,\n    total_members_each_year: yearly_counts\n}\n```\n\n8. Response 200 OK\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/dashboard/stat?lookback_years=7\n\n    nextjsapi -->> nextjsapi: Extract lookback_years from query<br/>Default to 5 if not provided\n\n    break lookback_years < 1 or > 20 or not an integer\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"lookback_years must be between 1 and 20\" }\n    end\n\n    nextjsapi -->> nextjsapi: current_year = Bangkok calendar year<br/>min_year = current_year - lookback_years + 1\n\n    nextjsapi->>+database: Query 1: COUNT(*) FILTER (ACTIVE / EXPIRED+PENDING_RENEWAL)<br/>FROM members WHERE deleted_at IS NULL\n    database-->>nextjsapi: Single row with 3 count columns\n\n    nextjsapi->>database: Query 2: COUNT(*) FROM member_business<br/>WHERE deleted_at IS NULL\n    database-->>nextjsapi: total_businesses count\n\n    nextjsapi->>database: Query 3: EXTRACT(YEAR FROM member_since AT TIME ZONE 'Asia/Bangkok'),<br/>COUNT(*) FROM members WHERE deleted_at IS NULL<br/>AND year >= min_year GROUP BY year\n    database-->>-nextjsapi: yearly breakdown rows\n\n    break if any query fails\n        nextjsapi-->>browser: 500 Internal Server Error { error_message: \"Internal Server Error\" }\n    end\n\n    nextjsapi -->> nextjsapi: Build yearly_counts object:<br/>1. Zero-fill min_year..current_year (ascending)<br/>2. Fill in actual counts from Query 3\n\n    nextjsapi -->> nextjsapi: Construct response object\n\n    nextjsapi-->>browser: 200 OK {<br/>  total_members: 10,<br/>  total_active_members: 5,<br/>  total_expired_members: 4,<br/>  total_businesses: 10,<br/>  total_members_each_year: { \"2021\": 0, \"2022\": 0, ..., \"2026\": 8 }<br/>}\n```",
+				"tags": ["dashboard"],
+				"parameters": [
+					{
+						"name": "lookback_years",
+						"in": "query",
+						"description": "",
+						"required": false,
+						"example": 7,
+						"schema": {
+							"type": "integer",
+							"format": "uint",
+							"default": 5,
+							"examples": [10]
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"total_members": {
+											"type": "integer"
+										},
+										"total_active_members": {
+											"type": "integer"
+										},
+										"total_expired_members": {
+											"type": "integer"
+										},
+										"total_businesses": {
+											"type": "integer"
+										},
+										"total_members_each_year": {
+											"type": "object",
+											"properties": {
+												"2021": {
+													"type": "integer"
+												},
+												"2022": {
+													"type": "integer"
+												},
+												"2023": {
+													"type": "integer"
+												},
+												"2024": {
+													"type": "integer"
+												},
+												"2025": {
+													"type": "integer"
+												}
+											}
+										}
+									},
+									"required": ["total_members", "total_active_members", "total_expired_members", "total_businesses", "total_members_each_year"]
+								},
+								"example": {
+									"total_members": 10,
+									"total_active_members": 5,
+									"total_expired_members": 4,
+									"total_businesses": 10,
+									"total_members_each_year": {
+										"2019": 4,
+										"2020": 5,
+										"2021": 6,
+										"2022": 7,
+										"2023": 8,
+										"2024": 10,
+										"2025": 10
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "lookback_years must be between 1 and 20"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/auth/login": {
+			"post": {
+				"summary": "Login username&password (/api/v1/auth/login)",
+				"deprecated": false,
+				"description": "# Validates credentials and creates a stateful session using HttpOnly cookies\n\n> Login username/password, create&store a session, and keep session_id in cookie\n\n## ✍️Pseudocode\n1. Extract `username`, `password`, and `rememberMe` from request body.\n    - Extract `ip` and `userAgent` from request headers\n\n2. Parse and validate request body:\n   ```\n   {\n      username: string,     // min 1, max 100\n      password: string,     // min 1, max 255\n      rememberMe?: boolean  // default false\n   }\n   ```\n   break if username or password is empty:\n      -> Return HTTP 400 Bad Request\n    ```\n    { error: \"Missing credentials\" }\n    ```\n\n3. Sanitize input username (trim, remove dangerous characters)\n\n4. Validate credentials against environment variables:\n   if (username !== process.env.AUTH_USERNAME OR password !== process.env.AUTH_PASSWORD):\n      -> Return HTTP 401 Unauthorized { error: \"Invalid credentials\" }\n\n5. Generate Session ID:\n   -> session_id = generateULID()\n\n6. Determine TTL (in seconds):\n   -> isPersistent = (rememberMe === true)\n   -> if isPersistent:\n          -> ttl_seconds = 30 * 24 * 60 * 60  // 30 days\n      else:\n          -> ttl_seconds = 24 * 60 * 60      // 24 hours\n\n7. Build SessionData object:\n   -> now = current timestamp\n   -> session_data = \n   ```\n   {\n        username: username,\n        ip: ip,\n        userAgent: userAgent,\n        createdAt: now,\n        lastAccessedAt: now,\n        expiresAt: now + (ttl_seconds * 1000),\n        isPersistent: isPersistent\n   }\n   ``` \n8. Store a session in Memory Cache:\n\n9. Set Cookie Header:\n       -> cookie_string = `session_id=${session_id}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${ttl_seconds}`\n       -> response.setHeader('Set-Cookie', cookie_string)\n\n10. Return HTTP 204 No Content\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant cache as SessionStore\n    \n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/auth/login<br/>{ username, password, rememberMe }\n\n    break Missiong username or password\n        nextjsapi-->>browser: 400 Bad Request { error: \"Missing credentials\" }\n    end\n\n    nextjsapi -->> nextjsapi: Sanitize input username (trim, remove dangerous characters)\n\n    nextjsapi -->> nextjsapi: Validate against Environment Variables<br/>(process.env.AUTH_USERNAME / AUTH_PASSWORD)\n    break Incorrect username or password\n        nextjsapi-->>browser: 401 Unauthorized { error: \"Invalid credentials\" }\n    end\n\n    nextjsapi->>+cache: Create a new session\n    Note over cache: 1. Generate Session ID (ULID)<br/>2. Calculate TTL:<br/>- rememberMe=true ➞ 30 days (in seconds)<br/>- rememberMe=false ➞ 24 hours (in seconds)\n    Note over cache: Build SessionData Object:<br/>{<br/>  username, ip, userAgent,<br/>  createdAt, lastAccessedAt, expiresAt,<br/>  isPersistent<br/>}\n\n    cache-->>-nextjsapi: Return session ID\n\n    Note over nextjsapi: Construct Set-Cookie Header:<br/>session_id={ulid}, HttpOnly Secure<br/>SameSite=Lax, Path=/, Max-Age={TTL_seconds}\n\n    nextjsapi-->>browser: 204 No Content<br/>(Includes Set-Cookie header)\n```",
+				"tags": [],
+				"parameters": [],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"username": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 100
+									},
+									"password": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 255,
+										"format": "password"
+									},
+									"rememberMe": {
+										"type": "boolean",
+										"default": false
+									}
+								},
+								"required": ["username", "password"]
+							},
+							"example": {
+								"username": "admin",
+								"password": "{{admin_password}}",
+								"rememberMe": false
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"204": {
+						"description": "Login successful",
+						"headers": {
+							"Set-Cookie": {
+								"example": "session_id=01KDZR8DGA2MF5WQ1QX17HRQH5; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400",
+								"required": true,
+								"description": "",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"Cache-Control": {
+								"example": "no-store",
+								"required": false,
+								"description": "",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"X-Content-Type-Options": {
+								"example": "nosniff",
+								"required": false,
+								"description": "",
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Invalid request",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Invalid request body"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "Invalid credentials",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Invalid credentials"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "Server error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/auth/logout": {
+			"post": {
+				"summary": "Logout (/api/v1/auth/logout)",
+				"deprecated": false,
+				"description": "# User Logout and Delete User Session\n\n## ✍️Pseudocode\n\n1. Extract `session_id` from request header `Cookie`\n2. If `session_id` is present:\n     -> Delete the session from the Memory Cache (SessionStore)\n:::highlight yellow 📌\nIf session_id does not exist or was already deleted, it should not delete again and no error response\n-- **API is idempotent**\n:::\n\n3. Construct the `Set-Cookie` header to clear the cookie:\n   -> cookie_string = `session_id=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`\n   -> response.setHeader('Set-Cookie', cookie_string)\n\n4. Return HTTP 204 No Content\n\n## Sequence diagram\n\n``` mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant cache as SessionStore\n    \n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/auth/logout<br/>(Cookie: session_id=...)\n\n    nextjsapi -->> nextjsapi: Extract `session_id` from Cookie header\n    break session_id not found or empty\n        nextjsapi -->> browser: 401 Unauthorized\n    end\n\n        nextjsapi->>+cache: Delete session\n        Note over cache: Idempotent operation:<br/>If session is already deleted,<br/>it safely does nothing\n        cache-->>-nextjsapi: Success\n\n    Note over nextjsapi: Construct Set-Cookie Header to clear:<br/>session_id=, HttpOnly, Secure,<br/>SameSite=Lax, Path=/, Max-Age=0\n\n    nextjsapi-->>browser: 204 No Content<br/>(Includes Set-Cookie header)\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "",
+						"headers": {
+							"Set-Cookie": {
+								"example": "session_id=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+								"required": true,
+								"description": "",
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Unauthorized",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "object",
+									"properties": {}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/auth/session": {
+			"get": {
+				"summary": "Get session_id validation",
+				"deprecated": false,
+				"description": "Probes whether the caller holds a valid admin session. New endpoint introduced by card UI-00 (GitHub issue #38).\n\n- Reads cookie `httpOnly` session_id (not readable by browser JS)\n- Validates it against the session store — the same function `validateSession` the middleware `withAuth` middleware\n\nThe client app uses this on load (and on window focus) as the single `isAdmin` source, so admin mode survives page refreshes and expires automatically.",
+				"tags": [],
+				"parameters": [],
+				"responses": {
+					"204": {
+						"description": "Session cookie is valid (caller is admin); response is never cached (Cache-Control: no-store)",
+						"headers": {
+							"Cache-Control": {
+								"example": "no-store",
+								"required": false,
+								"description": "",
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Cookie missing, unknown, or expired.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/system-settings": {
+			"get": {
+				"summary": "Get all public system settings (/api/v1/system-settings)",
+				"deprecated": false,
+				"description": "Retrieves a key-value object of all settings that are safe for public consumption\n\n## ✍️Pseudocode\n1. Query records from table `system_settings`\n\n2. Break if Database Query fails:\n   -> Log the error\n   -> Return HTTP 500 Internal Server Error\n\n3. Transform the data into a key-value object:\n   -> Initialize empty object: `public_settings = {}`\n   -> For each `row` in the database result:\n        -> Set `public_settings[row.feature] = row.value`\n\n4. Return HTTP 200 OK with `public_settings`\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n    \n    autonumber\n\n    browser ->> nextjsapi: GET /api/v1/system-settings\n\n    nextjsapi ->>+ database: Query records from table system_settings\n    \n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n    \n    database -->>- nextjsapi: Return records [{feature, value}, ...]\n\n    nextjsapi -->> nextjsapi: Transform rows to key-value object DTO:<br/>{ [row.feature]: row.value, ... }\n\n    nextjsapi-->>browser: 200 OK\n```",
+				"tags": [],
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/SystemSettingsPublicObject"
+								},
+								"examples": {
+									"All Public Settings": {
+										"summary": "Example of a full public settings object.",
+										"value": {
+											"open_membership_renewal": false
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			},
+			"patch": {
+				"summary": "Update system setting - Admin only (/api/v1/system-settings)",
+				"deprecated": false,
+				"description": "Updates the value of a specific system setting. Requires admin authentication.\n\n## ✍️Pseudocode\n\n1. Extract `session_id` from request header `Cookie`\n2. Validate session exists in SessionStore:\n   break if session_id is missing or not found in cache:\n      -> Return HTTP 401 Unauthorized\n      ```\n      { error_message: \"Invalid or expired session\" }\n      ```\n3. Parse and validate request body with valibot schema:\n\n    ```\n    {\n        open_membership_renewal?: boolean,\n        // ... other whitelisted features\n    }\n    ```\n    break if validation fails:\n       -> Return HTTP 400 Bad Request\n       ```\n       { error_message: \"Invalid request body\" }\n       ```\n\n4. Execute updates independently:\n-> `updated_settings = {}`\n-> For each feature in requested_features:\n     ```\n    UPDATE system_settings\n    SET value = $1,\n        updated_at = NOW()\n    WHERE feature = $2\n    RETURNING feature, value;\n     ```\n     -> `updated_settings[result.feature] = result.value`\n\n5. Return HTTP 200 OK with updated_settings\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant cache as SessionStore\n    participant database as PostgreSQL\n    \n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/system-settings<br/>(Cookie: session_id=...)<br/>{ \"open_membership_renewal\": false }\n\n    nextjsapi -->> nextjsapi: Extract session_id from request header cookie\n    break Missing session_id\n        nextjsapi-->>browser: 400 Bad Request\n    end\n\n    nextjsapi->>+cache: Get session\n    cache-->>-nextjsapi: Return session or null\n\n    break Not found this session_id\n        nextjsapi-->>browser: 401 Unauthorized { error: \"Invalid session\" }\n    end\n\n    nextjsapi -->> nextjsapi: Validate request body with valibot<br/>(whitelist allowed features)\n\n    break Validation request body error\n        nextjsapi-->>browser: 400 Bad Request { error: \"Invalid request body\" }\n    end\n\n    loop For each input feature\n        nextjsapi->>+database: Update feature value\n        database-->>-nextjsapi: { feature, value }\n        nextjsapi -->> nextjsapi: Add to updated_settings object\n    end\n\n    nextjsapi-->>browser: 200 OK { \"open_membership_renewal\": false, ... }\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "01KXD931XMPQEJJMP3RB0TC1J4",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"open_membership_renewal": {
+										"type": "boolean"
+									}
+								},
+								"required": ["open_membership_renewal"]
+							},
+							"example": {
+								"open_membership_renewal": true
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"open_membership_renewal": {
+											"type": "boolean"
+										}
+									}
+								},
+								"example": {
+									"open_membership_renewal": true
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed (e.g., invalid value type).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"error_message": {
+											"type": "string"
+										}
+									},
+									"required": ["error_message"]
+								},
+								"examples": {
+									"Validation Error": {
+										"summary": "Example when the provided value is invalid for the setting.",
+										"value": {
+											"error_message": "Invalid type for setting 'open_membership_renewal'. Expected boolean."
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "Unauthorized.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"error_message": {
+											"type": "string"
+										}
+									},
+									"required": ["error_message"]
+								},
+								"examples": {
+									"Unauthorized": {
+										"summary": "Example when the user is not an admin.",
+										"value": {
+											"error_message": "Authentication token is invalid or user is not an administrator."
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/health": {
+			"get": {
+				"summary": "/api/v1/health",
+				"deprecated": false,
+				"description": "",
+				"tags": [],
+				"parameters": [],
+				"responses": {
+					"204": {
+						"description": "",
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/members/file/upload": {
+			"post": {
+				"summary": "Upload one or more files (/api/v1/members/file/upload)",
+				"deprecated": false,
+				"description": "# Uploads image files to file storage, and response file path as ref\n\n## ✍️Pseudocode\n1. Receive POST request at `/api/v1/members/file/upload`\n2. Extract all uploaded files from the request\nKey: Value(file) `multipart/form-data`\n    - id_card_image\n    - company_certificate (หนังสือรับรองบริษัท/ทะเบียนพาณิชย์)\n    - profile_avatar\n    - business_logo\n    - business_product\n    - payment_slip\n\n3. Fail-Fast Validation Loop:\n    - For each provided file:\n        - If file.size > 7MB:\n             -> Return HTTP 400 Bad Request `{ error_message: \"File exceeds 5MB limit\" }`\n        - If file.extension not in `['.jpg', '.jpeg', '.png', '.webp']`:\n             -> Return HTTP 400 Bad Request `{ error_message: \"Invalid file type. Only images allowed\" }`\n4. Initialize empty response object: `response_body = {}`\n5. Process Each File (if provided):\n   - Generate secure filename: `ulid = generateULID()`\n   - Determine bucket path based on field name (e.g., `id_card_image` -> `members/documents/`)\n   - Construct final path: `file_path = \"bucket_path/\" + field_name + \"_\" + ulid + \".\" + extension`\n   \n   - Upload file buffer to Cloudflare R2 at `file_path`\n   - If R2 upload fails:\n       - Log error\n       - Return HTTP 500 Internal Server Error\n   \n   - Add to response_body: `response_body[field_name + \"_file_path\"] = file_path`\n6. Return HTTP 200 OK with `response_body` object\n\n\n## Cloudflare R2 storage buckets\n\n| # | Field               | Bucket                   | Example                                                               |\n|---|---------------------|--------------------------|-----------------------------------------------------------------------|\n| 1 | id_card_image       | members/documents/       | members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg        |\n| 2 | company_certificate | members/documents/       | members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg         |\n| 3 | profile_avatar      | members/profile_avatars/ | members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg |\n| 4 | business_logo       | members/business/        | members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg                  |\n| 5 | business_product    | members/business/        | members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg               |\n| 6 | payment_slip    | members/documents/        | members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg               |\n\n## 🖼️Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant R2 as Cloudflare R2\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/members/file/upload<br/>(multipart/form-data)\n\n    nextjsapi ->> nextjsapi: Validate request body\n    Note over nextjsapi: 1. Fail-Fast Validation:<br/>- Check file size <= 7MB<br/>- Check extension (.jpg, .jpeg, .png, .webp)<br/>- Reject entire request if ANY file is invalid\n\n    break Invalid request body\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    Note over nextjsapi: 2. Prepare Uploads:<br/>Generate secure ULID filenames for each provided file\n\n    opt id_card_image provided\n        nextjsapi->>R2: PutObject (members/documents/id_card_image_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt company_certificate provided\n        nextjsapi->>R2: PutObject (members/documents/company_cert_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt profile_avatar provided\n        nextjsapi->>R2: PutObject (members/profile_avatars/profile_avatar_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_logo provided\n        nextjsapi->>R2: PutObject (members/business/logo_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_product provided\n        nextjsapi->>R2: PutObject (members/business/product_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt payment_slip provided\n        nextjsapi->>R2: PutObject (members/documents/payment_slip_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    Note over nextjsapi: 3. Construct Response:<br/>Map uploaded paths to explicit keys\n\n    nextjsapi-->>browser: 200 OK\n```",
+				"tags": ["module_member"],
+				"parameters": [],
+				"requestBody": {
+					"content": {
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"id_card_image": {
+										"type": "string",
+										"description": "ID card image",
+										"format": "binary",
+										"example": "file:///Users/arima/Pictures/fake_image/fake-Thai-ID-Card.webp"
+									},
+									"company_certificate": {
+										"type": "string",
+										"format": "binary",
+										"description": "หนังสือรับรองบริษัท/ทะเบียนพาณิชย์",
+										"example": "file:///Users/arima/Pictures/fake_image/company_certificate.webp"
+									},
+									"profile_avatar": {
+										"type": "string",
+										"description": "Profile avatar image",
+										"format": "binary",
+										"example": "file:///Users/arima/Pictures/fake_image/Notion_Avatartion_Eren.webp"
+									},
+									"business_logo": {
+										"type": "string",
+										"format": "binary",
+										"description": "Logo image",
+										"example": "file:///Users/arima/Pictures/fake_image/fake-business-logo.webp"
+									},
+									"business_product": {
+										"type": "string",
+										"format": "binary",
+										"description": "Product image",
+										"example": "file:///Users/arima/Pictures/fake_image/fake-product.webp"
+									},
+									"payment_slip": {
+										"format": "binary",
+										"type": "string",
+										"description": "หลักฐานการโอนเงิน (Slip image)",
+										"example": ""
+									}
+								}
+							},
+							"example": {
+								"id_card_image": "file:///Users/arima/Pictures/fake_image/fake-Thai-ID-Card.webp",
+								"company_certificate": "file:///Users/arima/Pictures/fake_image/company_certificate.webp",
+								"profile_avatar": "file:///Users/arima/Pictures/fake_image/Notion_Avatartion_Eren.webp",
+								"business_logo": "file:///Users/arima/Pictures/fake_image/fake-business-logo.webp",
+								"business_product": "file:///Users/arima/Pictures/fake_image/fake-product.webp",
+								"payment_slip": ""
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/UploadSuccessResponse"
+								},
+								"examples": {
+									"Both Files Uploaded": {
+										"summary": "Example of a successful upload of both an avatar and an ID card.",
+										"value": {
+											"id_card_image_file_path": "members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg",
+											"company_certificate_file_path": "members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg",
+											"profile_avatar_file_path": "members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg",
+											"business_logo_file_path": "members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg",
+											"business_product_file_path": "members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg",
+											"payment_slip_file_path": "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"
+										}
+									},
+									"Only Avatar Uploaded": {
+										"summary": "Example when only the avatar was provided.",
+										"value": {
+											"id_card_image_file_path": null,
+											"company_certificate_file_path": null,
+											"profile_avatar_file_path": "members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg",
+											"business_logo_file_path": null,
+											"business_product_file_path": null,
+											"payment_slip_file_path": null
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed (e.g., no files, invalid type).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"No Files Provided": {
+										"summary": "The request was made without any files.",
+										"value": {
+											"error_message": "At least one file (profile_avatar or id_card_image) must be provided."
+										}
+									},
+									"Invalid File Type": {
+										"summary": "One of the files was not an allowed image type.",
+										"value": {
+											"error_message": "Invalid file type for 'id_card_image'. Only JPEG and PNG are allowed."
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/members/file/presign": {
+			"get": {
+				"summary": "Get a presignd-URL (/api/v1/members/file/presign)",
+				"deprecated": true,
+				"description": "Generates a temporary, authenticated URL to view a private file.\n\n**Logic:**\n- 🔒 Auth Required: Verify user is an Admin.\n- 🔒 Validate Query Param: Ensure path starts with members/id_cards/ and contains no ...\n- Generate presigned URL using my-project-private bucket credentials (1-hour expiry)",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "file_path",
+						"in": "query",
+						"description": "",
+						"required": true,
+						"example": "members/documents/id_card_01KV0DVHPVM0VYFC6EQ4WNXC7W.jpg",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"url": {
+											"type": "string"
+										}
+									},
+									"required": ["url"]
+								},
+								"example": {
+									"url": "https://6273323b2dcfce9a09766360f935e36d.r2.cloudflarestorage.com/yec-lamphun-private/members/documents/id_card_01KV0DVHPVM0VYFC6EQ4WNXC7W.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=06aa5f55c2cbd50854013c0828de0bed/20260614/auto/s3/aws4_request&X-Amz-Date=20260614T183410Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=eef723f9142e5a4be3628416b2a4c537d4656140c16a0aedbfdbd5243f90b70b"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {}
+							}
+						}
+					}
+				},
+				"security": []
+			}
+		}
+	},
+	"webhooks": {},
+	"components": {
+		"schemas": {
+			"MemberResponse": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"examples": [101]
+					},
+					"registration_type": {
+						"type": "string",
+						"enum": ["INDIVIDUAL", "JURISTIC_PERSON"],
+						"examples": ["INDIVIDUAL", "JURISTIC_PERSON"]
+					},
+					"company_certificate": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/1_company_cert.jpg"]
+					},
+					"id_card_image": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/2_idcard.jpg"]
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"examples": ["members/avatars/106_avatar.jpg"]
+					},
+					"title_name_th": {
+						"type": "string",
+						"examples": ["นาย"]
+					},
+					"first_name_th": {
+						"type": "string",
+						"examples": ["ประเสริฐ"]
+					},
+					"last_name_th": {
+						"type": "string",
+						"examples": ["โชคดี"]
+					},
+					"title_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Mr."]
+					},
+					"first_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Prasert"]
+					},
+					"last_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Chokdee"]
+					},
+					"nickname": {
+						"type": "string",
+						"examples": ["prasert"]
+					},
+					"gender": {
+						"type": "string",
+						"enum": ["MALE", "FEMALE", "OTHER"],
+						"examples": ["MALE"]
+					},
+					"date_of_birth": {
+						"type": "string",
+						"format": "date",
+						"examples": ["1990-05-15"]
+					},
+					"nationality": {
+						"type": "string",
+						"examples": ["Thai"]
+					},
+					"id_card_no": {
+						"type": "string",
+						"description": "Masked ID card number for display",
+						"examples": ["632XXXXXX1483"]
+					},
+					"id_card_expiry_date": {
+						"type": "string",
+						"format": "date",
+						"examples": ["2025-12-31"]
+					},
+					"member_since": {
+						"type": "string",
+						"format": "date-time",
+						"examples": ["2024-01-18T16:00:00Z"]
+					},
+					"expires_at": {
+						"type": ["string", "null"],
+						"format": "date-time",
+						"examples": ["2025-01-18T23:59:59Z"]
+					},
+					"phone_no": {
+						"type": "string",
+						"examples": ["+66855555555"]
+					},
+					"email": {
+						"type": ["string", "null"],
+						"examples": ["prasert.c@example.com"]
+					},
+					"line_id": {
+						"type": ["string", "null"],
+						"examples": ["prasert.line"]
+					},
+					"shirt_size": {
+						"type": ["string", "null"],
+						"examples": ["L"]
+					},
+					"position": {
+						"type": ["string", "null"]
+					},
+					"status": {
+						"type": "string",
+						"enum": ["ACTIVE", "EXPIRED", "PENDING_RENEWAL"],
+						"examples": ["ACTIVE"]
+					},
+					"created_at": {
+						"type": "string",
+						"format": "date-time",
+						"examples": ["2024-01-18T16:00:00Z"]
+					},
+					"updated_at": {
+						"type": "string",
+						"format": "date-time",
+						"examples": ["2024-01-18T16:00:00Z"]
+					},
+					"business": {
+						"$ref": "#/components/schemas/MemberBusiness"
+					}
+				},
+				"required": [
+					"title_name_th",
+					"first_name_th",
+					"last_name_th",
+					"registration_type",
+					"nickname",
+					"gender",
+					"date_of_birth",
+					"nationality",
+					"id_card_no",
+					"id_card_expiry_date",
+					"id",
+					"member_since",
+					"phone_no",
+					"position",
+					"status",
+					"created_at",
+					"updated_at",
+					"title_name_en",
+					"first_name_en",
+					"last_name_en",
+					"expires_at",
+					"profile_avatar",
+					"email",
+					"line_id",
+					"shirt_size",
+					"business",
+					"company_certificate",
+					"id_card_image"
+				]
+			},
+			"CreateNewMemberRequest": {
+				"type": "object",
+				"properties": {
+					"registration_type": {
+						"type": "string",
+						"enum": ["INDIVIDUAL", "JURISTIC_PERSON"],
+						"examples": ["INDIVIDUAL"]
+					},
+					"company_certificate": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg"]
+					},
+					"id_card_image": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg"]
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"examples": ["members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg"]
+					},
+					"title_name_th": {
+						"type": "string",
+						"examples": ["นาง"],
+						"enum": ["นาย", "นางสาว", "นาง", "อื่นๆ"]
+					},
+					"first_name_th": {
+						"type": "string",
+						"examples": ["มาลี"]
+					},
+					"last_name_th": {
+						"type": "string",
+						"examples": ["รักสุข"]
+					},
+					"title_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Mrs."],
+						"enum": ["Mr.", "Mrs.", "Ms.", "Miss"]
+					},
+					"first_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Malee"]
+					},
+					"last_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Raksuk"]
+					},
+					"nickname": {
+						"type": "string",
+						"examples": ["malee"]
+					},
+					"gender": {
+						"type": "string",
+						"enum": ["MALE", "FEMALE", "OTHER"],
+						"examples": ["FEMALE"]
+					},
+					"date_of_birth": {
+						"type": "string",
+						"format": "date",
+						"examples": ["1985-08-20"]
+					},
+					"nationality": {
+						"type": "string",
+						"examples": ["Thai"]
+					},
+					"id_card_no": {
+						"type": "string",
+						"examples": ["2-2030-12345-67-8"]
+					},
+					"id_card_expiry_date": {
+						"type": "string",
+						"format": "date",
+						"examples": ["2027-08-19"],
+						"description": "id_card_expiry_date must not < today"
+					},
+					"phone_no": {
+						"type": "string",
+						"examples": ["+66877777777"]
+					},
+					"email": {
+						"type": ["string", "null"],
+						"format": "email",
+						"examples": ["malee.r@example.com"]
+					},
+					"line_id": {
+						"type": ["string", "null"],
+						"examples": ["malee.line"]
+					},
+					"shirt_size": {
+						"type": ["string", "null"],
+						"enum": ["SSS", "SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"],
+						"examples": ["M"]
+					},
+					"position": {
+						"type": "string",
+						"enum": [
+							"GENERAL_MEMBER",
+							"PRESIDENT",
+							"ADVISORY_BOARD",
+							"SECRETARY",
+							"TREASURER",
+							"ASST_SECRETARY",
+							"LEGAL_COORDINATOR",
+							"VP_ADMIN_INTERNAL",
+							"VP_BUSINESS_INNOVATION",
+							"VP_NETWORK_INTERNATIONAL",
+							"VP_PR_IMAGE",
+							"VP_ACTIVITIES_RELATIONS",
+							"VP_DATA_REGISTRATION",
+							"COMM_ADMIN_INTERNAL",
+							"COMM_BUSINESS_INNOVATION",
+							"COMM_NETWORK_INTERNATIONAL",
+							"COMM_PR_IMAGE",
+							"COMM_ACTIVITIES_RELATIONS",
+							"COMM_DATA_REGISTRATION"
+						],
+						"examples": ["GENERAL_MEMBER"]
+					},
+					"business": {
+						"$ref": "#/components/schemas/CreateNewMemberBusinessRequest"
+					}
+				},
+				"required": [
+					"registration_type",
+					"title_name_th",
+					"first_name_th",
+					"last_name_th",
+					"nickname",
+					"date_of_birth",
+					"id_card_no",
+					"id_card_expiry_date",
+					"phone_no",
+					"business",
+					"gender",
+					"nationality",
+					"position",
+					"company_certificate",
+					"id_card_image",
+					"profile_avatar"
+				]
+			},
+			"MemberListItem": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"examples": [150],
+						"format": "uint"
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"format": "uri"
+					},
+					"registration_type": {
+						"type": "string",
+						"enum": ["INDIVIDUAL", "JURISTIC_PERSON"],
+						"examples": ["INDIVIDUAL"]
+					},
+					"title_name_th": {
+						"type": "string",
+						"examples": ["นาย"]
+					},
+					"first_name_th": {
+						"type": "string",
+						"examples": ["สมชาย"]
+					},
+					"last_name_th": {
+						"type": "string",
+						"examples": ["ใจดี"]
+					},
+					"nickname": {
+						"type": "string",
+						"examples": ["cham"]
+					},
+					"phone_no": {
+						"type": "string",
+						"examples": ["+66811223344"]
+					},
+					"email": {
+						"type": ["string", "null"],
+						"examples": ["user@example.com"]
+					},
+					"line_id": {
+						"type": ["string", "null"]
+					},
+					"position": {
+						"type": "string"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["ACTIVE", "EXPIRED", "PENDING_RENEWAL", "RESIGNED"],
+						"examples": ["ACTIVE"]
+					},
+					"business": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string",
+								"examples": ["บริษัท วี ฟู้ดส์ (ประเทศไทย) จำกัด"]
+							},
+							"description": {
+								"type": "string"
+							}
+						},
+						"required": ["name", "description"]
+					}
+				},
+				"required": [
+					"id",
+					"registration_type",
+					"first_name_th",
+					"last_name_th",
+					"nickname",
+					"phone_no",
+					"email",
+					"status",
+					"profile_avatar",
+					"title_name_th",
+					"position",
+					"line_id",
+					"business"
+				]
+			},
+			"ExecutiveCommitteeNode": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": ["integer", "null"],
+						"format": "uint",
+						"description": "Member id; null marks a Vacant Position placeholder"
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"format": "uri",
+						"description": "Public File URL (R2_PUBLIC_BASE_URL + key), or null"
+					},
+					"title_name_th": {
+						"type": ["string", "null"],
+						"description": "Null on placeholders"
+					},
+					"first_name_th": {
+						"type": ["string", "null"],
+						"description": "Null on placeholders"
+					},
+					"last_name_th": {
+						"type": ["string", "null"],
+						"description": "Null on placeholders"
+					},
+					"nickname": {
+						"type": ["string", "null"],
+						"description": "Null on placeholders"
+					},
+					"position": {
+						"type": "string",
+						"description": "Thai display name from positions.name_th (never the code)"
+					},
+					"business_name": {
+						"type": ["string", "null"],
+						"description": "The member's 1:1 business name, null if none"
+					},
+					"children": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ExecutiveCommitteeNode"
+						},
+						"description": "Recursive. (The original spec's chidren spelling was a typo — fixed.)"
+					}
+				},
+				"required": ["id", "profile_avatar", "title_name_th", "first_name_th", "last_name_th", "nickname", "position", "business_name", "children"]
+			},
+			"ExpiredMembershipResponse": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"format": "uri"
+					},
+					"title_name_th": {
+						"type": "string"
+					},
+					"first_name_th": {
+						"type": "string"
+					},
+					"last_name_th": {
+						"type": "string"
+					},
+					"nickname": {
+						"type": "string"
+					},
+					"phone_no": {
+						"type": "string"
+					},
+					"position": {
+						"type": "string"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["EXPIRED"]
+					},
+					"latest_renewal_status": {
+						"type": ["string", "null"],
+						"enum": ["PENDING_REVIEW", "APPROVED", "REJECTED"]
+					},
+					"member_since": {
+						"type": "string",
+						"format": "date-time"
+					}
+				},
+				"required": [
+					"id",
+					"profile_avatar",
+					"title_name_th",
+					"first_name_th",
+					"last_name_th",
+					"nickname",
+					"phone_no",
+					"position",
+					"status",
+					"member_since",
+					"latest_renewal_status"
+				]
+			},
+			"RenewalResponseListItem": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"renewal_id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"format": "uri"
+					},
+					"title_name_th": {
+						"type": "string"
+					},
+					"first_name_th": {
+						"type": "string"
+					},
+					"last_name_th": {
+						"type": "string"
+					},
+					"nickname": {
+						"type": "string"
+					},
+					"phone_no": {
+						"type": "string"
+					},
+					"position": {
+						"type": "string"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["PENDING_REVIEW", "APPROVED"]
+					},
+					"member_since": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"payment_date_at": {
+						"type": "string",
+						"format": "date-time"
+					}
+				},
+				"required": [
+					"id",
+					"profile_avatar",
+					"title_name_th",
+					"first_name_th",
+					"last_name_th",
+					"nickname",
+					"phone_no",
+					"position",
+					"status",
+					"member_since",
+					"payment_date_at",
+					"renewal_id"
+				]
+			},
+			"SingleRenewalResponse": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"format": "uri"
+					},
+					"title_name_th": {
+						"type": "string"
+					},
+					"first_name_th": {
+						"type": "string"
+					},
+					"last_name_th": {
+						"type": "string"
+					},
+					"nickname": {
+						"type": "string"
+					},
+					"phone_no": {
+						"type": "string"
+					},
+					"position": {
+						"type": "string"
+					},
+					"business": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string",
+								"examples": ["บริษัท วี ฟู้ดส์"]
+							}
+						},
+						"required": ["name"]
+					},
+					"renewal": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "integer",
+								"format": "uint"
+							},
+							"payment_date_at": {
+								"type": "string",
+								"format": "date-time"
+							},
+							"payment_slip": {
+								"type": "string",
+								"format": "uri",
+								"examples": ["https://payment-slip.githubusercontent.com/u/21668556"]
+							}
+						},
+						"required": ["payment_date_at", "payment_slip", "id"]
+					}
+				},
+				"required": ["id", "profile_avatar", "title_name_th", "first_name_th", "last_name_th", "nickname", "phone_no", "position", "business", "renewal"]
+			},
+			"SystemSettingsPublicObject": {
+				"type": "object",
+				"description": "An object containing all public system settings.",
+				"properties": {
+					"open_membership_renewal": {
+						"type": "boolean",
+						"examples": [false]
+					}
+				},
+				"additionalProperties": true
+			},
+			"CreateNewMemberBusinessRequest": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"examples": ["บริษัท วี ฟู้ดส์"]
+					},
+					"juristic_registration_no": {
+						"type": "string"
+					},
+					"category_id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"address": {
+						"type": ["string", "null"]
+					},
+					"location": {
+						"type": "array",
+						"items": {
+							"type": "number",
+							"format": "float"
+						},
+						"description": "[lat, long]"
+					},
+					"description": {
+						"type": "string"
+					},
+					"core_business": {
+						"type": ["string", "null"]
+					},
+					"website": {
+						"type": ["string", "null"],
+						"format": "uri"
+					},
+					"logo": {
+						"type": ["string", "null"],
+						"description": "members/business/1_logo.jpg",
+						"examples": ["members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg"]
+					},
+					"product": {
+						"type": ["string", "null"],
+						"description": "members/business/1_product.jpg",
+						"examples": ["members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg"]
+					}
+				},
+				"required": ["name", "juristic_registration_no", "category_id", "description"]
+			},
+			"MemberBusiness": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"name": {
+						"type": "string",
+						"examples": ["บริษัท วี ฟู้ดส์"]
+					},
+					"juristic_registration_no": {
+						"type": "string",
+						"examples": ["105557026729"]
+					},
+					"category_id": {
+						"type": "integer",
+						"format": "uint"
+					},
+					"address": {
+						"type": ["string", "null"],
+						"examples": ["อาคาร ทู เอฟวายไอ เซ็นเตอร์ ชั้น 5 2525 ถ. พระรามที่ 4 แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110"]
+					},
+					"location": {
+						"type": "array",
+						"items": {
+							"type": "number",
+							"format": "float",
+							"examples": [13.7207, 100.5596]
+						},
+						"description": "[lat, long]",
+						"minItems": 2,
+						"maxItems": 2
+					},
+					"description": {
+						"type": "string"
+					},
+					"core_business": {
+						"type": ["string", "null"]
+					},
+					"website": {
+						"type": ["string", "null"],
+						"format": "uri"
+					},
+					"logo": {
+						"type": ["string", "null"]
+					},
+					"product": {
+						"type": ["string", "null"]
+					},
+					"created_at": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"updated_at": {
+						"type": "string",
+						"format": "date-time"
+					}
+				},
+				"required": [
+					"name",
+					"juristic_registration_no",
+					"category_id",
+					"description",
+					"id",
+					"address",
+					"location",
+					"core_business",
+					"website",
+					"logo",
+					"product",
+					"created_at",
+					"updated_at"
+				]
+			},
+			"BusinessCategory": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": ["integer", "null"],
+						"format": "uint"
+					},
+					"category_name": {
+						"type": "string"
+					}
+				},
+				"required": ["id", "category_name"]
+			},
+			"ErrorResponse": {
+				"type": "object",
+				"properties": {
+					"error_message": {
+						"type": "string",
+						"examples": ["Invalid credentials"]
+					}
+				},
+				"required": ["error_message"]
+			},
+			"UploadSuccessResponse": {
+				"type": "object",
+				"properties": {
+					"id_card_image_file_path": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg"]
+					},
+					"company_certificate_file_path": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg"]
+					},
+					"profile_avatar_file_path": {
+						"type": ["string", "null"],
+						"examples": ["members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg"]
+					},
+					"business_logo_file_path": {
+						"type": ["string", "null"],
+						"examples": ["members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg"]
+					},
+					"business_product_file_path": {
+						"type": ["string", "null"],
+						"examples": ["members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg"]
+					},
+					"payment_slip_file_path": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"]
+					}
+				},
+				"required": [
+					"id_card_image_file_path",
+					"company_certificate_file_path",
+					"profile_avatar_file_path",
+					"business_logo_file_path",
+					"business_product_file_path",
+					"payment_slip_file_path"
+				]
+			}
+		},
+		"responses": {},
+		"securitySchemes": {}
+	},
+	"servers": [],
+	"security": []
+}

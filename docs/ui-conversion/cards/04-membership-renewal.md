@@ -8,7 +8,7 @@ Do this after card 03 — it reuses the member-autocomplete and file-upload patt
 
 ## Route & files
 
-- `src/app/renewal/page.tsx`.
+- `src/app/(public)/renewal/page.tsx`.
 - `src/shared/components/renewal/` — `renewal-gate.tsx` (closed state / admin toggle), `renewal-stats.tsx`, `renewal-table.tsx`, `renewal-form-dialog.tsx`, `review-dialog.tsx`, `slip-viewer.tsx`.
 
 ## API contract
@@ -123,6 +123,8 @@ Definition of done: the card's acceptance criteria, plus `bun run lint` and
 ```
 
 ## References
+
+- API spec: `docs/openapi/api-yec-lamphun-backoffice-web.openapi.json` (Apidog export, OpenAPI 3.1 — full request/response schemas for every endpoint).
 
 - Mockup: `MembershipRenewal` — `ui-mockup/YEC-Lamphun.html` ~lines 913–1597.
 - `src/app/api/v1/membership/renewals/**`; `src/app/api/v1/system-settings/**`; ADRs 0015–0018; `src/modules/membership/` (renewal module).

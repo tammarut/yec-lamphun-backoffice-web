@@ -14,7 +14,9 @@ export type LoginInput = {
 
 async function fetchSession(): Promise<boolean> {
 	const result = await fetchJson<null>("/api/v1/auth/session")
-	if (result.isErr()) throw result.error
+	if (result.isErr()) {
+		throw result.error
+	}
 	return true
 }
 
@@ -24,12 +26,16 @@ async function login(input: LoginInput): Promise<void> {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(input),
 	})
-	if (result.isErr()) throw result.error
+	if (result.isErr()) {
+		throw result.error
+	}
 }
 
 async function logout(): Promise<void> {
 	const result = await fetchJson<null>("/api/v1/auth/logout", { method: "POST" })
-	if (result.isErr()) throw result.error
+	if (result.isErr()) {
+		throw result.error
+	}
 }
 
 type SessionContextValue = {

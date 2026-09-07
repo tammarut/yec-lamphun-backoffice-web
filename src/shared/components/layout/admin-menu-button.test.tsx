@@ -37,13 +37,17 @@ function stubApiFetch() {
 	const server = { loggedIn: false }
 	const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 		const url = String(input)
-		if (url === "/api/v1/auth/session") return server.loggedIn ? jsonResponse(204) : jsonResponse(401, { error_message: "Unauthorized" })
+		if (url === "/api/v1/auth/session") {
+			return server.loggedIn ? jsonResponse(204) : jsonResponse(401, { error_message: "Unauthorized" })
+		}
 		if (url === "/api/v1/auth/login") {
 			server.loggedIn = true
 			return jsonResponse(204)
 		}
 		if (url === "/api/v1/auth/logout") {
-			if (!server.loggedIn) return jsonResponse(401)
+			if (!server.loggedIn) {
+				return jsonResponse(401)
+			}
 			server.loggedIn = false
 			return jsonResponse(204)
 		}
@@ -61,7 +65,9 @@ function renderAdminMenu() {
 	function Harness() {
 		const [dialog, setDialog] = useState<AdminDialogMode | null>(null)
 		const closeDialog = (open: boolean) => {
-			if (!open) setDialog(null)
+			if (!open) {
+				setDialog(null)
+			}
 		}
 		return (
 			<QueryClientProvider client={queryClient}>
@@ -85,7 +91,9 @@ async function waitForGearLabel(expected: string) {
 	await waitFor(() => {
 		const gear = document.querySelector("[data-slot='admin-menu'] [data-sidebar='menu-button'] span")
 		const label = gear?.textContent?.trim()
-		if (label !== expected) throw new Error(`gear label is "${label}", waiting for "${expected}"`)
+		if (label !== expected) {
+			throw new Error(`gear label is "${label}", waiting for "${expected}"`)
+		}
 	})
 }
 
@@ -93,7 +101,9 @@ async function clickGear() {
 	const gear = document.querySelector("[data-slot='admin-menu'] [data-sidebar='menu-button']") as HTMLButtonElement
 	// The gear stays disabled while the initial session probe is in flight.
 	await waitFor(() => {
-		if (gear.disabled) throw new Error("gear still disabled (session probe pending)")
+		if (gear.disabled) {
+			throw new Error("gear still disabled (session probe pending)")
+		}
 	})
 	fireEvent.click(gear)
 }
@@ -102,7 +112,9 @@ async function confirmLogout() {
 	// The confirm's action button shares the gear's new "ออกจากระบบ" name — target it by slot.
 	const action = await waitFor(() => {
 		const btn = document.querySelector("[data-slot='alert-dialog-action']")
-		if (!btn) throw new Error("logout confirm action not rendered yet")
+		if (!btn) {
+			throw new Error("logout confirm action not rendered yet")
+		}
 		return btn
 	})
 	fireEvent.click(action)

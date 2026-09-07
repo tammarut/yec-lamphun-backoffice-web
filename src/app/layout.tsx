@@ -2,7 +2,6 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono, Noto_Sans } from "next/font/google"
 import "./globals.css"
 
-import { AppShell } from "src/shared/components/layout/app-shell"
 import { Providers } from "src/shared/components/providers"
 
 const notoSans = Noto_Sans({ variable: "--font-sans" })
@@ -29,9 +28,7 @@ export default function RootLayout({
 	return (
 		<html lang="th" className={notoSans.variable}>
 			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-				<Providers>
-					<AppShell>{children}</AppShell>
-				</Providers>
+				<Providers>{children}</Providers>
 			</body>
 		</html>
 	)

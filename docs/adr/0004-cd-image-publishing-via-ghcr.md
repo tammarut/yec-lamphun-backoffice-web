@@ -35,9 +35,17 @@ The `build-and-push` job then checks `if: github.event.workflow_run.conclusion =
 
 The operator explicitly wanted CI and CD in separate files (different audiences, different failure modes). `workflow_run` is the only built-in primitive that enforces a cross-file success dependency. The cost is a known subtlety, documented below.
 
-### Subtlety: `workflow_run` uses the default branch's workflow file
+### Subtlety: `workflow_run` uses the default branch's workflow file — and fires for PR runs too
 
-GitHub always runs the `cd.yml` definition from the **default branch** (`main`), even when the trigger originated from another branch. For this project CD only fires after CI runs on a `main` push (not from PR branches), so the running `cd.yml` is always the one on `main` — the intended version. The implication worth remembering: edits to `cd.yml` on a feature branch are **not exercised until that branch merges to main**. There is no way to test a `workflow_run`-triggered CD change from a PR alone; validate via `act -l` (job listing) and YAML lint locally, then confirm on the first post-merge run.
+GitHub always runs the `cd.yml` definition from the **default branch** (`main`), even when the trigger originated from another branch. The implication worth remembering: edits to `cd.yml` on a feature branch are **not exercised until that branch merges to main**. There is no way to test a `workflow_run`-triggered CD change from a PR alone; validate via `act -l` (job listing) and YAML lint locally, then confirm on the first post-merge run.
+
+The second subtlety bit us in practice: `workflow_run` fires whenever CI completes, **including CI runs from PR pushes** (CI's `pull_request` trigger). The original implementation gated only on `workflow_run.conclusion == "success"`, which checks CI passed but not *where* — so every green PR push published an image. That was not merely noise: `workflow_run` events execute in the default-branch context, so `docker/metadata-action`'s `type=ref,event=branch` resolved to `main` even while checking out the PR's `head_sha`, tagging **PR-branch code as `:main`** — the mutable tag Dokploy deploys. The `build-and-push` job therefore gates on BOTH conditions:
+
+```yaml
+if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+```
+
+`on.workflow_run` cannot filter by branch at the trigger level, so a skipped (no-op) CD run still appears in the Actions list for every PR CI completion — the job-level condition is the standard pattern and costs nothing. The branch check is load-bearing; removing it re-opens the tag-hijack path.
 
 ## Tagging
 
