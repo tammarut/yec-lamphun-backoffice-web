@@ -59,3 +59,50 @@ export function statusBadgeLabel(status: MemberStatus): string {
 export function fullNameTh(member: Pick<MemberListItem, "title_name_th" | "first_name_th" | "last_name_th">): string {
 	return `${member.title_name_th}${member.first_name_th} ${member.last_name_th}`
 }
+
+/**
+ * Positions restricted to a single concurrent holder (ADR-0006 SINGLE
+ * cardinality, from `seed-positions.sql`). The wizard ships its own copy —
+ * the conflict policy in `domain/` is a pure predicate and carries no data,
+ * and components must not import the module's repository/use-case layers
+ * where the seeded truth lives. Occupancy itself is server-checked; the
+ * client only uses this set for the restricted-position hint.
+ */
+export const SINGLE_CARDINALITY_POSITIONS: ReadonlySet<string> = new Set([
+	"PRESIDENT",
+	"SECRETARY",
+	"TREASURER",
+	"LEGAL_COORDINATOR",
+	"VP_ADMIN_INTERNAL",
+	"VP_BUSINESS_INNOVATION",
+	"VP_NETWORK_INTERNATIONAL",
+	"VP_PR_IMAGE",
+	"VP_ACTIVITIES_RELATIONS",
+	"VP_DATA_REGISTRATION",
+])
+
+/** Shirt-size labels for the wizard's `ShirtSizeSchema` codes (mockup wording, chest in cm). */
+export const SHIRT_SIZE_LABELS: Readonly<Record<string, string>> = {
+	SSS: "SSS (อก 34)",
+	SS: "SS (อก 36)",
+	S: "S (อก 38)",
+	M: "M (อก 40)",
+	L: "L (อก 42)",
+	XL: "XL (อก 44)",
+	"2XL": "2XL (อก 46)",
+	"3XL": "3XL (อก 48)",
+	"4XL": "4XL (อก 50)",
+}
+
+/** Gender labels for the wizard's `GenderSchema` codes. */
+export const GENDER_LABELS: Readonly<Record<string, string>> = {
+	MALE: "ชาย",
+	FEMALE: "หญิง",
+	OTHER: "อื่นๆ",
+}
+
+/** Applicant-type labels for the wizard's `RegistrationTypeSchema` codes. */
+export const REGISTRATION_TYPE_LABELS: Readonly<Record<string, string>> = {
+	INDIVIDUAL: "บุคคลธรรมดา",
+	JURISTIC_PERSON: "นิติบุคคล",
+}
