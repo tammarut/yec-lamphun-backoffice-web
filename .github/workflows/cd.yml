@@ -5,10 +5,15 @@ name: CD
 # Whether Dokploy pulls automatically (webhook) or manually is configured in
 # Dokploy, not here. This workflow's job ends when the image is in the registry.
 #
-# CD publishes only after CI has completed successfully. The `workflow_run`
-# trigger fires when the "CI" workflow finishes; the build-and-push job then
-# gates on `workflow_run.conclusion == "success"`, so a failing
-# lint/test/build never produces a publishable image.
+# CD publishes only after CI has completed successfully ON MAIN. The
+# `workflow_run` trigger fires whenever the "CI" workflow finishes — including
+# CI runs from PR pushes — so the build-and-push job gates on BOTH
+# `workflow_run.conclusion == "success"` AND `workflow_run.head_branch == "main"`.
+# A failing lint/test/build never produces a publishable image, and neither
+# does a passing PR run: workflow_run events execute in the default-branch
+# context, so without the branch check a PR's image would be tagged `:main`
+# — the exact mutable tag Dokploy deploys (tag hijack). The branch condition
+# is load-bearing; do not remove it.
 # See docs/adr/0004-cd-image-publishing-via-ghcr.md for the full rationale.
 on:
     workflow_run:
@@ -31,8 +36,10 @@ jobs:
         runs-on: ubuntu-latest
         env:
             R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
-        # Only publish when the CI run that triggered us actually succeeded.
-        if: ${{ github.event.workflow_run.conclusion == 'success' }}
+        # Only publish when the CI run that triggered us actually succeeded AND
+        # ran on main (a merge). PR pushes run CI too, but their completions
+        # must never publish — see the header comment for the tag-hijack risk.
+        if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
         steps:
             - name: Checkout (the commit CI verified)
               uses: actions/checkout@v7
