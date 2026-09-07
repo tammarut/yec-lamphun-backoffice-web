@@ -84,6 +84,7 @@ Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~line 496.
 
 - Prereq: `id_card_no` null-sticky PATCH (README §8 item 9), then uploads-first flow mirroring `schema.ts` exactly; edit pre-fill from `GET [id]` (masked ID card → leave blank + "ปล่อยว่างเพื่อคงค่าเดิม" helper once null-sticky lands); restricted-position client warning per `src/modules/members/domain/position-conflict-policy.ts` (client needs its own code→cardinality map — the policy file exports only the pure predicate); server 409s surface as form errors.
 - CSP heads-up: presigned private-file previews come from the R2 S3 endpoint host (`https://<account>.r2.cloudflarestorage.com`), NOT `R2_PUBLIC_BASE_URL` — add that origin to `img-src` in `next.config.ts` when the wizard's file previews land, or they will be `(blocked:csp)` the same way avatars were.
+- Optional structure tidy-up while the wizard files land: revisit the homes of the non-component helpers that moved with the refactor into `src/modules/members/components/` (`members-types.ts`, `member-labels.ts`, `export-members-csv.ts`, `make-member.fixture.ts`) — candidates: view-model types next to the new `schemas/`, fixtures under `__fixtures__/` if tests multiply. Deliberately deferred from the moves-only refactor (PR #43); re-classify only if the bigger folder actually needs it.
 
 ## Out of scope
 
