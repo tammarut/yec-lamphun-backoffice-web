@@ -1,4 +1,4 @@
-import type { MemberListItem } from "src/shared/components/members/members-types"
+import type { MemberListItem } from "src/modules/members/components/members-types"
 
 /** Shared member fixture for the members component tests. */
 export function makeMember(overrides: Partial<MemberListItem> = {}): MemberListItem {

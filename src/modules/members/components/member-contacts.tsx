@@ -3,7 +3,7 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Call02Icon, Chat01Icon, Mail01Icon } from "@hugeicons/core-free-icons"
 
-import type { MemberListItem } from "src/shared/components/members/members-types"
+import type { MemberListItem } from "src/modules/members/components/members-types"
 import { cn } from "src/shared/lib/utils/utils"
 
 type MemberContactsProps = {

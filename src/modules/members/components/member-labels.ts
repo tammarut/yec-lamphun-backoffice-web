@@ -1,4 +1,4 @@
-import type { MemberListItem, MemberStatus } from "src/shared/components/members/members-types"
+import type { MemberListItem, MemberStatus } from "src/modules/members/components/members-types"
 
 /**
  * Thai display vocabulary for the members UI.

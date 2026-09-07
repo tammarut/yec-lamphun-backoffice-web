@@ -3,8 +3,8 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Delete02Icon } from "@hugeicons/core-free-icons"
 
-import { fullNameTh } from "src/shared/components/members/member-labels"
-import type { MemberListItem } from "src/shared/components/members/members-types"
+import { fullNameTh } from "src/modules/members/components/member-labels"
+import type { MemberListItem } from "src/modules/members/components/members-types"
 import {
 	AlertDialog,
 	AlertDialogAction,
