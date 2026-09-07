@@ -16,8 +16,8 @@ The largest card, split into two PRs (see README §2):
 ## Route & files
 
 - `src/app/(public)/members/page.tsx`.
-- `src/shared/components/members/` — `members-view.tsx` (toolbar + views), `members-table.tsx`, `members-card-grid.tsx`, `member-wizard-dialog.tsx` (+ its three step forms, **3b**), `delete-member-dialog.tsx`, `bulk-actions-bar.tsx`.
-- Client-side valibot schemas mirroring the server contract — put them in `src/modules/members/` only if they become shared domain logic; otherwise colocate with the wizard.
+- `src/modules/members/components/` — `members-view.tsx` (toolbar + views), `members-table.tsx`, `members-card-grid.tsx`, `member-wizard-dialog.tsx` (+ its three step forms, **3b**), `delete-member-dialog.tsx`, `bulk-actions-bar.tsx`; data hook `src/modules/members/hooks/use-members.ts`. (Moved out of `src/shared/components/members/` per ADR-0022.)
+- Client-side valibot schemas mirroring the server contract — `src/modules/members/schemas/` (per ADR-0022; promote to domain only if they become shared domain logic).
 
 ## API contract
 

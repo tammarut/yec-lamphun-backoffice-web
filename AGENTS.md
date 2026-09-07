@@ -17,7 +17,10 @@ src/
 ├── modules/              # Feature modules (Domain & Business Logic)
 │   ├── auth/              # Auth-specific services, components, actions, types
 │   ├── business-categories/ # Business categories module
-│   ├── members/           # Member file upload module (validation + R2 orchestration)
+│   ├── members/           # Members module (domain, use-cases, R2 file orchestration, frontend)
+│   │   ├── components/    # Feature-owned UI components (views, tables, dialogs)
+│   │   ├── hooks/         # Feature-owned React hooks (client data fetching)
+│   │   └── schemas/       # (future) Client-side Valibot schemas for wizard steps
 │   ├── shared/            # Cross-cutting infra shared by all modules
 │   │   ├── id-generator/  # IIdGenerator interface (generic ULID contract)
 │   │   ├── session-store/ # In-memory session store
@@ -31,6 +34,8 @@ src/
 │   ├── config/            # Strict env loading (t3-env)
 │   └── lib/               # Shared libraries (db/database-client, ulid-generator, utils/cn)
 ```
+
+**Feature modules own their frontend.** A feature module's `components/`, `hooks/`, and `schemas/` folders hold its UI layer; feature UI does NOT live in `src/shared/components/`. `components/` and `hooks/` MUST NOT import from their own module's `repository/`, `use-case/`, or `domain/` server layers — type-only imports are excepted. This boundary is a written convention (see `docs/adr/0022-modules-own-their-frontend.md`), deliberately not enforced by a lint rule.
 
 ---
 
