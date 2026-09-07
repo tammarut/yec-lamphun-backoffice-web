@@ -91,76 +91,88 @@ const optionalCoordinate = (label: string) =>
 
 // --- The schema ---------------------------------------------------------------
 
-export const MemberWizardSchema = v.pipe(
-	v.object({
-		registration_type: v.picklist(REGISTRATION_TYPES, "กรุณาเลือกประเภทการสมัคร"),
-		company_certificate: memberFileValue,
-		id_card_image: memberFileValue,
-		profile_avatar: memberFileValue,
-		title_name_th: v.picklist(TITLES_TH, "กรุณาเลือกคำนำหน้าชื่อ"),
-		first_name_th: requiredText("กรุณากรอกชื่อ"),
-		last_name_th: requiredText("กรุณากรอกนามสกุล"),
-		title_name_en: v.union([v.picklist(TITLES_EN, "คำนำหน้าชื่อ (EN) ไม่ถูกต้อง"), v.literal("")]),
-		first_name_en: v.string(),
-		last_name_en: v.string(),
-		nickname: requiredText("กรุณากรอกชื่อเล่น"),
-		gender: v.picklist(GENDERS, "กรุณาเลือกเพศ"),
-		date_of_birth: requiredIsoDate("กรุณาเลือกวันเดือนปีเกิด"),
-		nationality: requiredText("กรุณากรอกสัญชาติ"),
-		id_card_no: v.pipe(
+/**
+ * Shared field map; only `registration_type` (the variant discriminator) and
+ * `company_certificate` differ per branch below.
+ *
+ * The juristic-certificate rule lives inside the JURISTIC_PERSON branch's
+ * field schema (a `variant`, not a top-level pipe check) so it fires even
+ * when other fields are failing — RHF's resolver parses with
+ * `abortPipeEarly: true`, which never reaches a pipe stage appended after an
+ * object schema that produced any issue (e.g. empty step-2 fields while the
+ * user is still on step 1).
+ */
+const wizardFields = {
+	id_card_image: memberFileValue,
+	profile_avatar: memberFileValue,
+	title_name_th: v.picklist(TITLES_TH, "กรุณาเลือกคำนำหน้าชื่อ"),
+	first_name_th: requiredText("กรุณากรอกชื่อ"),
+	last_name_th: requiredText("กรุณากรอกนามสกุล"),
+	title_name_en: v.union([v.picklist(TITLES_EN, "คำนำหน้าชื่อ (EN) ไม่ถูกต้อง"), v.literal("")]),
+	first_name_en: v.string(),
+	last_name_en: v.string(),
+	nickname: requiredText("กรุณากรอกชื่อเล่น"),
+	gender: v.picklist(GENDERS, "กรุณาเลือกเพศ"),
+	date_of_birth: requiredIsoDate("กรุณาเลือกวันเดือนปีเกิด"),
+	nationality: requiredText("กรุณากรอกสัญชาติ"),
+	id_card_no: v.pipe(
+		v.string(),
+		v.check((value) => value.replace(/\D/g, "").length > 0, "กรุณากรอกเลขบัตรประชาชน"),
+		v.check((value) => value.replace(/\D/g, "").length === 13, "เลขบัตรประชาชนต้องมีครบ 13 หลัก")
+	),
+	id_card_expiry_date: v.pipe(
+		v.string(),
+		v.check((value) => value !== "", "กรุณาเลือกวันหมดอายุบัตร"),
+		v.isoDate("รูปแบบวันที่ไม่ถูกต้อง"),
+		v.check((value) => value >= localIsoDateString(new Date()), "วันหมดอายุบัตรต้องไม่เป็นวันที่ผ่านมาแล้ว")
+	),
+	phone_no: v.pipe(
+		v.string(),
+		v.trim(),
+		v.minLength(1, "กรุณากรอกเบอร์โทรศัพท์"),
+		v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678")
+	),
+	email: v.pipe(
+		v.string(),
+		v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง")
+	),
+	line_id: v.string(),
+	shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
+	position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
+	business: v.object({
+		name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า"),
+		juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล"),
+		category_id: v.pipe(
 			v.string(),
-			v.check((value) => value.replace(/\D/g, "").length > 0, "กรุณากรอกเลขบัตรประชาชน"),
-			v.check((value) => value.replace(/\D/g, "").length === 13, "เลขบัตรประชาชนต้องมีครบ 13 หลัก")
+			v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
+			v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
 		),
-		id_card_expiry_date: v.pipe(
-			v.string(),
-			v.check((value) => value !== "", "กรุณาเลือกวันหมดอายุบัตร"),
-			v.isoDate("รูปแบบวันที่ไม่ถูกต้อง"),
-			v.check((value) => value >= localIsoDateString(new Date()), "วันหมดอายุบัตรต้องไม่เป็นวันที่ผ่านมาแล้ว")
-		),
-		phone_no: v.pipe(
-			v.string(),
-			v.trim(),
-			v.minLength(1, "กรุณากรอกเบอร์โทรศัพท์"),
-			v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678")
-		),
-		email: v.pipe(
-			v.string(),
-			v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง")
-		),
-		line_id: v.string(),
-		shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
-		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
-		business: v.object({
-			name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า"),
-			juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล"),
-			category_id: v.pipe(
-				v.string(),
-				v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
-				v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
-			),
-			address: v.string(),
-			latitude: optionalCoordinate("ละติจูด"),
-			longitude: optionalCoordinate("ลองจิจูด"),
-			description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
-			core_business: v.string(),
-			website: v.string(),
-			logo: memberFileValue,
-			product: memberFileValue,
-		}),
+		address: v.string(),
+		latitude: optionalCoordinate("ละติจูด"),
+		longitude: optionalCoordinate("ลองจิจูด"),
+		description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
+		core_business: v.string(),
+		website: v.string(),
+		logo: memberFileValue,
+		product: memberFileValue,
 	}),
-	// Cross-field rule the API leaves to callers: a juristic applicant must
-	// attach the company certificate. Forwarded so the issue lands on the
-	// company_certificate field for inline rendering.
-	v.forward(
-		v.rawCheck(({ dataset, addIssue }) => {
-			if (dataset.typed && dataset.value.registration_type === "JURISTIC_PERSON" && !dataset.value.company_certificate.file) {
-				addIssue({ message: "นิติบุคคลต้องแนบหนังสือรับรองบริษัท" })
-			}
-		}),
-		["company_certificate"]
-	)
-)
+}
+
+export const MemberWizardSchema = v.variant("registration_type", [
+	v.object({
+		...wizardFields,
+		registration_type: v.literal("INDIVIDUAL"),
+		company_certificate: memberFileValue,
+	}),
+	v.object({
+		...wizardFields,
+		registration_type: v.literal("JURISTIC_PERSON"),
+		company_certificate: v.pipe(
+			memberFileValue,
+			v.check((value) => value.file !== null, "นิติบุคคลต้องแนบหนังสือรับรองบริษัท")
+		),
+	}),
+])
 
 export type MemberWizardFormValues = v.InferInput<typeof MemberWizardSchema>
 

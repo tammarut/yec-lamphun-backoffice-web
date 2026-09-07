@@ -1,0 +1,103 @@
+"use client"
+
+import { CheckmarkCircle02Icon, Edit01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { useFormContext } from "react-hook-form"
+
+import { Button } from "src/shared/components/ui/button"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "src/shared/components/ui/card"
+import { GENDER_LABELS, POSITION_LABELS, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
+import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
+import { memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { cn } from "src/shared/lib/utils/utils"
+
+function ReviewRow({ label, value }: { label: string; value: React.ReactNode }) {
+	const empty = value === null || value === undefined || value === ""
+	return (
+		<div className="grid grid-cols-1 gap-1 py-2.5 sm:grid-cols-3">
+			<dt className="text-muted-foreground text-sm">{label}</dt>
+			<dd className={cn("col-span-2 text-sm", empty && "text-muted-foreground italic")}>{empty ? "-" : value}</dd>
+		</div>
+	)
+}
+
+function ReviewSection({ title, step, onEdit, children }: { title: string; step: 1 | 2 | 3; onEdit: (step: 1 | 2 | 3) => void; children: React.ReactNode }) {
+	return (
+		<Card data-slot="wizard-review-section" data-step={step}>
+			<CardHeader>
+				<CardTitle className="text-base">{title}</CardTitle>
+				<CardAction>
+					<Button type="button" variant="outline" size="sm" onClick={() => onEdit(step)}>
+						<HugeiconsIcon icon={Edit01Icon} className="size-4" />
+						แก้ไข
+					</Button>
+				</CardAction>
+			</CardHeader>
+			<CardContent className="pt-0">
+				<dl className="divide-y">{children}</dl>
+			</CardContent>
+		</Card>
+	)
+}
+
+/** Wizard step 4 — ตรวจสอบข้อมูล: three review sections with แก้ไข jump-backs. */
+export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) => void }) {
+	const { getValues } = useFormContext<MemberWizardFormValues>()
+	const values = getValues()
+	const categoriesQuery = useBusinessCategories()
+	const categoryName = categoriesQuery.data?.find((category) => String(category.id) === values.business.category_id)?.category_name ?? "-"
+
+	return (
+		<div data-slot="wizard-step-review" className="flex flex-col gap-4">
+			<div className="text-success border-success/30 bg-success/10 flex items-start gap-2 rounded-xl border p-4 text-sm">
+				<HugeiconsIcon icon={CheckmarkCircle02Icon} className="mt-0.5 size-4 shrink-0" />
+				<span>ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก หากต้องการแก้ไขส่วนใด กดปุ่ม &quot;แก้ไข&quot; ของหมวดนั้นๆ ได้เลย</span>
+			</div>
+
+			<ReviewSection title="ข้อมูลการสมัคร" step={1} onEdit={onEdit}>
+				<ReviewRow label="ประเภทการสมัคร" value={REGISTRATION_TYPE_LABELS[values.registration_type] ?? values.registration_type} />
+				<ReviewRow label="หนังสือรับรองบริษัท" value={memberFileLabel(values.company_certificate)} />
+				<ReviewRow label="สำเนาบัตรประชาชน" value={memberFileLabel(values.id_card_image)} />
+			</ReviewSection>
+
+			<ReviewSection title="ข้อมูลส่วนตัว" step={2} onEdit={onEdit}>
+				<ReviewRow label="ชื่อ-นามสกุล (TH)" value={`${values.title_name_th}${values.first_name_th} ${values.last_name_th}`} />
+				<ReviewRow
+					label="ชื่อ-นามสกุล (EN)"
+					value={values.first_name_en === "" && values.last_name_en === "" ? "" : `${values.title_name_en} ${values.first_name_en} ${values.last_name_en}`.trim()}
+				/>
+				<ReviewRow label="ชื่อเล่น" value={values.nickname} />
+				<ReviewRow label="เพศ" value={GENDER_LABELS[values.gender] ?? values.gender} />
+				<ReviewRow label="วันเดือนปีเกิด" value={values.date_of_birth} />
+				<ReviewRow label="เลขบัตรประชาชน" value={values.id_card_no} />
+				<ReviewRow label="วันหมดอายุบัตร" value={values.id_card_expiry_date} />
+				<ReviewRow label="สัญชาติ" value={values.nationality} />
+				<ReviewRow label="รูปโปรไฟล์" value={memberFileLabel(values.profile_avatar)} />
+				<ReviewRow label="เบอร์โทรศัพท์" value={values.phone_no} />
+				<ReviewRow label="อีเมล" value={values.email} />
+				<ReviewRow label="Line ID" value={values.line_id} />
+				<ReviewRow label="ไซส์เสื้อ" value={values.shirt_size === "" ? "" : (SHIRT_SIZE_LABELS[values.shirt_size] ?? values.shirt_size)} />
+				<ReviewRow label="ตำแหน่งใน YEC Lamphun" value={POSITION_LABELS[values.position] ?? values.position} />
+				<ReviewRow label="เป็นสมาชิกตั้งแต่" value="ระบบจะคำนวณอัตโนมัติ" />
+				<ReviewRow label="สถานะสมาชิก" value="ระบบจะระบุอัตโนมัติ" />
+			</ReviewSection>
+
+			<ReviewSection title="ข้อมูลธุรกิจ" step={3} onEdit={onEdit}>
+				<ReviewRow label="ชื่อกิจการ/ร้านค้า" value={values.business.name} />
+				<ReviewRow label="เลขทะเบียนนิติบุคคล" value={values.business.juristic_registration_no} />
+				<ReviewRow label="หมวดธุรกิจหลัก" value={categoryName} />
+				<ReviewRow label="ที่อยู่กิจการ" value={values.business.address} />
+				<ReviewRow
+					label="พิกัด"
+					value={values.business.latitude === "" || values.business.longitude === "" ? "" : `${values.business.latitude}, ${values.business.longitude}`}
+				/>
+				<ReviewRow label="รายละเอียดกิจการ" value={values.business.description} />
+				<ReviewRow label="ผลิตภัณฑ์/บริการหลัก" value={values.business.core_business} />
+				<ReviewRow label="Website" value={values.business.website} />
+				<ReviewRow label="โลโก้" value={memberFileLabel(values.business.logo)} />
+				<ReviewRow label="รูปผลิตภัณฑ์" value={memberFileLabel(values.business.product)} />
+			</ReviewSection>
+		</div>
+	)
+}
