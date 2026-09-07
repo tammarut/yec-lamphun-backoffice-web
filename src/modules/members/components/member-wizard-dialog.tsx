@@ -150,7 +150,9 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	}
 
 	function scrollTop() {
-		scrollRef.current?.scrollTo({ top: 0 })
+		// Optional call: jsdom (component tests) implements neither Element.scrollTo
+		// nor a scrollable layout — stepping must not depend on it.
+		scrollRef.current?.scrollTo?.({ top: 0 })
 	}
 
 	function goDirect(target: WizardStep) {
