@@ -1,0 +1,244 @@
+import * as v from "valibot"
+
+/**
+ * Client-side valibot mirror of the server's `CreateMemberSchema`
+ * (`src/app/api/v1/members/schema.ts`) for the member-creation wizard.
+ *
+ * Required-ness follows the API, not the mockup's markers (README §8 item 10):
+ * nickname, date_of_birth, nationality, id_card_expiry_date,
+ * business.juristic_registration_no and business.description are all required.
+ * The mirror also front-runs two domain rules so users don't pay a 400
+ * round-trip: the 13-digit id-card count (domain strips non-digits, no
+ * checksum) and the id-card-expiry ≥ today calendar compare (today valid).
+ *
+ * The shape is the wire contract with exactly three deliberate deviations,
+ * each resolved by `member-wizard-mapping.ts` (the explicit form↔wire layer
+ * the card mandates, kept pre-fill friendly for 3b-edit):
+ * - the five Member File fields hold `{ file, existingUrl }` pairs (Files are
+ *   not serializable into drafts or JSON; edit mode will slot URLs in);
+ * - `business.category_id` / `latitude` / `longitude` are strings (HTML select
+ *   and text input values) parsed to wire types at the boundary;
+ * - empty string means "unset" for every API-optional field.
+ */
+
+// --- Enum mirrors (identical literals to the server picklists) --------------
+
+export const REGISTRATION_TYPES = ["INDIVIDUAL", "JURISTIC_PERSON"] as const
+export const GENDERS = ["MALE", "FEMALE", "OTHER"] as const
+export const SHIRT_SIZES = ["SSS", "SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"] as const
+export const TITLES_TH = ["นาย", "นางสาว", "นาง", "อื่นๆ"] as const
+export const TITLES_EN = ["Mr.", "Mrs.", "Ms.", "Miss"] as const
+export const POSITIONS = [
+	"GENERAL_MEMBER",
+	"PRESIDENT",
+	"ADVISORY_BOARD",
+	"SECRETARY",
+	"TREASURER",
+	"ASST_SECRETARY",
+	"LEGAL_COORDINATOR",
+	"VP_ADMIN_INTERNAL",
+	"VP_BUSINESS_INNOVATION",
+	"VP_NETWORK_INTERNATIONAL",
+	"VP_PR_IMAGE",
+	"VP_ACTIVITIES_RELATIONS",
+	"VP_DATA_REGISTRATION",
+	"COMM_ADMIN_INTERNAL",
+	"COMM_BUSINESS_INNOVATION",
+	"COMM_NETWORK_INTERNATIONAL",
+	"COMM_PR_IMAGE",
+	"COMM_ACTIVITIES_RELATIONS",
+	"COMM_DATA_REGISTRATION",
+] as const
+
+// --- Building blocks ---------------------------------------------------------
+
+/** One Member File field: a freshly picked File, an edit-mode URL, or neither. */
+const memberFileValue = v.object({
+	file: v.union([v.instance(File), v.null()]),
+	existingUrl: v.union([v.string(), v.null()]),
+})
+
+const emptyMemberFileValue = (): MemberFileValue => ({ file: null, existingUrl: null })
+
+/** Required text: non-whitespace (the server checks minLength(1) on raw text). */
+const requiredText = (message: string) => v.pipe(v.string(), v.trim(), v.minLength(1, message))
+
+/** Required ISO date from `<input type="date">` ("" = unset). */
+const requiredIsoDate = (message: string) =>
+	v.pipe(
+		v.string(),
+		v.check((value) => value !== "", message),
+		v.isoDate("รูปแบบวันที่ไม่ถูกต้อง")
+	)
+
+/** Local-calendar ISO date — the same compare the domain rule performs. */
+function localIsoDateString(date: Date): string {
+	const year = date.getFullYear()
+	const month = String(date.getMonth() + 1).padStart(2, "0")
+	const day = String(date.getDate()).padStart(2, "0")
+	return `${year}-${month}-${day}`
+}
+
+const PHONE_PATTERN = /^0\d{1,2}-?\d{3}-?\d{3,4}$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Optional numeric text ("" allowed) — for the latitude/longitude pair. */
+const optionalCoordinate = (label: string) =>
+	v.pipe(
+		v.string(),
+		v.check((value) => value.trim() === "" || Number.isFinite(Number(value)), `${label}ต้องเป็นตัวเลข`)
+	)
+
+// --- The schema ---------------------------------------------------------------
+
+export const MemberWizardSchema = v.pipe(
+	v.object({
+		registration_type: v.picklist(REGISTRATION_TYPES, "กรุณาเลือกประเภทการสมัคร"),
+		company_certificate: memberFileValue,
+		id_card_image: memberFileValue,
+		profile_avatar: memberFileValue,
+		title_name_th: v.picklist(TITLES_TH, "กรุณาเลือกคำนำหน้าชื่อ"),
+		first_name_th: requiredText("กรุณากรอกชื่อ"),
+		last_name_th: requiredText("กรุณากรอกนามสกุล"),
+		title_name_en: v.union([v.picklist(TITLES_EN, "คำนำหน้าชื่อ (EN) ไม่ถูกต้อง"), v.literal("")]),
+		first_name_en: v.string(),
+		last_name_en: v.string(),
+		nickname: requiredText("กรุณากรอกชื่อเล่น"),
+		gender: v.picklist(GENDERS, "กรุณาเลือกเพศ"),
+		date_of_birth: requiredIsoDate("กรุณาเลือกวันเดือนปีเกิด"),
+		nationality: requiredText("กรุณากรอกสัญชาติ"),
+		id_card_no: v.pipe(
+			v.string(),
+			v.check((value) => value.replace(/\D/g, "").length > 0, "กรุณากรอกเลขบัตรประชาชน"),
+			v.check((value) => value.replace(/\D/g, "").length === 13, "เลขบัตรประชาชนต้องมีครบ 13 หลัก")
+		),
+		id_card_expiry_date: v.pipe(
+			v.string(),
+			v.check((value) => value !== "", "กรุณาเลือกวันหมดอายุบัตร"),
+			v.isoDate("รูปแบบวันที่ไม่ถูกต้อง"),
+			v.check((value) => value >= localIsoDateString(new Date()), "วันหมดอายุบัตรต้องไม่เป็นวันที่ผ่านมาแล้ว")
+		),
+		phone_no: v.pipe(
+			v.string(),
+			v.trim(),
+			v.minLength(1, "กรุณากรอกเบอร์โทรศัพท์"),
+			v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678")
+		),
+		email: v.pipe(
+			v.string(),
+			v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง")
+		),
+		line_id: v.string(),
+		shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
+		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
+		business: v.object({
+			name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า"),
+			juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล"),
+			category_id: v.pipe(
+				v.string(),
+				v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
+				v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
+			),
+			address: v.string(),
+			latitude: optionalCoordinate("ละติจูด"),
+			longitude: optionalCoordinate("ลองจิจูด"),
+			description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
+			core_business: v.string(),
+			website: v.string(),
+			logo: memberFileValue,
+			product: memberFileValue,
+		}),
+	}),
+	// Cross-field rule the API leaves to callers: a juristic applicant must
+	// attach the company certificate. Forwarded so the issue lands on the
+	// company_certificate field for inline rendering.
+	v.forward(
+		v.rawCheck(({ dataset, addIssue }) => {
+			if (dataset.typed && dataset.value.registration_type === "JURISTIC_PERSON" && !dataset.value.company_certificate.file) {
+				addIssue({ message: "นิติบุคคลต้องแนบหนังสือรับรองบริษัท" })
+			}
+		}),
+		["company_certificate"]
+	)
+)
+
+export type MemberWizardFormValues = v.InferInput<typeof MemberWizardSchema>
+
+export type MemberFileValue = { file: File | null; existingUrl: string | null }
+
+/** Per-step field paths (RHF `trigger` names) — step 4 is review-only. */
+export const STEP_FIELDS = {
+	1: ["registration_type", "company_certificate", "id_card_image"],
+	2: [
+		"profile_avatar",
+		"title_name_th",
+		"first_name_th",
+		"last_name_th",
+		"title_name_en",
+		"first_name_en",
+		"last_name_en",
+		"nickname",
+		"gender",
+		"date_of_birth",
+		"nationality",
+		"id_card_no",
+		"id_card_expiry_date",
+		"phone_no",
+		"email",
+		"line_id",
+		"shirt_size",
+		"position",
+	],
+	3: [
+		"business.name",
+		"business.juristic_registration_no",
+		"business.category_id",
+		"business.address",
+		"business.latitude",
+		"business.longitude",
+		"business.description",
+		"business.core_business",
+		"business.website",
+		"business.logo",
+		"business.product",
+	],
+	4: [],
+} as const
+
+/** Mockup-v2 defaults: บุคคลธรรมดา / นาย / ชาย / ไทย / สมาชิกทั่วไป, no files. */
+export const MEMBER_WIZARD_DEFAULT_VALUES = (): MemberWizardFormValues => ({
+	registration_type: "INDIVIDUAL",
+	company_certificate: emptyMemberFileValue(),
+	id_card_image: emptyMemberFileValue(),
+	profile_avatar: emptyMemberFileValue(),
+	title_name_th: "นาย",
+	first_name_th: "",
+	last_name_th: "",
+	title_name_en: "",
+	first_name_en: "",
+	last_name_en: "",
+	nickname: "",
+	gender: "MALE",
+	date_of_birth: "",
+	nationality: "ไทย",
+	id_card_no: "",
+	id_card_expiry_date: "",
+	phone_no: "",
+	email: "",
+	line_id: "",
+	shirt_size: "",
+	position: "GENERAL_MEMBER",
+	business: {
+		name: "",
+		juristic_registration_no: "",
+		category_id: "",
+		address: "",
+		latitude: "",
+		longitude: "",
+		description: "",
+		core_business: "",
+		website: "",
+		logo: emptyMemberFileValue(),
+		product: emptyMemberFileValue(),
+	},
+})
