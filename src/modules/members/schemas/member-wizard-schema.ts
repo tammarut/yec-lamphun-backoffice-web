@@ -23,7 +23,6 @@ import * as v from "valibot"
 
 // --- Enum mirrors (identical literals to the server picklists) --------------
 
-export const REGISTRATION_TYPES = ["INDIVIDUAL", "JURISTIC_PERSON"] as const
 export const GENDERS = ["MALE", "FEMALE", "OTHER"] as const
 export const SHIRT_SIZES = ["SSS", "SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"] as const
 export const TITLES_TH = ["นาย", "นางสาว", "นาง", "อื่นๆ"] as const

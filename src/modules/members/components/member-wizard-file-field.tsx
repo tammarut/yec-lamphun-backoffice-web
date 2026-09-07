@@ -2,7 +2,7 @@
 
 import { Camera01Icon, Cancel01Icon, Image01Icon, Upload04Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { useFormContext, useWatch } from "react-hook-form"
 
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
@@ -52,15 +52,12 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 	const fileName = fileValue?.file?.name ?? null
 	const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
-	function handleFileChange(file: File | undefined) {
-		if (!file) {
-			return
-		}
-		const invalidReason = validateMemberFile(file)
-		setValue(name, { file: invalidReason === null ? file : null, existingUrl: null }, { shouldDirty: true })
-		if (invalidReason !== null) {
-			setPreviewUrl(null)
-			setError(name, { type: "validate", message: invalidReason })
+	// The preview is component-local, but the staged File lives in form state —
+	// re-derive the data: URL after the component remounts (stepping away and
+	// back) while the File is still selected.
+	useEffect(() => {
+		const file = fileValue?.file ?? null
+		if (file === null) {
 			return
 		}
 		const reader = new FileReader()
@@ -68,7 +65,19 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 			setPreviewUrl(typeof reader.result === "string" ? reader.result : null)
 		}
 		reader.readAsDataURL(file)
-		void trigger(name)
+	}, [fileValue?.file])
+
+	function handleFileChange(file: File | undefined) {
+		if (!file) {
+			return
+		}
+		const invalidReason = validateMemberFile(file)
+		setValue(name, { file: invalidReason === null ? file : null, existingUrl: null }, { shouldDirty: true })
+		if (invalidReason !== null) {
+			setError(name, { type: "validate", message: invalidReason })
+		} else {
+			void trigger(name)
+		}
 	}
 
 	function handleRemove() {
