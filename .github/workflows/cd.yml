@@ -71,6 +71,11 @@ jobs:
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  # Runner env does not reach the Docker build: next.config.ts
+                  # reads R2_PUBLIC_BASE_URL while building (CSP img-src), so
+                  # it must be passed explicitly as a build-arg.
+                  build-args: |
+                      R2_PUBLIC_BASE_URL=${{ vars.R2_PUBLIC_BASE_URL }}
 
     cleanup:
         name: Cleanup Old Docker Images

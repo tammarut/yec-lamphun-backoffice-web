@@ -23,6 +23,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG SKIP_ENV_VALIDATION=true
 ENV SKIP_ENV_VALIDATION=$SKIP_ENV_VALIDATION
 
+# R2_PUBLIC_BASE_URL is consumed at build time by next.config.ts (CSP img-src,
+# ADR-0007): the standalone server re-evaluates next.config at boot with the
+# real runtime env, but the BUILD-TIME evaluation crashes on a missing value —
+# pass it via build-arg in cd.yml. Runner env does not reach `docker build`.
+ARG R2_PUBLIC_BASE_URL
+ENV R2_PUBLIC_BASE_URL=$R2_PUBLIC_BASE_URL
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
