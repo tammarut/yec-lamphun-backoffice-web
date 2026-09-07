@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 
-import { buildMembersCsv } from "src/shared/components/members/export-members-csv"
-import { makeMember } from "src/shared/components/members/make-member.fixture"
+import { buildMembersCsv } from "src/modules/members/components/export-members-csv"
+import { makeMember } from "src/modules/members/components/make-member.fixture"
 
 describe("buildMembersCsv", () => {
 	describe("Happy cases", () => {

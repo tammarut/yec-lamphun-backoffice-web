@@ -3,7 +3,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query"
 
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
-import type { ListMembersPage } from "src/shared/components/members/members-types"
+import type { ListMembersPage } from "src/modules/members/components/members-types"
 
 /** Page size for the directory list — API allows 1..50, default 10. */
 export const MEMBERS_PAGE_LIMIT = 20

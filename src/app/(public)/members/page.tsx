@@ -1,4 +1,4 @@
-import { MembersView } from "src/shared/components/members/members-view"
+import { MembersView } from "src/modules/members/components/members-view"
 
 export default function MembersPage() {
 	return <MembersView />

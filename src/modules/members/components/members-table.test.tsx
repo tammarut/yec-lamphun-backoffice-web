@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
-import { makeMember } from "src/shared/components/members/make-member.fixture"
-import { MembersTable } from "src/shared/components/members/members-table"
+import { makeMember } from "src/modules/members/components/make-member.fixture"
+import { MembersTable } from "src/modules/members/components/members-table"
 
 function renderTable(overrides: Partial<Parameters<typeof MembersTable>[0]> = {}) {
 	const props = {
