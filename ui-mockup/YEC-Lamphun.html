@@ -497,10 +497,19 @@
             const [viewMode, setViewMode] = useState('list');
             const [searchTerm, setSearchTerm] = useState('');
             const [showModal, setShowModal] = useState(false);
-            const [activeTab, setActiveTab] = useState(1);
+            const [step, setStep] = useState(1);
+            const [completedSteps, setCompletedSteps] = useState([]);
+            const [errors, setErrors] = useState({});
             const [editingId, setEditingId] = useState(null);
             const [selectedIds, setSelectedIds] = useState([]);
             const [deleteModal, setDeleteModal] = useState({ show: false, member: null });
+            const [isDirty, setIsDirty] = useState(false);
+            const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+            const [submitting, setSubmitting] = useState(false);
+            const [submitSuccess, setSubmitSuccess] = useState(false);
+            const [draftRestored, setDraftRestored] = useState(false);
+            const baselineRef = useRef(initialFormState);
+            const sheetBodyRef = useRef(null);
 
             const initialFormState = {
                 applicantType: 'Individual', fileCert: null, fileIdCard: null, fileProfile: null, profileImage: '',
@@ -512,6 +521,27 @@
             };
 
             const [formData, setFormData] = useState(initialFormState);
+
+            const DRAFT_KEY = 'yec-member-form-draft';
+
+            const steps = [
+                { id: 1, label: 'ข้อมูลการสมัคร', icon: 'fa-file-contract' },
+                { id: 2, label: 'ข้อมูลส่วนตัว', icon: 'fa-user' },
+                { id: 3, label: 'ข้อมูลธุรกิจ', icon: 'fa-briefcase' },
+                { id: 4, label: 'ตรวจสอบข้อมูล', icon: 'fa-clipboard-check' },
+            ];
+
+            const saveDraft = (data) => { if (editingId) return;
+                try {
+                    const serializable = {};
+                    Object.keys(data).forEach(k => { if (!(data[k] instanceof File)) serializable[k] = data[k]; });
+                    localStorage.setItem(DRAFT_KEY, JSON.stringify(serializable));
+                } catch (err) {}
+            };
+
+            const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch (err) {} };
+
+            const isFormDirty = (data) => JSON.stringify(data) !== JSON.stringify(baselineRef.current);
 
             const filteredMembers = members.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.position.toLowerCase().includes(searchTerm.toLowerCase()) || (m.department && m.department.toLowerCase().includes(searchTerm.toLowerCase())));
 
@@ -555,10 +585,12 @@
 
             const handleInputChange = (e) => {
                 const { name, value, type, checked } = e.target;
+                setIsDirty(true);
+                setErrors(prev => { if (!prev[name]) return prev; const next = { ...prev }; delete next[name]; return next; });
                 setFormData(prev => {
                     const newData = { ...prev };
-                    if (type === 'checkbox') { newData[name] = checked ? 'Active' : 'Pending'; return newData; }
-                    if (name === 'idCardNum') { newData[name] = value.replace(/\D/g, '').slice(0, 13); return newData; }
+                    if (type === 'checkbox') { newData[name] = checked ? 'Active' : 'Pending'; saveDraft(newData); return newData; }
+                    if (name === 'idCardNum') { newData[name] = value.replace(/\D/g, '').slice(0, 13); saveDraft(newData); return newData; }
                     else { newData[name] = value; }
                     if (name === 'dob' && value) {
                         const birthDate = new Date(value);
@@ -579,14 +611,97 @@
                         if (months < 0) { years--; months += 12; }
                         newData.membershipDuration = `${years} ปี ${months} เดือน ${days} วัน`;
                     }
+                    saveDraft(newData);
                     return newData;
                 });
             };
 
             const handleFileChange = (e) => {
                 const { name, files } = e.target;
-                if (files && files[0]) { setFormData(prev => ({ ...prev, [name]: files[0] })); }
+                if (files && files[0]) {
+                    setIsDirty(true);
+                    setErrors(prev => { if (!prev[name]) return prev; const next = { ...prev }; delete next[name]; return next; });
+                    setFormData(prev => ({ ...prev, [name]: files[0] }));
+                    saveDraft({ ...formData, [name]: undefined });
+                }
             };
+
+            // --- Validation ---
+            const validateStep = (s, data = formData) => {
+                const e = {};
+                if (s === 1) {
+                    if (data.applicantType === 'Juristic') {
+                        if (!data.juristicId.trim()) e.juristicId = 'จำเป็นต้องระบุสำหรับนิติบุคคล';
+                        if (!data.fileCert) e.fileCert = 'จำเป็นต้องแนบหนังสือรับรองสำหรับนิติบุคคล';
+                    }
+                }
+                if (s === 2) {
+                    if (!data.firstNameTH.trim()) e.firstNameTH = 'กรุณากรอกชื่อ';
+                    if (!data.lastNameTH.trim()) e.lastNameTH = 'กรุณากรอกนามสกุล';
+                    if (!data.phone.trim()) e.phone = 'กรุณากรอกเบอร์โทรศัพท์';
+                    else if (!/^0\d{1,2}-?\d{3}-?\d{3,4}$/.test(data.phone.trim())) e.phone = 'รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678';
+                    if (data.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim())) e.email = 'รูปแบบอีเมลไม่ถูกต้อง';
+                    if (data.idCardNum && data.idCardNum.length !== 13) e.idCardNum = 'เลขบัตรประชาชนต้องมีครบ 13 หลัก';
+                    if (data.status === 'Active') {
+                        const isRestricted = data.yecPosition.startsWith('ประธาน') && !data.yecPosition.startsWith('รอง') || data.yecPosition === 'เลขาธิการ' || data.yecPosition.startsWith('รองประธาน');
+                        if (isRestricted) {
+                            const existing = members.find(m => m.position === data.yecPosition && m.status === 'Active' && m.id !== editingId);
+                            if (existing) e.yecPosition = `ตำแหน่งนี้มีผู้ดำรงตำแหน่งอยู่แล้ว (${existing.name})`;
+                        }
+                    }
+                }
+                if (s === 3) {
+                    if (!data.businessName.trim()) e.businessName = 'กรุณากรอกชื่อกิจการ/ร้านค้า';
+                    if (!data.businessCategory) e.businessCategory = 'กรุณาเลือกหมวดธุรกิจ';
+                }
+                return e;
+            };
+
+            const handleFieldBlur = (e) => {
+                const { name } = e.target;
+                if (!name) return;
+                const fieldErrors = validateStep(step);
+                if (fieldErrors[name]) setErrors(prev => ({ ...prev, [name]: fieldErrors[name] }));
+            };
+
+            const scrollToTop = () => { if (sheetBodyRef.current) sheetBodyRef.current.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+            const goToStep = (target) => {
+                if (!editingId && target > 1 && target <= 4) {
+                    // add mode: validate all steps before target
+                    for (let s = 1; s < target; s++) {
+                        const e = validateStep(s);
+                        if (Object.keys(e).length) {
+                            setErrors(prev => ({ ...prev, ...e }));
+                            setStep(s);
+                            scrollToTop();
+                            return;
+                        }
+                    }
+                }
+                setCompletedSteps(prev => {
+                    const next = [...prev];
+                    steps.filter(st => st.id < target).forEach(st => { if (!next.includes(st.id)) next.push(st.id); });
+                    return next;
+                });
+                setStep(target);
+                scrollToTop();
+            };
+
+            const handleNext = () => {
+                const e = validateStep(step);
+                if (Object.keys(e).length) {
+                    setErrors(prev => ({ ...prev, ...e }));
+                    scrollToTop();
+                    return;
+                }
+                setErrors({});
+                setCompletedSteps(prev => prev.includes(step) ? prev : [...prev, step]);
+                setStep(step + 1);
+                scrollToTop();
+            };
+
+            const handleBack = () => { if (step > 1) { setStep(step - 1); scrollToTop(); } };
 
             const handleEditClick = (member) => {
                 setEditingId(member.id);
@@ -607,53 +722,134 @@
                     durationStr = `${years} ปี ${months} เดือน ${days} วัน`;
                 }
 
-                setFormData({
+                const editData = {
                     ...initialFormState,
                     prefixTH: prefix || 'นาย', firstNameTH: firstName || member.name, lastNameTH: lastName || '', nickname: member.nickname || '',
                     yecPosition: member.position, businessName: member.department, businessDesc: member.businessDesc || '',
                     email: member.email, phone: member.phone, lineId: member.lineId || '', gender: member.gender || 'Male',
                     shirtSize: member.shirtSize || 'M (อก 40)', applicantType: 'Individual', status: member.status || 'Active',
                     memberSince: member.memberSince || '', membershipDuration: durationStr, profileImage: member.image || '', fileProfile: null
-                });
-                setActiveTab(1);
+                };
+                setFormData(editData);
+                baselineRef.current = editData;
+                setStep(1); setCompletedSteps([]); setErrors({}); setIsDirty(false); setSubmitSuccess(false); setDraftRestored(false);
                 setShowModal(true);
             };
 
             const handleAddClick = () => {
                 setEditingId(null);
-                setFormData(initialFormState);
-                setActiveTab(1);
+                setStep(1); setCompletedSteps([]); setErrors({}); setIsDirty(false); setSubmitSuccess(false);
+                let data = initialFormState;
+                try {
+                    const draft = localStorage.getItem(DRAFT_KEY);
+                    if (draft) { data = { ...initialFormState, ...JSON.parse(draft) }; setDraftRestored(true); }
+                    else { setDraftRestored(false); }
+                } catch (err) { data = initialFormState; setDraftRestored(false); }
+                setFormData(data);
+                baselineRef.current = initialFormState;
                 setShowModal(true);
             }
 
-            const handleAddSubmit = (e) => {
+            const guardClose = () => {
+                if (isFormDirty(formData)) { setShowCloseConfirm(true); } else { setShowModal(false); }
+            };
+
+            const closeWithDraft = () => { if (!editingId) saveDraft(formData); setShowCloseConfirm(false); setShowModal(false); };
+            const closeDiscard = () => { clearDraft(); setShowCloseConfirm(false); setShowModal(false); };
+
+            const handleSubmit = (e) => {
                 e.preventDefault();
-                const isPresident = formData.yecPosition.startsWith('ประธาน') && !formData.yecPosition.startsWith('รอง');
-                const isRestricted = isPresident || formData.yecPosition === 'เลขาธิการ' || formData.yecPosition.startsWith('รองประธาน');
-                if (isRestricted) {
-                    const existing = members.find(m => m.position === formData.yecPosition && m.status === 'Active' && m.id !== editingId);
-                    if (existing && formData.status === 'Active') {
-                        alert(`ไม่สามารถบันทึกได้: ตำแหน่ง "${formData.yecPosition}" มีผู้ดำรงตำแหน่งอยู่แล้ว (${existing.name})`);
+                // final validation of all steps
+                for (let s = 1; s <= 3; s++) {
+                    const errs = validateStep(s);
+                    if (Object.keys(errs).length) {
+                        setErrors(prev => ({ ...prev, ...errs }));
+                        setStep(s); scrollToTop();
                         return;
                     }
                 }
+                setSubmitting(true);
+                setTimeout(() => {
+                    let finalImage = formData.profileImage;
+                    if (formData.fileProfile) { finalImage = URL.createObjectURL(formData.fileProfile); }
+                    else if (!finalImage) { finalImage = `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.firstNameTH}`; }
 
-                let finalImage = formData.profileImage;
-                if (formData.fileProfile) { finalImage = URL.createObjectURL(formData.fileProfile); }
-                else if (!finalImage) { finalImage = `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.firstNameTH}`; }
+                    const simpleMember = {
+                        name: `${formData.prefixTH}${formData.firstNameTH} ${formData.lastNameTH}`,
+                        nickname: formData.nickname, position: formData.yecPosition, department: formData.businessName || "ไม่ระบุ",
+                        businessDesc: formData.businessDesc, email: formData.email, phone: formData.phone, lineId: formData.lineId,
+                        status: formData.status, memberSince: formData.memberSince,
+                        type: formData.yecPosition.includes('กรรมการ') || formData.yecPosition.includes('ประธาน') || formData.yecPosition.includes('เลขาธิการ') || formData.yecPosition.includes('เหรัญญิก') ? 'Committee' : 'Staff',
+                        gender: formData.gender, shirtSize: formData.shirtSize, image: finalImage
+                    };
 
-                const simpleMember = {
-                    name: `${formData.prefixTH}${formData.firstNameTH} ${formData.lastNameTH}`,
-                    nickname: formData.nickname, position: formData.yecPosition, department: formData.businessName || "ไม่ระบุ",
-                    businessDesc: formData.businessDesc, email: formData.email, phone: formData.phone, lineId: formData.lineId,
-                    status: formData.status, memberSince: formData.memberSince,
-                    type: formData.yecPosition.includes('กรรมการ') || formData.yecPosition.includes('ประธาน') || formData.yecPosition.includes('เลขาธิการ') || formData.yecPosition.includes('เหรัญญิก') ? 'Committee' : 'Staff',
-                    gender: formData.gender, shirtSize: formData.shirtSize, image: finalImage
-                };
-                
-                if (editingId) { onUpdateMember({ ...simpleMember, id: editingId }); } else { onAddMember(simpleMember); }
-                setShowModal(false);
+                    if (editingId) { onUpdateMember({ ...simpleMember, id: editingId }); } else { onAddMember(simpleMember); }
+                    setSubmitting(false);
+                    setSubmitSuccess(true);
+                    clearDraft();
+                }, 700);
             };
+
+            const startNewEntry = () => {
+                setSubmitSuccess(false);
+                setEditingId(null);
+                setFormData(initialFormState);
+                baselineRef.current = initialFormState;
+                setStep(1); setCompletedSteps([]); setErrors({}); setIsDirty(false); setDraftRestored(false);
+            };
+
+            const handleSheetKeyDown = (e) => {
+                if (e.key === 'Escape') { e.preventDefault(); guardClose(); return; }
+                if (e.key === 'Tab') {
+                    const nodes = Array.from(e.currentTarget.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])')).filter(el => el.offsetParent !== null);
+                    if (!nodes.length) return;
+                    const first = nodes[0], last = nodes[nodes.length - 1];
+                    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    else if ((!e.shiftKey && document.activeElement === last) || !e.currentTarget.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+                }
+            };
+
+            const FieldError = ({ name }) => errors[name] ? (
+                <p className="text-xs text-red-500 mt-1 flex items-center gap-1" role="alert"><i className="fa-solid fa-circle-exclamation"></i> {errors[name]}</p>
+            ) : null;
+
+            const inputCls = (name) => `w-full border rounded-lg px-3 py-2 outline-none transition ${errors[name] ? 'border-red-400 bg-red-50 focus:ring-2 focus:ring-red-200' : 'border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'}`;
+
+            const reviewSections = [
+                { title: 'ข้อมูลการสมัคร', step: 1, rows: [
+                    ['ประเภทการสมัคร', formData.applicantType === 'Individual' ? 'บุคคลธรรมดา' : 'นิติบุคคล'],
+                    ['หนังสือรับรองบริษัท', formData.fileCert ? formData.fileCert.name : '-'],
+                    ['สำเนาบัตรประชาชน', formData.fileIdCard ? formData.fileIdCard.name : '-'],
+                ]},
+                { title: 'ข้อมูลส่วนตัว', step: 2, rows: [
+                    ['ชื่อ-นามสกุล (TH)', `${formData.prefixTH}${formData.firstNameTH} ${formData.lastNameTH}`.trim()],
+                    ['ชื่อ-นามสกุล (EN)', [formData.prefixEN, formData.firstNameEN, formData.lastNameEN].filter(Boolean).join(' ') || '-'],
+                    ['ชื่อเล่น', formData.nickname || '-'],
+                    ['เพศ', formData.gender === 'Male' ? 'ชาย' : formData.gender === 'Female' ? 'หญิง' : 'อื่นๆ'],
+                    ['วันเกิด / อายุ', formData.dob ? `${formData.dob} (${formData.age || '-'})` : '-'],
+                    ['เลขบัตรประชาชน', formData.idCardNum || '-'],
+                    ['สัญชาติ', formData.nationality || '-'],
+                    ['เบอร์โทรศัพท์', formData.phone || '-'],
+                    ['อีเมล', formData.email || '-'],
+                    ['Line ID', formData.lineId || '-'],
+                    ['ไซส์เสื้อ', formData.shirtSize],
+                    ['ตำแหน่งใน YEC', formData.yecPosition],
+                    ['เป็นสมาชิกตั้งแต่', editingId ? (formData.memberSince || '-') : 'ระบบจะคำนวณอัตโนมัติ'],
+                    ['สถานะสมาชิก', editingId ? (formData.status === 'Active' ? 'ปกติ' : 'ยังไม่ได้ต่ออายุ') : 'ระบบจะระบุอัตโนมัติ'],
+                ]},
+                { title: 'ข้อมูลธุรกิจ', step: 3, rows: [
+                    ['ชื่อกิจการ', formData.businessName || '-'],
+                    ['เลขทะเบียนนิติบุคคล', formData.juristicId || '-'],
+                    ['หมวดธุรกิจ', formData.businessCategory || '-'],
+                    ['ที่อยู่กิจการ', formData.address || '-'],
+                    ['พิกัด (Lat, Long)', (formData.lat || formData.long) ? `${formData.lat || '-'}, ${formData.long || '-'}` : '-'],
+                    ['รายละเอียดกิจการ', formData.businessDesc || '-'],
+                    ['ผลิตภัณฑ์/บริการหลัก', formData.productService || '-'],
+                    ['Website', formData.website || '-'],
+                    ['โลโก้', formData.fileLogo ? formData.fileLogo.name : '-'],
+                    ['รูปผลิตภัณฑ์', formData.fileProduct ? formData.fileProduct.name : '-'],
+                ]},
+            ];
 
             return (
                 <div className="space-y-6">
@@ -783,125 +979,256 @@
                         </div>
                     )}
 
-                    {showModal && (
+                    {showModal && submitSuccess && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-fade-in shadow-2xl">
-                                <div className="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
-                                    <div className="flex items-center gap-3"><div className="bg-blue-600 p-2 rounded-lg text-white"><i className={`fa-solid ${editingId ? 'fa-user-pen' : 'fa-user-plus'} text-xl`}></i></div><div><h3 className="text-xl font-bold text-gray-800">{editingId ? 'แก้ไขข้อมูลสมาชิก' : 'ลงทะเบียนสมาชิกใหม่'}</h3><p className="text-sm text-gray-500">YEC Lamphun Member System</p></div></div>
-                                    <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-red-500 transition"><i className="fa-solid fa-xmark text-2xl"></i></button>
+                            <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center animate-fade-in relative">
+                                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5 text-green-500 text-3xl"><i className="fa-solid fa-check"></i></div>
+                                <h3 className="text-2xl font-bold text-gray-800 mb-2">{editingId ? 'บันทึกการแก้ไขเรียบร้อย' : 'ลงทะเบียนสมาชิกเรียบร้อย'}</h3>
+                                <p className="text-gray-500 mb-8 text-sm">ข้อมูลของ <strong>{formData.prefixTH}{formData.firstNameTH} {formData.lastNameTH}</strong> ถูกบันทึกลงระบบแล้ว</p>
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <button onClick={() => setShowModal(false)} className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition font-medium">ดูรายชื่อสมาชิก</button>
+                                    {!editingId && <button onClick={startNewEntry} className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-md transition font-medium"><i className="fa-solid fa-user-plus mr-2"></i>เพิ่มสมาชิกอีกคน</button>}
                                 </div>
-                                <div className="flex border-b">
-                                    <button onClick={() => setActiveTab(1)} className={`flex-1 py-4 font-medium text-sm flex items-center justify-center gap-2 transition border-b-2 ${activeTab === 1 ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}><i className="fa-solid fa-file-contract"></i> 1. ข้อมูลการสมัคร</button>
-                                    <button onClick={() => setActiveTab(2)} className={`flex-1 py-4 font-medium text-sm flex items-center justify-center gap-2 transition border-b-2 ${activeTab === 2 ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}><i className="fa-solid fa-user"></i> 2. ข้อมูลส่วนตัว</button>
-                                    <button onClick={() => setActiveTab(3)} className={`flex-1 py-4 font-medium text-sm flex items-center justify-center gap-2 transition border-b-2 ${activeTab === 3 ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}><i className="fa-solid fa-briefcase"></i> 3. ข้อมูลธุรกิจ</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {showModal && !submitSuccess && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center sm:p-6" onKeyDown={handleSheetKeyDown}>
+                            <div role="dialog" aria-modal="true" aria-label={editingId ? 'แก้ไขข้อมูลสมาชิก' : 'ลงทะเบียนสมาชิกใหม่'} className="bg-gray-50 w-full h-full sm:max-w-6xl sm:h-[92vh] sm:rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-fade-in">
+                                {/* Header */}
+                                <div className="p-4 sm:p-6 border-b bg-white flex justify-between items-center shrink-0">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-blue-600 p-2 rounded-lg text-white"><i className={`fa-solid ${editingId ? 'fa-user-pen' : 'fa-user-plus'} text-xl`}></i></div>
+                                        <div>
+                                            <h3 className="text-lg sm:text-xl font-bold text-gray-800">{editingId ? 'แก้ไขข้อมูลสมาชิก' : 'ลงทะเบียนสมาชิกใหม่'}</h3>
+                                            <p className="text-xs sm:text-sm text-gray-500">YEC Lamphun Member System</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <span className="hidden sm:flex text-xs text-gray-400 items-center gap-1"><i className="fa-solid fa-circle-check text-green-500"></i> บันทึกฉบับร่างอัตโนมัติ</span>
+                                        <button onClick={guardClose} className="text-gray-400 hover:text-red-500 transition p-2 rounded-full hover:bg-red-50" aria-label="ปิดหน้าต่าง"><i className="fa-solid fa-xmark text-2xl"></i></button>
+                                    </div>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-6">
-                                    <form id="addMemberForm" onSubmit={handleAddSubmit}>
-                                        {activeTab === 1 && (
-                                            <div className="space-y-6 animate-fade-in">
-                                                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6">
-                                                    <h4 className="font-bold text-blue-800 mb-3">ประเภทการสมัคร</h4>
-                                                    <div className="flex gap-6">
-                                                        <label className="flex items-center gap-3 cursor-pointer p-3 bg-white rounded-lg border border-blue-200 shadow-sm flex-1"><input type="radio" name="applicantType" value="Individual" checked={formData.applicantType === 'Individual'} onChange={handleInputChange} className="w-5 h-5 text-blue-600" /><span className="font-medium">บุคคลธรรมดา</span></label>
-                                                        <label className="flex items-center gap-3 cursor-pointer p-3 bg-white rounded-lg border border-blue-200 shadow-sm flex-1"><input type="radio" name="applicantType" value="Juristic" checked={formData.applicantType === 'Juristic'} onChange={handleInputChange} className="w-5 h-5 text-blue-600" /><span className="font-medium">นิติบุคคล</span></label>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-4">
-                                                    <h4 className="form-section-title"><i className="fa-solid fa-paperclip text-blue-500"></i> เอกสารแนบ</h4>
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-500 transition bg-gray-50"><i className="fa-solid fa-file-contract text-3xl text-gray-400 mb-2"></i><p className="text-sm font-medium text-gray-700 mb-1">หนังสือรับรองบริษัท/ทะเบียนพาณิชย์</p><input type="file" name="fileCert" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
-                                                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-500 transition bg-gray-50"><i className="fa-solid fa-id-card text-3xl text-gray-400 mb-2"></i><p className="text-sm font-medium text-gray-700 mb-1">สำเนาบัตรประชาชน</p><input type="file" name="fileIdCard" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
-                                                    </div>
-                                                </div>
+
+                                <div className="flex flex-1 overflow-hidden">
+                                    {/* Step rail (desktop) */}
+                                    <nav aria-label="ขั้นตอนการกรอกข้อมูล" className="hidden lg:flex flex-col w-64 shrink-0 border-r bg-white p-4 gap-1">
+                                        {steps.map(st => {
+                                            const done = completedSteps.includes(st.id) || !!editingId;
+                                            const current = step === st.id;
+                                            const locked = !editingId && st.id > step && !done;
+                                            return (
+                                                <button key={st.id} onClick={() => !locked && goToStep(st.id)} disabled={locked} aria-current={current ? 'step' : undefined}
+                                                    className={`flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-left transition ${current ? 'bg-blue-600 text-white font-semibold shadow-md' : done ? 'text-blue-700 hover:bg-blue-50' : 'text-gray-400 cursor-not-allowed'}`}>
+                                                    <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${current ? 'bg-white text-blue-600' : done ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+                                                        {done && !current ? <i className="fa-solid fa-check"></i> : st.id}
+                                                    </span>
+                                                    <span>{st.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                        {!editingId && <div className="mt-auto p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700 leading-relaxed">
+                                            <i className="fa-solid fa-lightbulb mr-1"></i> ข้อมูลจะถูกบันทึกเป็นฉบับร่างอัตโนมัติ หากปิดหน้าต่างกลางทาง
+                                        </div>}
+                                    </nav>
+
+                                    {/* Content */}
+                                    <div ref={sheetBodyRef} className="flex-1 overflow-y-auto p-4 sm:p-6">
+                                        {/* Step progress (mobile) */}
+                                        <div className="lg:hidden mb-5">
+                                            <div className="flex justify-between text-xs text-gray-500 mb-1.5"><span className="font-semibold text-blue-600">ขั้นตอน {step}/4</span><span>{steps[step-1].label}</span></div>
+                                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden"><div className="h-full bg-blue-600 rounded-full transition-all duration-300" style={{width: `${(step/4)*100}%`}}></div></div>
+                                        </div>
+
+                                        {draftRestored && (
+                                            <div className="mb-5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm flex items-center justify-between animate-fade-in">
+                                                <span className="flex items-center gap-2"><i className="fa-solid fa-clock-rotate-left"></i> กู้คืนฉบับร่างที่บันทึกไว้ล่าสุดแล้ว</span>
+                                                <button onClick={() => { setFormData(initialFormState); setDraftRestored(false); setIsDirty(false); clearDraft(); }} className="underline font-medium hover:text-amber-900">เริ่มกรอกใหม่</button>
                                             </div>
                                         )}
-                                        {activeTab === 2 && (
-                                            <div className="space-y-6 animate-fade-in">
-                                                <h4 className="form-section-title"><i className="fa-solid fa-user-tag text-blue-500"></i> ข้อมูลส่วนบุคคล</h4>
-                                                <div className="flex flex-col items-center mb-6">
-                                                    <div className="relative w-32 h-32 mb-3 group">
-                                                        <img src={formData.fileProfile ? URL.createObjectURL(formData.fileProfile) : (formData.profileImage || "https://via.placeholder.com/150?text=No+Image")} alt="Profile Preview" className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-md bg-gray-100"/>
-                                                        <label htmlFor="fileProfile" className="absolute bottom-0 right-0 bg-blue-600 text-white p-2.5 rounded-full cursor-pointer hover:bg-blue-700 shadow-lg border-2 border-white transition transform hover:scale-110"><i className="fa-solid fa-camera"></i></label>
-                                                        <input type="file" id="fileProfile" name="fileProfile" accept="image/*" className="hidden" onChange={handleFileChange} />
+
+                                        {Object.keys(errors).length > 0 && (
+                                            <div role="alert" className="mb-5 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm animate-fade-in">
+                                                <p className="font-bold mb-1 flex items-center gap-2"><i className="fa-solid fa-circle-exclamation"></i> พบข้อผิดพลาด {Object.keys(errors).length} รายการ กรุณาตรวจสอบข้อมูล</p>
+                                                <ul className="list-disc list-inside text-xs space-y-0.5">
+                                                    {Object.entries(errors).map(([k, v]) => <li key={k}>{v}</li>)}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        <form id="addMemberForm" onSubmit={handleSubmit} noValidate>
+                                            {step === 1 && (
+                                                <div className="space-y-6 animate-fade-in">
+                                                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                                        <h4 className="font-bold text-blue-800 mb-3">ประเภทการสมัคร <span className="text-red-500">*</span></h4>
+                                                        <div className="flex flex-col sm:flex-row gap-4">
+                                                            <label className={`flex items-center gap-3 cursor-pointer p-3 bg-white rounded-lg border shadow-sm flex-1 ${formData.applicantType === 'Individual' ? 'border-blue-500 ring-2 ring-blue-100' : 'border-blue-200'}`}><input type="radio" name="applicantType" value="Individual" checked={formData.applicantType === 'Individual'} onChange={handleInputChange} className="w-5 h-5 text-blue-600" /><span className="font-medium">บุคคลธรรมดา</span></label>
+                                                            <label className={`flex items-center gap-3 cursor-pointer p-3 bg-white rounded-lg border shadow-sm flex-1 ${formData.applicantType === 'Juristic' ? 'border-blue-500 ring-2 ring-blue-100' : 'border-blue-200'}`}><input type="radio" name="applicantType" value="Juristic" checked={formData.applicantType === 'Juristic'} onChange={handleInputChange} className="w-5 h-5 text-blue-600" /><span className="font-medium">นิติบุคคล</span></label>
+                                                        </div>
                                                     </div>
-                                                    <p className="text-sm text-gray-500 font-medium">รูปโปรไฟล์ (แนะนำขนาด 1:1)</p>
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                                                    <div className="md:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">คำนำหน้า (TH)</label><select name="prefixTH" value={formData.prefixTH} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2"><option value="นาย">นาย</option><option value="นาง">นาง</option><option value="นางสาว">นางสาว</option><option value="อื่นๆ">อื่นๆ</option></select></div>
-                                                    <div className="md:col-span-4"><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อ (TH)</label><input type="text" name="firstNameTH" value={formData.firstNameTH} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div className="md:col-span-5"><label className="block text-sm font-medium text-gray-700 mb-1">นามสกุล (TH)</label><input type="text" name="lastNameTH" value={formData.lastNameTH} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-12 gap-4"><div className="md:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเล่น</label><input type="text" name="nickname" value={formData.nickname} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="ชื่อเล่น" /></div></div>
-                                                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-gray-50 p-4 rounded-lg">
-                                                    <div className="md:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">Prefix (EN)</label><select name="prefixEN" value={formData.prefixEN} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2"><option value="Mr.">Mr.</option><option value="Mrs.">Mrs.</option><option value="Ms.">Ms.</option><option value="Miss">Miss</option></select></div>
-                                                    <div className="md:col-span-4"><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="firstNameEN" value={formData.firstNameEN} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div className="md:col-span-5"><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="lastNameEN" value={formData.lastNameEN} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                                    <div className="md:col-span-1"><label className="block text-sm font-medium text-gray-700 mb-1">เพศ</label><select name="gender" value={formData.gender} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2"><option value="Male">ชาย</option><option value="Female">หญิง</option><option value="Other">อื่นๆ</option></select></div>
-                                                    <div className="md:col-span-1"><label className="block text-sm font-medium text-gray-700 mb-1">วันเดือนปีเกิด</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div className="md:col-span-1"><label className="block text-sm font-medium text-gray-700 mb-1">อายุ</label><input type="text" value={formData.age} readOnly className="w-full border border-gray-200 bg-gray-50 text-gray-500 rounded-lg px-3 py-2 text-center text-sm" placeholder="-" /></div>
-                                                    <div className="md:col-span-1"><label className="block text-sm font-medium text-gray-700 mb-1">สัญชาติ</label><input type="text" name="nationality" value={formData.nationality} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">เลขบัตรประชาชน (13 หลัก)</label><input type="text" name="idCardNum" value={formData.idCardNum} onChange={handleInputChange} maxLength="13" className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="x-xxxx-xxxxx-xx-x" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">วันหมดอายุบัตร</label><input type="date" name="idCardExpiry" value={formData.idCardExpiry} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                </div>
-                                                <h4 className="form-section-title mt-6"><i className="fa-solid fa-id-card-clip text-blue-500"></i> การต่ออายุสมาชิก</h4>
-                                                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">เป็นสมาชิกตั้งแต่</label><input type="date" name="memberSince" value={formData.memberSince} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">ระยะเวลาการเป็นสมาชิก</label><input type="text" value={formData.membershipDuration} readOnly className="w-full border border-gray-200 bg-white text-gray-600 rounded-lg px-3 py-2 text-sm" placeholder="-" /></div>
-                                                    <div className="flex flex-col justify-center">
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">สถานะสมาชิก</label>
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="relative inline-block w-12 mr-2 align-middle select-none transition duration-200 ease-in"><input type="checkbox" name="status" id="statusToggle" className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked={formData.status === 'Active'} onChange={handleInputChange}/><label htmlFor="statusToggle" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label></div>
-                                                            <span className={`text-sm font-bold ${formData.status === 'Active' ? 'text-green-600' : 'text-orange-500'}`}>{formData.status === 'Active' ? 'ปกติ' : 'ยังไม่ได้ต่ออายุ'}</span>
+                                                    <div className="space-y-4">
+                                                        <h4 className="form-section-title"><i className="fa-solid fa-paperclip text-blue-500"></i> เอกสารแนบ</h4>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                            <div>
+                                                                <div className="border-2 border-dashed rounded-xl p-6 text-center transition bg-gray-50 hover:border-blue-500"><i className="fa-solid fa-file-contract text-3xl text-gray-400 mb-2"></i><p className="text-sm font-medium text-gray-700 mb-1">หนังสือรับรองบริษัท/ทะเบียนพาณิชย์ {formData.applicantType === 'Juristic' && <span className="text-red-500">*</span>}</p><input type="file" name="fileCert" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
+                                                                <FieldError name="fileCert" />
+                                                                {formData.applicantType === 'Juristic' && <p className="text-xs text-blue-600 mt-1"><i className="fa-solid fa-circle-info mr-1"></i>นิติบุคคลต้องแนบหนังสือรับรองบริษัท</p>}
+                                                            </div>
+                                                            <div>
+                                                                <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-500 transition bg-gray-50"><i className="fa-solid fa-id-card text-3xl text-gray-400 mb-2"></i><p className="text-sm font-medium text-gray-700 mb-1">สำเนาบัตรประชาชน</p><input type="file" name="fileIdCard" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
+                                                                <FieldError name="fileIdCard" />
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <h4 className="form-section-title mt-6"><i className="fa-solid fa-address-book text-blue-500"></i> ข้อมูลติดต่อ & อื่นๆ</h4>
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">เบอร์โทรศัพท์</label><input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="xxx-xxx-xxxx" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">อีเมล</label><input type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Line ID</label><input type="text" name="lineId" value={formData.lineId} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                                            )}
+
+                                            {step === 2 && (
+                                                <div className="space-y-6 animate-fade-in">
+                                                    <h4 className="form-section-title"><i className="fa-solid fa-user-tag text-blue-500"></i> ข้อมูลส่วนบุคคล</h4>
+                                                    <div className="flex flex-col items-center mb-2">
+                                                        <div className="relative w-32 h-32 mb-3">
+                                                            <img src={formData.fileProfile ? URL.createObjectURL(formData.fileProfile) : (formData.profileImage || "https://via.placeholder.com/150?text=No+Image")} alt="Profile Preview" className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-md bg-gray-100"/>
+                                                            <label htmlFor="fileProfile" className="absolute bottom-0 right-0 bg-blue-600 text-white p-2.5 rounded-full cursor-pointer hover:bg-blue-700 shadow-lg border-2 border-white transition"><i className="fa-solid fa-camera"></i></label>
+                                                            <input type="file" id="fileProfile" name="fileProfile" accept="image/*" className="hidden" onChange={handleFileChange} />
+                                                        </div>
+                                                        <p className="text-sm text-gray-500 font-medium">รูปโปรไฟล์ (แนะนำขนาด 1:1)</p>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                                                        <div className="md:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">คำนำหน้า (TH)</label><select name="prefixTH" value={formData.prefixTH} onChange={handleInputChange} className={inputCls('prefixTH')}><option value="นาย">นาย</option><option value="นาง">นาง</option><option value="นางสาว">นางสาว</option><option value="อื่นๆ">อื่นๆ</option></select></div>
+                                                        <div className="md:col-span-4"><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อ (TH) <span className="text-red-500">*</span></label><input type="text" name="firstNameTH" value={formData.firstNameTH} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.firstNameTH} className={inputCls('firstNameTH')} /><FieldError name="firstNameTH" /></div>
+                                                        <div className="md:col-span-5"><label className="block text-sm font-medium text-gray-700 mb-1">นามสกุล (TH) <span className="text-red-500">*</span></label><input type="text" name="lastNameTH" value={formData.lastNameTH} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.lastNameTH} className={inputCls('lastNameTH')} /><FieldError name="lastNameTH" /></div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4"><div className="md:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเล่น</label><input type="text" name="nickname" value={formData.nickname} onChange={handleInputChange} className={inputCls('nickname')} placeholder="ชื่อเล่น" /></div></div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-gray-100/70 p-4 rounded-lg">
+                                                        <div className="md:col-span-3"><label className="block text-sm font-medium text-gray-700 mb-1">Prefix (EN)</label><select name="prefixEN" value={formData.prefixEN} onChange={handleInputChange} className={inputCls('prefixEN')}><option value="Mr.">Mr.</option><option value="Mrs.">Mrs.</option><option value="Ms.">Ms.</option><option value="Miss">Miss</option></select></div>
+                                                        <div className="md:col-span-4"><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="firstNameEN" value={formData.firstNameEN} onChange={handleInputChange} className={inputCls('firstNameEN')} /></div>
+                                                        <div className="md:col-span-5"><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="lastNameEN" value={formData.lastNameEN} onChange={handleInputChange} className={inputCls('lastNameEN')} /></div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">เพศ</label><select name="gender" value={formData.gender} onChange={handleInputChange} className={inputCls('gender')}><option value="Male">ชาย</option><option value="Female">หญิง</option><option value="Other">อื่นๆ</option></select></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">วันเดือนปีเกิด</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className={inputCls('dob')} /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">อายุ</label><input type="text" value={formData.age} readOnly className="w-full border border-gray-200 bg-gray-100 text-gray-500 rounded-lg px-3 py-2 text-center text-sm" placeholder="-" /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">สัญชาติ</label><input type="text" name="nationality" value={formData.nationality} onChange={handleInputChange} className={inputCls('nationality')} /></div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">เลขบัตรประชาชน (13 หลัก)</label><input type="text" name="idCardNum" value={formData.idCardNum} onChange={handleInputChange} onBlur={handleFieldBlur} maxLength="13" aria-invalid={!!errors.idCardNum} className={inputCls('idCardNum')} placeholder="x-xxxx-xxxxx-xx-x" /><FieldError name="idCardNum" /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">วันหมดอายุบัตร</label><input type="date" name="idCardExpiry" value={formData.idCardExpiry} onChange={handleInputChange} className={inputCls('idCardExpiry')} /></div>
+                                                    </div>
+                                                    <h4 className="form-section-title"><i className="fa-solid fa-id-card-clip text-blue-500"></i> การต่ออายุสมาชิก</h4>
+                                                    {!editingId ? (
+                                                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 opacity-60">
+                                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">เป็นสมาชิกตั้งแต่</label><input type="date" disabled placeholder="ระบบจะระบุอัตโนมัติ" className="w-full border border-gray-200 bg-gray-100 text-gray-400 rounded-lg px-3 py-2 text-sm cursor-not-allowed" /></div>
+                                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">ระยะเวลาการเป็นสมาชิก</label><input type="text" disabled placeholder="ระบบจะคำนวณอัตโนมัติ" className="w-full border border-gray-200 bg-gray-100 text-gray-400 rounded-lg px-3 py-2 text-sm cursor-not-allowed" /></div>
+                                                                <div className="flex flex-col justify-center"><label className="block text-sm font-medium text-gray-700 mb-2">สถานะสมาชิก</label><span className="inline-block px-2.5 py-1 rounded-full text-sm font-medium bg-gray-100 border border-gray-200 text-gray-400 w-fit">ระบบจะระบุอัตโนมัติ</span></div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-blue-50/60 p-4 rounded-lg border border-blue-100">
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">เป็นสมาชิกตั้งแต่</label><p className="text-gray-800 font-medium">{formData.memberSince ? new Date(formData.memberSince).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</p></div>
+                                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">ระยะเวลาการเป็นสมาชิก</label><p className="text-gray-800 font-medium">{formData.membershipDuration || '-'}</p></div>
+                                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">สถานะสมาชิก</label><span className={`inline-block px-2.5 py-1 rounded-full text-sm font-bold border ${formData.status === 'Active' ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}>{formData.status === 'Active' ? 'ปกติ' : 'ยังไม่ได้ต่ออายุ'}</span></div>
+                                                            </div>
+                                                            <div className="flex items-start gap-2 text-xs text-blue-700 mt-3 pt-3 border-t border-blue-100">
+                                                                <i className="fa-solid fa-lock mt-0.5"></i>
+                                                                <p>ข้อมูลการต่ออายุและสถานะจัดการผ่านหน้า "ต่ออายุสมาชิก" เท่านั้น เพื่อให้ระบบคำนวณจากหลักฐานการชำระเงิน</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <h4 className="form-section-title"><i className="fa-solid fa-address-book text-blue-500"></i> ข้อมูลติดต่อ &amp; อื่นๆ</h4>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">เบอร์โทรศัพท์ <span className="text-red-500">*</span></label><input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.phone} className={inputCls('phone')} placeholder="xxx-xxx-xxxx" /><FieldError name="phone" /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">อีเมล</label><input type="email" name="email" value={formData.email} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.email} className={inputCls('email')} /><FieldError name="email" /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Line ID</label><input type="text" name="lineId" value={formData.lineId} onChange={handleInputChange} className={inputCls('lineId')} /></div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">ไซส์เสื้อ (Shirt Size)</label><select name="shirtSize" value={formData.shirtSize} onChange={handleInputChange} className={inputCls('shirtSize')}>{shirtSizes.map((size, idx) => (<option key={idx} value={size}>{size}</option>))}</select></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">ตำแหน่งใน YEC Lamphun</label><select name="yecPosition" value={formData.yecPosition} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.yecPosition} className={inputCls('yecPosition') + ' text-sm'}>{yecPositions.map((pos, idx) => (<option key={idx} value={pos}>{pos}</option>))}</select><FieldError name="yecPosition" /></div>
+                                                    </div>
                                                 </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">ไซส์เสื้อ (Shirt Size)</label><select name="shirtSize" value={formData.shirtSize} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2">{shirtSizes.map((size, idx) => (<option key={idx} value={size}>{size}</option>))}</select></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">ตำแหน่งใน YEC Lamphun</label><select name="yecPosition" value={formData.yecPosition} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">{yecPositions.map((pos, idx) => (<option key={idx} value={pos}>{pos}</option>))}</select></div>
+                                            )}
+
+                                            {step === 3 && (
+                                                <div className="space-y-6 animate-fade-in">
+                                                    <h4 className="form-section-title"><i className="fa-solid fa-store text-blue-500"></i> ข้อมูลกิจการ/ร้านค้า</h4>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อกิจการ/ร้านค้า <span className="text-red-500">*</span></label><input type="text" name="businessName" value={formData.businessName} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.businessName} className={inputCls('businessName') + ' font-medium'} /><FieldError name="businessName" /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">เลขทะเบียนนิติบุคคล {formData.applicantType === 'Juristic' && <span className="text-red-500">*</span>}</label><input type="text" name="juristicId" value={formData.juristicId} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.juristicId} className={inputCls('juristicId')} /><FieldError name="juristicId" /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">หมวดธุรกิจหลัก <span className="text-red-500">*</span></label><select name="businessCategory" value={formData.businessCategory} onChange={handleInputChange} onBlur={handleFieldBlur} aria-invalid={!!errors.businessCategory} className={inputCls('businessCategory')}><option value="">-- เลือกหมวดธุรกิจ --</option>{businessCategories.map((cat, idx) => (<option key={idx} value={cat}>{cat}</option>))}</select><FieldError name="businessCategory" /></div>
+                                                    </div>
+                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่กิจการ</label><textarea name="address" value={formData.address} onChange={handleInputChange} className={inputCls('address') + ' h-20'}></textarea></div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label><input type="text" name="lat" value={formData.lat} onChange={handleInputChange} className={inputCls('lat')} /></div>
+                                                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label><input type="text" name="long" value={formData.long} onChange={handleInputChange} className={inputCls('long')} /></div>
+                                                    </div>
+                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">รายละเอียดกิจการสั้นๆ</label><textarea name="businessDesc" value={formData.businessDesc} onChange={handleInputChange} className={inputCls('businessDesc') + ' h-20'} placeholder="แนะนำธุรกิจของท่าน..."></textarea></div>
+                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">ผลิตภัณฑ์หรือบริการหลัก</label><input type="text" name="productService" value={formData.productService} onChange={handleInputChange} className={inputCls('productService')} /></div>
+                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Website (ถ้ามี)</label><input type="text" name="website" value={formData.website} onChange={handleInputChange} className={inputCls('website')} placeholder="www.example.com" /></div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50 flex flex-col items-center justify-center gap-2 text-center hover:border-blue-400 transition"><i className="fa-solid fa-image text-2xl text-gray-400"></i><p className="text-sm font-medium text-gray-600">แนบรูปโลโก้ (Logo)</p><input type="file" name="fileLogo" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
+                                                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50 flex flex-col items-center justify-center gap-2 text-center hover:border-blue-400 transition"><i className="fa-solid fa-box-open text-2xl text-gray-400"></i><p className="text-sm font-medium text-gray-600">แนบรูปผลิตภัณฑ์ (Product)</p><input type="file" name="fileProduct" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
-                                        {activeTab === 3 && (
-                                            <div className="space-y-6 animate-fade-in">
-                                                <h4 className="form-section-title"><i className="fa-solid fa-store text-blue-500"></i> ข้อมูลกิจการ/ร้านค้า</h4>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อกิจการ/ร้านค้า</label><input type="text" name="businessName" value={formData.businessName} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 font-medium" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">เลขทะเบียนนิติบุคคล</label><input type="text" name="juristicId" value={formData.juristicId} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">หมวดธุรกิจหลัก</label><select name="businessCategory" value={formData.businessCategory} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2"><option value="">-- เลือกหมวดธุรกิจ --</option>{businessCategories.map((cat, idx) => (<option key={idx} value={cat}>{cat}</option>))}</select></div>
+                                            )}
+
+                                            {step === 4 && (
+                                                <div className="space-y-5 animate-fade-in">
+                                                    <div className="bg-green-50 border border-green-100 rounded-xl p-4 text-sm text-green-800 flex items-start gap-2">
+                                                        <i className="fa-solid fa-circle-check mt-0.5"></i>
+                                                        <span>ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก หากต้องการแก้ไขส่วนใด กดปุ่ม <strong>"แก้ไข"</strong> ของหมวดนั้นๆ ได้เลย</span>
+                                                    </div>
+                                                    {reviewSections.map(sec => (
+                                                        <div key={sec.title} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                                            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
+                                                                <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2"><i className="fa-solid fa-layer-group text-blue-500"></i> {sec.title}</h4>
+                                                                <button type="button" onClick={() => goToStep(sec.step)} className="text-blue-600 hover:text-blue-700 text-xs font-semibold flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50"><i className="fa-solid fa-pen-to-square"></i> แก้ไข</button>
+                                                            </div>
+                                                            <dl className="divide-y divide-gray-50">
+                                                                {sec.rows.map(([label, value], i) => (
+                                                                    <div key={i} className="flex px-4 py-2 text-sm">
+                                                                        <dt className="w-48 shrink-0 text-gray-500">{label}</dt>
+                                                                        <dd className={`flex-1 min-w-0 break-words ${value === '-' ? 'text-gray-300 italic' : 'text-gray-800 font-medium'}`}>{value}</dd>
+                                                                    </div>
+                                                                ))}
+                                                            </dl>
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่กิจการ</label><textarea name="address" value={formData.address} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 h-20"></textarea></div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label><input type="text" name="lat" value={formData.lat} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label><input type="text" name="long" value={formData.long} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                </div>
-                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">รายละเอียดกิจการสั้นๆ</label><textarea name="businessDesc" value={formData.businessDesc} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 h-20" placeholder="แนะนำธุรกิจของท่าน..."></textarea></div>
-                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">ผลิตภัณฑ์หรือบริการหลัก</label><input type="text" name="productService" value={formData.productService} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">Website (ถ้ามี)</label><input type="text" name="website" value={formData.website} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="www.example.com" /></div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                                                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50 flex flex-col items-center justify-center gap-2 text-center hover:border-blue-400 transition"><i className="fa-solid fa-image text-2xl text-gray-400"></i><p className="text-sm font-medium text-gray-600">แนบรูปโลโก้ (Logo)</p><input type="file" name="fileLogo" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
-                                                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50 flex flex-col items-center justify-center gap-2 text-center hover:border-blue-400 transition"><i className="fa-solid fa-box-open text-2xl text-gray-400"></i><p className="text-sm font-medium text-gray-600">แนบรูปผลิตภัณฑ์ (Product)</p><input type="file" name="fileProduct" onChange={handleFileChange} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </form>
+                                            )}
+                                        </form>
+                                    </div>
                                 </div>
-                                <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between">
-                                    <button onClick={() => activeTab > 1 && setActiveTab(activeTab - 1)} disabled={activeTab === 1} className={`px-4 py-2 rounded-lg font-medium transition ${activeTab === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-200 bg-white border border-gray-300'}`}><i className="fa-solid fa-arrow-left mr-2"></i> ย้อนกลับ</button>
-                                    {activeTab < 3 ? (
-                                        <button onClick={() => setActiveTab(activeTab + 1)} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-md">ถัดไป <i className="fa-solid fa-arrow-right ml-2"></i></button>
-                                    ) : (
-                                        <button onClick={handleAddSubmit} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium shadow-md"><i className="fa-solid fa-save mr-2"></i> บันทึกข้อมูล</button>
-                                    )}
+
+                                {/* Footer */}
+                                <div className="p-4 sm:p-5 border-t bg-white flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
+                                    <button type="button" onClick={handleBack} disabled={step === 1} className={`w-full sm:w-auto order-2 sm:order-1 px-5 py-2.5 rounded-lg font-medium transition ${step === 1 ? 'text-gray-300 cursor-not-allowed bg-gray-100' : 'text-gray-600 bg-white border border-gray-300 hover:bg-gray-50'}`}><i className="fa-solid fa-arrow-left mr-2"></i>ย้อนกลับ</button>
+                                    <div className="flex gap-3 w-full sm:w-auto order-1 sm:order-2">
+                                        {step < 4 ? (
+                                            <button type="button" onClick={handleNext} className="flex-1 sm:flex-none px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-md">ถัดไป <i className="fa-solid fa-arrow-right ml-2"></i></button>
+                                        ) : (
+                                            <button type="button" onClick={handleSubmit} disabled={submitting} className="flex-1 sm:flex-none px-8 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium shadow-md disabled:opacity-70">
+                                                {submitting ? <span><i className="fa-solid fa-spinner fa-spin mr-2"></i>กำลังบันทึก...</span> : <span><i className="fa-solid fa-save mr-2"></i>ยืนยันบันทึกข้อมูล</span>}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showCloseConfirm && (
+                        <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
+                            <div role="alertdialog" aria-modal="true" className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-fade-in relative text-center">
+                                <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-500 text-2xl"><i className="fa-solid fa-triangle-exclamation"></i></div>
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">มีข้อมูลที่ยังไม่ได้บันทึก</h3>
+                                <p className="text-gray-500 mb-6 text-sm">ต้องการบันทึกฉบับร่างไว้ก่อนออกจากหน้านี้หรือไม่?</p>
+                                <div className="flex flex-col gap-2">
+                                    <button onClick={closeWithDraft} className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition"><i className="fa-solid fa-floppy-disk mr-2"></i>บันทึกฉบับร่าง</button>
+                                    <button onClick={closeDiscard} className="w-full py-2.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition font-medium">ออกโดยไม่บันทึก</button>
+                                    <button onClick={() => setShowCloseConfirm(false)} className="w-full py-2 text-sm text-gray-400 hover:text-gray-600 transition">แก้ไขต่อ</button>
                                 </div>
                             </div>
                         </div>
@@ -1496,7 +1823,6 @@
                 const newId = members.length + 1;
                 const memberToAdd = { ...newMemberData, id: newId, image: `https://api.dicebear.com/7.x/avataaars/svg?seed=${newMemberData.name}` };
                 setMembers([memberToAdd, ...members]);
-                alert("บันทึกข้อมูลสมาชิกใหม่เรียบร้อยแล้ว");
             };
 
             const handleDeleteMember = (memberId) => {
