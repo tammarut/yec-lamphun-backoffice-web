@@ -129,6 +129,10 @@ _Avoid_: dashboard summary, overview stat, dashboard totals
 
 ## Backoffice UI
 
+**Member Form Draft**:
+An autosaved snapshot of a partially filled member-registration wizard form, kept client-side in localStorage so an admin can resume after closing the wizard mid-entry. Exists only in create mode (never when editing a member), excludes Member File selections (files are not serializable), and is cleared on successful submission or explicit discard. Purely a browser-side concept — no API backs it.
+_Avoid_: autosave, form cache, saved form
+
 **Status Badge**:
 The single display vocabulary for a Member Status across the backoffice UI: `ACTIVE` → ปกติ; `EXPIRED` and `PENDING_RENEWAL` → ยังไม่ได้ต่ออายุ (the same union reading as Dashboard Stat's not-yet-renewed count); `RESIGNED` → ลาออก. A Status Badge is staff-only — the public member directory renders no status. It is display-only by construction: no page ever writes a Member Status directly; every transition flows through the Membership Renewal lifecycle (Renewal Review or a Manual Renewal Submission).
 _Avoid_: member state label, renewal badge, status pill
