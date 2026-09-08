@@ -6,8 +6,8 @@ import { Alert, AlertTitle } from "src/shared/components/ui/alert"
 import { Button } from "src/shared/components/ui/button"
 import { Field, FieldError, FieldLabel, FieldLegend, FieldSet } from "src/shared/components/ui/field"
 import { Input } from "src/shared/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "src/shared/components/ui/select"
 import { Textarea } from "src/shared/components/ui/textarea"
+import { MemberComboboxSelect } from "src/modules/members/components/member-combobox-select"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
 import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
 import { DB_MAX_LENGTHS, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
@@ -79,25 +79,18 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 							control={control}
 							name="business.category_id"
 							render={({ field }) => (
-								<Select
+								<MemberComboboxSelect
+									id="wizard-business-category_id"
+									options={(categoriesQuery.data ?? []).map((category) => ({ value: String(category.id), label: category.category_name }))}
 									value={field.value}
-									disabled={disabled || categoriesQuery.isPending}
 									onValueChange={(next) => {
 										field.onChange(next)
 										void trigger("business.category_id")
 									}}
-								>
-									<SelectTrigger id="wizard-business-category_id" aria-invalid={categoryError ? true : undefined} className="w-full">
-										<SelectValue placeholder={categoriesQuery.isPending ? "กำลังโหลดหมวดธุรกิจ..." : "-- เลือกหมวดธุรกิจ --"} />
-									</SelectTrigger>
-									<SelectContent>
-										{(categoriesQuery.data ?? []).map((category) => (
-											<SelectItem key={category.id} value={String(category.id)}>
-												{category.category_name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
+									placeholder={categoriesQuery.isPending ? "กำลังโหลดหมวดธุรกิจ..." : "-- เลือกหมวดธุรกิจ --"}
+									disabled={disabled || categoriesQuery.isPending}
+									invalid={categoryError ? true : false}
+								/>
 							)}
 						/>
 						<FieldError errors={[categoryError]} />

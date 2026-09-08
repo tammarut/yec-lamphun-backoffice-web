@@ -108,16 +108,17 @@ async function fillStep2() {
 	})
 }
 
+// Base UI Combobox: type into the input to open + filter, then click the option.
 async function fillStep3() {
 	setInput("สมชาย คอนสตรัคชั่น", "ชื่อกิจการ/ร้านค้า")
 	setInput("0505561000123", "เลขทะเบียนนิติบุคคล")
 	setInput("รับเหมาก่อสร้างครบวงจร", "แนะนำธุรกิจของท่าน...")
 
-	const categoryTrigger = await screen.findByRole("combobox", { name: "หมวดธุรกิจหลัก*" })
-	fireEvent.pointerDown(categoryTrigger, { button: 0, ctrlKey: false, pointerType: "mouse" })
-	fireEvent.pointerUp(categoryTrigger, { button: 0, ctrlKey: false, pointerType: "mouse" })
+	const categoryInput = await screen.findByRole("combobox", { name: "หมวดธุรกิจหลัก*" })
+	// Wait out the pending state — typing into an empty item list never opens the popup.
+	await waitFor(() => expect((categoryInput as HTMLInputElement).disabled).toBe(false))
+	fireEvent.change(categoryInput, { target: { value: "อุตสาหกรรมการผลิต" } })
 	const option = await screen.findByRole("option", { name: "อุตสาหกรรมการผลิต" })
-	fireEvent.pointerUp(option)
 	fireEvent.click(option)
 }
 
@@ -216,6 +217,38 @@ describe("MemberWizardDialog", () => {
 
 			// The form (and draft) value stays digits-only for validation and the wire payload.
 			expect((JSON.parse(localStorage.getItem("yec-member-form-draft") ?? "{}") as { id_card_no?: string }).id_card_no).toBe("12")
+		})
+
+		it("searches ตำแหน่งใน YEC Lamphun by keyword instead of eyeballing the list", async () => {
+			renderWizard()
+			await goToStep2()
+
+			const positionInput = screen.getByRole("combobox", { name: "ตำแหน่งใน YEC Lamphun*" })
+			fireEvent.change(positionInput, { target: { value: "สมาชิก" } })
+
+			expect(await screen.findByRole("option", { name: "สมาชิกทั่วไป" })).toBeTruthy()
+			expect(screen.queryByRole("option", { name: "ประธาน YEC Lamphun" })).toBeNull()
+
+			fireEvent.click(screen.getByRole("option", { name: "สมาชิกทั่วไป" }))
+			expect((screen.getByRole("combobox", { name: "ตำแหน่งใน YEC Lamphun*" }) as HTMLInputElement).value).toBe("สมาชิกทั่วไป")
+		})
+
+		it("searches หมวดธุรกิจ by keyword instead of eyeballing the list", async () => {
+			renderWizard()
+			await goToStep2()
+			await fillStep2()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+
+			const categoryInput = await screen.findByRole("combobox", { name: "หมวดธุรกิจหลัก*" })
+			// Wait out the pending state — typing into an empty item list never opens the popup.
+			await waitFor(() => expect((categoryInput as HTMLInputElement).disabled).toBe(false))
+			fireEvent.change(categoryInput, { target: { value: "พาณิชย" } })
+
+			expect(await screen.findByRole("option", { name: "พาณิชยกรรม การค้า และค้าระวังประเทศ" })).toBeTruthy()
+			expect(screen.queryByRole("option", { name: "อุตสาหกรรมการผลิต" })).toBeNull()
+
+			fireEvent.click(screen.getByRole("option", { name: "พาณิชยกรรม การค้า และค้าระวังประเทศ" }))
+			expect((screen.getByRole("combobox", { name: "หมวดธุรกิจหลัก*" }) as HTMLInputElement).value).toBe("พาณิชยกรรม การค้า และค้าระวังประเทศ")
 		})
 
 		it("fills the whole form, reviews values, and jumps back via แก้ไข", async () => {

@@ -7,7 +7,7 @@ import { Controller, useFormContext } from "react-hook-form"
 import { Badge } from "src/shared/components/ui/badge"
 import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet } from "src/shared/components/ui/field"
 import { Input } from "src/shared/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "src/shared/components/ui/select"
+import { MemberComboboxSelect } from "src/modules/members/components/member-combobox-select"
 import { GENDER_LABELS, POSITION_LABELS, SHIRT_SIZE_LABELS, SINGLE_CARDINALITY_POSITIONS } from "src/modules/members/components/member-labels"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
 import { computeAgeLabel, formatIdCardNo } from "src/modules/members/schemas/member-wizard-mapping"
@@ -86,25 +86,18 @@ function SelectField({
 				control={control}
 				name={name}
 				render={({ field }) => (
-					<Select
+					<MemberComboboxSelect
+						id={`wizard-${name}`}
+						options={values.map((value) => ({ value, label: labelOf(value) }))}
 						value={field.value}
-						disabled={disabled}
 						onValueChange={(next) => {
 							field.onChange(next)
 							void trigger(name)
 						}}
-					>
-						<SelectTrigger id={`wizard-${name}`} aria-invalid={error ? true : undefined} className="w-full">
-							<SelectValue placeholder={placeholder ?? "-- กรุณาเลือก --"} />
-						</SelectTrigger>
-						<SelectContent>
-							{values.map((value) => (
-								<SelectItem key={value} value={value}>
-									{labelOf(value)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						placeholder={placeholder}
+						disabled={disabled}
+						invalid={error ? true : false}
+					/>
 				)}
 			/>
 			<FieldError errors={[error]} />
