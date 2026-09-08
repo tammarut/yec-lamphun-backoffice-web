@@ -198,6 +198,26 @@ describe("MemberWizardDialog", () => {
 			expect(screen.getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
 		})
 
+		it("formats เลขบัตรประชาชน as X-XXXX-XXXXX-XX-X while typing, storing digits only", async () => {
+			renderWizard()
+			await goToStep2()
+
+			const idInput = screen.getByPlaceholderText("x-xxxx-xxxxx-xx-x")
+			fireEvent.change(idInput, { target: { value: "1234567890123" } })
+			expect((idInput as HTMLInputElement).value).toBe("1-2345-67890-12-3")
+
+			// Pasting an overlong, already-formatted string still lands on 13 digits.
+			fireEvent.change(idInput, { target: { value: "1-2345-67890-12-34" } })
+			expect((idInput as HTMLInputElement).value).toBe("1-2345-67890-12-3")
+
+			// Non-digits never reach the value.
+			fireEvent.change(idInput, { target: { value: "12x" } })
+			expect((idInput as HTMLInputElement).value).toBe("1-2")
+
+			// The form (and draft) value stays digits-only for validation and the wire payload.
+			expect((JSON.parse(localStorage.getItem("yec-member-form-draft") ?? "{}") as { id_card_no?: string }).id_card_no).toBe("12")
+		})
+
 		it("fills the whole form, reviews values, and jumps back via แก้ไข", async () => {
 			renderWizard()
 			await fillValidForm()
@@ -395,6 +415,22 @@ describe("MemberWizardDialog", () => {
 			await armAndSubmit()
 
 			expect(await screen.findByText("เลขบัตรประชาชนนี้มีอยู่ในระบบแล้ว")).toBeTruthy()
+			expect(screen.queryByText("ลงทะเบียนสมาชิกเรียบร้อย")).toBeNull()
+		})
+
+		it("409 duplicate email surfaces as a Thai field error on step 2", async () => {
+			renderWizard({
+				route: (url, init) => {
+					if (url === "/api/v1/members" && init?.method === "POST") {
+						return jsonResponse(409, { error_message: "A member with this email already exists" })
+					}
+					return undefined
+				},
+			})
+			await fillValidForm()
+			await armAndSubmit()
+
+			expect(await screen.findByText("อีเมลนี้ถูกใช้โดยสมาชิกคนอื่นแล้ว")).toBeTruthy()
 			expect(screen.queryByText("ลงทะเบียนสมาชิกเรียบร้อย")).toBeNull()
 		})
 

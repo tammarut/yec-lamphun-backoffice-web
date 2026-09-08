@@ -52,11 +52,12 @@ CREATE TABLE members (
     member_since TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     profile_avatar TEXT,
-    -- Contact fields are NOT unique: nothing upstream (OpenAPI spec, domain,
-    -- UI) treats them as identity — the ID card blind index is the sole
-    -- identity check (app-level count query, deleted_at-aware). UNIQUE here
-    -- made shared household phones / company emails a hard 500 (23505 →
-    -- DatabaseError) with no pre-check possible. Dropped 2026-09 (PR #45).
+    -- Contact fields are unique among LIVE members only — enforced by the
+    -- partial unique indexes below (a plain UNIQUE would hold the value
+    -- hostage after a soft-delete, blocking re-registration). Soft-deleting a
+    -- member drops its rows from the partial indexes, releasing the values.
+    -- The services pre-check via FindLiveContactConflicts → 409
+    -- DUPLICATE_PHONE_NO / DUPLICATE_EMAIL / DUPLICATE_LINE_ID (2026-09, PR #45).
     phone_no VARCHAR(30) NOT NULL,
     email VARCHAR(255),
     line_id VARCHAR(100),
@@ -89,3 +90,17 @@ CREATE TABLE members (
     -- NOTE: chk_members_position is GONE — replaced by the FK to positions.
     -- NOTE: parent_id column is GONE — supervisor is derived at read time.
 );
+
+-- ============================================================================
+-- Partial unique indexes: contact uniqueness among LIVE members only.
+-- (Postgres cannot express WHERE on a table CONSTRAINT; a partial unique INDEX
+-- enforces the identical invariant — plain UNIQUE constraints are unique
+-- indexes internally. Same technique as idx_one_pending_renewal_per_member.)
+-- Soft-delete (deleted_at set) removes the row from these indexes, releasing
+-- the phone/email/line_id for a NEW member — a plain UNIQUE would block that
+-- forever. NULLs never conflict (unique indexes treat NULL as distinct), so
+-- the optional email/line_id columns work as-is.
+-- ============================================================================
+CREATE UNIQUE INDEX uniq_members_phone_no_live ON members (phone_no) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uniq_members_email_live    ON members (email)    WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uniq_members_line_id_live  ON members (line_id)  WHERE deleted_at IS NULL;

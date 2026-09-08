@@ -41,6 +41,7 @@ describe("UpdateMemberService", () => {
 		)
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
 		mockRepo.countMemberByIdCardHash.mockResolvedValue(ok(0))
+		mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: false, lineId: false }))
 		// Same hash as stored → conditional dup check is skipped on happy path.
 		mockBlindIndex.hash.mockReturnValue(ok("stored-hmac-hash"))
 		mockEncryption.encrypt.mockReturnValue(ok("enc-base64"))
@@ -126,6 +127,41 @@ describe("UpdateMemberService", () => {
 	})
 
 	describe("Unhappy cases", () => {
+		test("keeps own contacts conflict-free: the conflict query excludes the member being edited", async () => {
+			// Act — happy-path request keeps the stored phone/email/line.
+			const result = await service.execute(101, makeRequest())
+
+			// Assert
+			expect(result.isOk()).toBe(true)
+			expect(mockRepo.findLiveContactConflicts).toHaveBeenCalledWith(expect.any(String), expect.anything(), expect.anything(), 101)
+		})
+
+		test("returns DUPLICATE_PHONE_NO when another live member already holds the phone", async () => {
+			// Arrange
+			mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: true, email: false, lineId: false }))
+
+			// Act
+			const result = await service.execute(101, makeRequest())
+
+			// Assert
+			const error = result._unsafeUnwrapErr() as MemberConflictError
+			expect(error).toBeInstanceOf(MemberConflictError)
+			expect(error.reason).toBe("DUPLICATE_PHONE_NO")
+		})
+
+		test("returns DUPLICATE_EMAIL when another live member already holds the email", async () => {
+			// Arrange
+			mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: true, lineId: false }))
+
+			// Act
+			const result = await service.execute(101, makeRequest())
+
+			// Assert
+			const error = result._unsafeUnwrapErr() as MemberConflictError
+			expect(error).toBeInstanceOf(MemberConflictError)
+			expect(error.reason).toBe("DUPLICATE_EMAIL")
+		})
+
 		test("returns MemberNotFoundError when the member does not exist", async () => {
 			// Arrange
 			mockRepo.getMemberDetailById.mockResolvedValue(ok(null))

@@ -76,6 +76,23 @@ export class CreateNewMemberService {
 			return err(this.conflict("DUPLICATE_ID_CARD", "A member with this ID card already exists"))
 		}
 
+		// 4b. OUTSIDE tx: live-contact conflict check — phone/email/line_id are
+		//     unique among LIVE members (partial unique indexes uniq_members_*_live).
+		//     Pre-checked here for a precise 409 instead of a 23505 → 500.
+		const contactConflicts = await this.repository.findLiveContactConflicts(req.phoneNo, req.email, req.lineId, null)
+		if (contactConflicts.isErr()) {
+			return err(contactConflicts.error)
+		}
+		if (contactConflicts.value.phoneNo) {
+			return err(this.conflict("DUPLICATE_PHONE_NO", "A member with this phone number already exists"))
+		}
+		if (contactConflicts.value.email) {
+			return err(this.conflict("DUPLICATE_EMAIL", "A member with this email already exists"))
+		}
+		if (contactConflicts.value.lineId) {
+			return err(this.conflict("DUPLICATE_LINE_ID", "A member with this Line ID already exists"))
+		}
+
 		// 5. Persist — the transaction + multi-table insert is an internal detail
 		//    of the repository. One call, returns ok(id) or err(DatabaseError).
 		const createResult = await this.repository.create(member.value)

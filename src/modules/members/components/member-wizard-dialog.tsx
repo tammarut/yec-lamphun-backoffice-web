@@ -44,6 +44,13 @@ const STEP_TITLES: Record<WizardStep, string> = {
 /** How long the review step's submit button stays disabled after arrival (ms). */
 const SUBMIT_ARMING_MS = 500
 
+/** Server 409 contact-conflict messages → wizard field + Thai copy (live-member uniqueness). */
+const CONTACT_CONFLICTS: readonly { match: string; field: "phone_no" | "email" | "line_id"; thaiMessage: string }[] = [
+	{ match: "phone number", field: "phone_no", thaiMessage: "เบอร์โทรศัพท์นี้ถูกใช้โดยสมาชิกคนอื่นแล้ว" },
+	{ match: "this email", field: "email", thaiMessage: "อีเมลนี้ถูกใช้โดยสมาชิกคนอื่นแล้ว" },
+	{ match: "Line ID", field: "line_id", thaiMessage: "Line ID นี้ถูกใช้โดยสมาชิกคนอื่นแล้ว" },
+]
+
 function stepFields(step: WizardStep): FieldPath<MemberWizardFormValues>[] {
 	if (step === 4) {
 		return []
@@ -257,6 +264,15 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 			await createMutation.mutateAsync(values)
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 409) {
+				// Live-contact conflicts (partial unique indexes, live members only).
+				const contactConflict = CONTACT_CONFLICTS.find((candidate) => error.message.includes(candidate.match))
+				if (contactConflict !== undefined) {
+					setError(contactConflict.field, { type: "conflict", message: contactConflict.thaiMessage })
+					setStep(2)
+					setShowSummary(true)
+					scrollTop()
+					return
+				}
 				if (error.message.includes("ID card")) {
 					setError("id_card_no", { type: "conflict", message: "เลขบัตรประชาชนนี้มีอยู่ในระบบแล้ว" })
 					setStep(2)

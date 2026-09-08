@@ -22,6 +22,7 @@ import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-comm
 import {
 	countActiveHolderByPosition,
 	countMemberByIdCardHash,
+	findLiveContactConflicts,
 	getAllPositions,
 	getExecutiveCommitteeMembers,
 	getLatestRenewalByMemberId,
@@ -85,6 +86,37 @@ export class MembersRepository implements IMemberRepository {
 			displayOrder: row.displayOrder,
 			isActive: row.isActive,
 		} satisfies PositionReadModel)
+	}
+
+	/**
+	 * Which contact columns (phone_no / email / line_id) are already taken by
+	 * another LIVE member — backs the partial unique indexes uniq_members_*_live
+	 * and the DUPLICATE_PHONE_NO / DUPLICATE_EMAIL / DUPLICATE_LINE_ID 409s.
+	 * `excludeMemberId` (update flow) keeps a member from conflicting with
+	 * their own unchanged contacts.
+	 */
+	async findLiveContactConflicts(phoneNo: string, email: string | null, lineId: string | null, excludeMemberId: number | null) {
+		const result = await ResultAsync.fromPromise(
+			findLiveContactConflicts(this.sql, {
+				phoneNo,
+				email,
+				lineId,
+				excludeMemberId: excludeMemberId === null ? null : String(excludeMemberId),
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value
+		if (row === null) {
+			return err(new DatabaseError("findLiveContactConflicts returned no row"))
+		}
+		return ok({
+			phoneNo: row.phoneNoConflict === true,
+			email: row.emailConflict === true,
+			lineId: row.lineIdConflict === true,
+		})
 	}
 
 	async countActiveHolderByPosition(positionCode: string) {

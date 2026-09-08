@@ -122,6 +122,24 @@ export class UpdateMemberService {
 			}
 		}
 
+		// 5b. Live-contact conflict check — phone/email/line_id unique among LIVE
+		//     members (partial unique indexes uniq_members_*_live). Excluding $id
+		//     keeps a member's own unchanged contacts from conflicting with
+		//     themselves (unlike id_card, no changed-detection needed).
+		const contactConflicts = await this.repository.findLiveContactConflicts(resolvedReq.phoneNo, resolvedReq.email, resolvedReq.lineId, id)
+		if (contactConflicts.isErr()) {
+			return err(contactConflicts.error)
+		}
+		if (contactConflicts.value.phoneNo) {
+			return err(this.conflict("DUPLICATE_PHONE_NO", "A member with this phone number already exists"))
+		}
+		if (contactConflicts.value.email) {
+			return err(this.conflict("DUPLICATE_EMAIL", "A member with this email already exists"))
+		}
+		if (contactConflicts.value.lineId) {
+			return err(this.conflict("DUPLICATE_LINE_ID", "A member with this Line ID already exists"))
+		}
+
 		// 6. Compute which document types are being replaced, for the
 		//    repository's soft-delete+insert step. A type is "replaced" only
 		//    when the resolved path DIFFERS from the stored path — re-writing

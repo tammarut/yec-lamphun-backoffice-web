@@ -10,7 +10,7 @@ import { Input } from "src/shared/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "src/shared/components/ui/select"
 import { GENDER_LABELS, POSITION_LABELS, SHIRT_SIZE_LABELS, SINGLE_CARDINALITY_POSITIONS } from "src/modules/members/components/member-labels"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
-import { computeAgeLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import { computeAgeLabel, formatIdCardNo } from "src/modules/members/schemas/member-wizard-mapping"
 import { DB_MAX_LENGTHS, GENDERS, POSITIONS, SHIRT_SIZES, TITLES_EN, TITLES_TH, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 function TextField({
@@ -115,7 +115,7 @@ function SelectField({
 
 /** Wizard step 2 — ข้อมูลส่วนตัว: profile, TH/EN names, id card, contacts, shirt/position. */
 export function MemberWizardStepPersonal({ disabled = false }: { disabled?: boolean }) {
-	const { register, setValue, watch, formState } = useFormContext<MemberWizardFormValues>()
+	const { control, register, watch, formState } = useFormContext<MemberWizardFormValues>()
 	const ageLabel = computeAgeLabel(watch("date_of_birth"))
 	const position = watch("position")
 	const restrictedPosition = SINGLE_CARDINALITY_POSITIONS.has(position)
@@ -168,18 +168,26 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Field data-invalid={formState.errors.id_card_no ? true : undefined}>
 						<FieldLabel htmlFor="wizard-id_card_no">เลขบัตรประชาชน (13 หลัก)</FieldLabel>
-						<Input
-							id="wizard-id_card_no"
-							inputMode="numeric"
-							maxLength={13}
-							placeholder="x-xxxx-xxxxx-xx-x"
-							disabled={disabled}
-							aria-invalid={formState.errors.id_card_no ? true : undefined}
-							{...register("id_card_no")}
-							onChange={(event) => {
-								// Digits-only mask (setValueAs is ignored under resolver mode).
-								setValue("id_card_no", event.target.value.replace(/\D/g, ""), { shouldDirty: true })
-							}}
+						<Controller
+							control={control}
+							name="id_card_no"
+							render={({ field }) => (
+								<Input
+									id="wizard-id_card_no"
+									inputMode="numeric"
+									maxLength={17}
+									placeholder="x-xxxx-xxxxx-xx-x"
+									disabled={disabled}
+									aria-invalid={formState.errors.id_card_no ? true : undefined}
+									value={formatIdCardNo(field.value)}
+									ref={field.ref}
+									onBlur={field.onBlur}
+									onChange={(event) => {
+										// Digits-only under the display mask (setValueAs is ignored under resolver mode).
+										field.onChange(event.target.value.replace(/\D/g, "").slice(0, 13))
+									}}
+								/>
+							)}
 						/>
 						<FieldError errors={[formState.errors.id_card_no]} />
 					</Field>
