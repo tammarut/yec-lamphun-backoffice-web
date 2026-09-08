@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "s
 import { GENDER_LABELS, POSITION_LABELS, SHIRT_SIZE_LABELS, SINGLE_CARDINALITY_POSITIONS } from "src/modules/members/components/member-labels"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
 import { computeAgeLabel } from "src/modules/members/schemas/member-wizard-mapping"
-import { GENDERS, POSITIONS, SHIRT_SIZES, TITLES_EN, TITLES_TH, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { DB_MAX_LENGTHS, GENDERS, POSITIONS, SHIRT_SIZES, TITLES_EN, TITLES_TH, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 function TextField({
 	name,
@@ -127,18 +127,18 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 				<MemberWizardFileField name="profile_avatar" label="รูปโปรไฟล์" helper="แนะนำขนาด 1:1" variant="avatar" disabled={disabled} />
 				<div className="grid gap-4 sm:grid-cols-3">
 					<SelectField name="title_name_th" label="คำนำหน้า (TH)" required values={TITLES_TH} labelOf={(v) => v} disabled={disabled} />
-					<TextField name="first_name_th" label="ชื่อ (TH)" required placeholder="ชื่อจริง" disabled={disabled} />
-					<TextField name="last_name_th" label="นามสกุล (TH)" required placeholder="นามสกุล" disabled={disabled} />
+					<TextField name="first_name_th" label="ชื่อ (TH)" required placeholder="ชื่อจริง" maxLength={DB_MAX_LENGTHS.firstNameTh} disabled={disabled} />
+					<TextField name="last_name_th" label="นามสกุล (TH)" required placeholder="นามสกุล" maxLength={DB_MAX_LENGTHS.lastNameTh} disabled={disabled} />
 				</div>
 				<div className="grid gap-4 sm:grid-cols-3">
-					<TextField name="nickname" label="ชื่อเล่น" required placeholder="ชื่อเล่น" disabled={disabled} />
+					<TextField name="nickname" label="ชื่อเล่น" required placeholder="ชื่อเล่น" maxLength={DB_MAX_LENGTHS.nickname} disabled={disabled} />
 				</div>
 				<div className="bg-muted/40 rounded-xl p-4">
 					<FieldDescription>ชื่อภาษาอังกฤษ (กรอกเพิ่มเติม ไม่บังคับ)</FieldDescription>
 					<div className="mt-3 grid gap-4 sm:grid-cols-3">
 						<SelectField name="title_name_en" label="Prefix (EN)" values={TITLES_EN} labelOf={(v) => v} placeholder="-- ไม่ระบุ --" disabled={disabled} />
-						<TextField name="first_name_en" label="First Name" placeholder="First name" disabled={disabled} />
-						<TextField name="last_name_en" label="Last Name" placeholder="Last name" disabled={disabled} />
+						<TextField name="first_name_en" label="First Name" placeholder="First name" maxLength={DB_MAX_LENGTHS.firstNameEn} disabled={disabled} />
+						<TextField name="last_name_en" label="Last Name" placeholder="Last name" maxLength={DB_MAX_LENGTHS.lastNameEn} disabled={disabled} />
 					</div>
 				</div>
 			</FieldSet>
@@ -163,7 +163,7 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 						<FieldLabel htmlFor="wizard-age">อายุ</FieldLabel>
 						<Input id="wizard-age" readOnly disabled value={ageLabel} placeholder="-" />
 					</Field>
-					<TextField name="nationality" label="สัญชาติ" required placeholder="สัญชาติ" disabled={disabled} />
+					<TextField name="nationality" label="สัญชาติ" required placeholder="สัญชาติ" maxLength={DB_MAX_LENGTHS.nationality} disabled={disabled} />
 				</div>
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Field data-invalid={formState.errors.id_card_no ? true : undefined}>
@@ -230,9 +230,18 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 			<FieldSet>
 				<FieldLegend variant="label">ข้อมูลติดต่อ &amp; อื่นๆ</FieldLegend>
 				<div className="grid gap-4 sm:grid-cols-3">
-					<TextField name="phone_no" label="เบอร์โทรศัพท์" required placeholder="xxx-xxx-xxxx" type="tel" inputMode="tel" disabled={disabled} />
-					<TextField name="email" label="อีเมล" placeholder="name@example.com" type="email" inputMode="email" disabled={disabled} />
-					<TextField name="line_id" label="Line ID" placeholder="Line ID" disabled={disabled} />
+					<TextField
+						name="phone_no"
+						label="เบอร์โทรศัพท์"
+						required
+						placeholder="xxx-xxx-xxxx"
+						type="tel"
+						inputMode="tel"
+						maxLength={DB_MAX_LENGTHS.phoneNo}
+						disabled={disabled}
+					/>
+					<TextField name="email" label="อีเมล" placeholder="name@example.com" type="email" inputMode="email" maxLength={DB_MAX_LENGTHS.email} disabled={disabled} />
+					<TextField name="line_id" label="Line ID" placeholder="Line ID" maxLength={DB_MAX_LENGTHS.lineId} disabled={disabled} />
 				</div>
 				<div className="grid gap-4 sm:grid-cols-2">
 					<SelectField

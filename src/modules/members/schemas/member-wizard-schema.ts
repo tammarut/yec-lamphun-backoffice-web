@@ -59,8 +59,36 @@ const memberFileValue = v.object({
 
 const emptyMemberFileValue = (): MemberFileValue => ({ file: null, existingUrl: null })
 
-/** Required text: non-whitespace (the server checks minLength(1) on raw text). */
-const requiredText = (message: string) => v.pipe(v.string(), v.trim(), v.minLength(1, message))
+/**
+ * DB VARCHAR mirrors (repository/sql/schema.sql, member-business/sql/schema.sql):
+ * the API layer has no length checks, so an over-length value would reach
+ * Postgres and fail 22001 → 500. Guarded here with Thai messages instead;
+ * the wizard inputs also use these as HTML maxLength attributes.
+ */
+export const DB_MAX_LENGTHS = {
+	titleNameTh: 50,
+	firstNameTh: 100,
+	lastNameTh: 100,
+	titleNameEn: 50,
+	firstNameEn: 100,
+	lastNameEn: 100,
+	nickname: 100,
+	nationality: 100,
+	phoneNo: 30,
+	email: 255,
+	lineId: 100,
+	businessName: 255,
+	juristicRegistrationNo: 50,
+} as const
+
+/** Required text: non-whitespace (the server checks minLength(1) on raw text), plus the DB column limit when the column is a bounded VARCHAR. */
+const requiredText = (message: string, limit?: number) =>
+	limit === undefined
+		? v.pipe(v.string(), v.trim(), v.minLength(1, message))
+		: v.pipe(v.string(), v.trim(), v.minLength(1, message), v.maxLength(limit, `ความยาวต้องไม่เกิน ${limit} ตัวอักษร`))
+
+/** Optional text ("" = unset) bounded by its DB column limit. */
+const optionalText = (limit: number) => v.pipe(v.string(), v.maxLength(limit, `ความยาวต้องไม่เกิน ${limit} ตัวอักษร`))
 
 /** Required ISO date from `<input type="date">` ("" = unset). */
 const requiredIsoDate = (message: string) =>
@@ -105,15 +133,15 @@ const wizardFields = {
 	id_card_image: memberFileValue,
 	profile_avatar: memberFileValue,
 	title_name_th: v.picklist(TITLES_TH, "กรุณาเลือกคำนำหน้าชื่อ"),
-	first_name_th: requiredText("กรุณากรอกชื่อ"),
-	last_name_th: requiredText("กรุณากรอกนามสกุล"),
+	first_name_th: requiredText("กรุณากรอกชื่อ", DB_MAX_LENGTHS.firstNameTh),
+	last_name_th: requiredText("กรุณากรอกนามสกุล", DB_MAX_LENGTHS.lastNameTh),
 	title_name_en: v.union([v.picklist(TITLES_EN, "คำนำหน้าชื่อ (EN) ไม่ถูกต้อง"), v.literal("")]),
-	first_name_en: v.string(),
-	last_name_en: v.string(),
-	nickname: requiredText("กรุณากรอกชื่อเล่น"),
+	first_name_en: optionalText(DB_MAX_LENGTHS.firstNameEn),
+	last_name_en: optionalText(DB_MAX_LENGTHS.lastNameEn),
+	nickname: requiredText("กรุณากรอกชื่อเล่น", DB_MAX_LENGTHS.nickname),
 	gender: v.picklist(GENDERS, "กรุณาเลือกเพศ"),
 	date_of_birth: requiredIsoDate("กรุณาเลือกวันเดือนปีเกิด"),
-	nationality: requiredText("กรุณากรอกสัญชาติ"),
+	nationality: requiredText("กรุณากรอกสัญชาติ", DB_MAX_LENGTHS.nationality),
 	id_card_no: v.pipe(
 		v.string(),
 		v.check((value) => value.replace(/\D/g, "").length > 0, "กรุณากรอกเลขบัตรประชาชน"),
@@ -129,18 +157,20 @@ const wizardFields = {
 		v.string(),
 		v.trim(),
 		v.minLength(1, "กรุณากรอกเบอร์โทรศัพท์"),
-		v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678")
+		v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678"),
+		v.maxLength(DB_MAX_LENGTHS.phoneNo, `ความยาวต้องไม่เกิน ${DB_MAX_LENGTHS.phoneNo} ตัวอักษร`)
 	),
 	email: v.pipe(
 		v.string(),
-		v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง")
+		v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง"),
+		v.maxLength(DB_MAX_LENGTHS.email, `ความยาวต้องไม่เกิน ${DB_MAX_LENGTHS.email} ตัวอักษร`)
 	),
-	line_id: v.string(),
+	line_id: optionalText(DB_MAX_LENGTHS.lineId),
 	shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
 	position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
 	business: v.object({
-		name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า"),
-		juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล"),
+		name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า", DB_MAX_LENGTHS.businessName),
+		juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล", DB_MAX_LENGTHS.juristicRegistrationNo),
 		category_id: v.pipe(
 			v.string(),
 			v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "s
 import { Textarea } from "src/shared/components/ui/textarea"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
 import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
-import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { DB_MAX_LENGTHS, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 function BusinessTextField({
 	name,
@@ -18,6 +18,7 @@ function BusinessTextField({
 	required = false,
 	placeholder,
 	type = "text",
+	maxLength,
 	disabled,
 }: {
 	name: "business.name" | "business.juristic_registration_no" | "business.latitude" | "business.longitude" | "business.core_business" | "business.website"
@@ -25,6 +26,7 @@ function BusinessTextField({
 	required?: boolean
 	placeholder?: string
 	type?: string
+	maxLength?: number
 	disabled?: boolean
 }) {
 	const { register, formState } = useFormContext<MemberWizardFormValues>()
@@ -35,7 +37,15 @@ function BusinessTextField({
 				{label}
 				{required && <span className="text-destructive">*</span>}
 			</FieldLabel>
-			<Input id={`wizard-${name}`} type={type} placeholder={placeholder} disabled={disabled} aria-invalid={error ? true : undefined} {...register(name)} />
+			<Input
+				id={`wizard-${name}`}
+				type={type}
+				placeholder={placeholder}
+				maxLength={maxLength}
+				disabled={disabled}
+				aria-invalid={error ? true : undefined}
+				{...register(name)}
+			/>
 			<FieldError errors={[error]} />
 		</Field>
 	)
@@ -51,7 +61,14 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 		<FieldSet data-slot="wizard-step-business" className="gap-8">
 			<FieldSet>
 				<FieldLegend variant="label">ข้อมูลกิจการ/ร้านค้า</FieldLegend>
-				<BusinessTextField name="business.name" label="ชื่อกิจการ/ร้านค้า" required placeholder="ชื่อกิจการ/ร้านค้า" disabled={disabled} />
+				<BusinessTextField
+					name="business.name"
+					label="ชื่อกิจการ/ร้านค้า"
+					required
+					placeholder="ชื่อกิจการ/ร้านค้า"
+					maxLength={DB_MAX_LENGTHS.businessName}
+					disabled={disabled}
+				/>
 				<div className="grid gap-4 sm:grid-cols-2">
 					<BusinessTextField name="business.juristic_registration_no" label="เลขทะเบียนนิติบุคคล" required placeholder="เลขทะเบียนนิติบุคคล" disabled={disabled} />
 					<Field data-invalid={categoryError ? true : undefined}>

@@ -238,5 +238,35 @@ describe("MemberWizardSchema", () => {
 			values.date_of_birth = "15/06/1990"
 			expect(issuePaths(safeParse(MemberWizardSchema, values))).toContainEqual(["date_of_birth"])
 		})
+
+		test("rejects text exceeding the DB VARCHAR limits (22001 → 500 otherwise)", () => {
+			const cases: [(values: MemberWizardFormValues) => void, string, number][] = [
+				[(values) => (values.first_name_th = "ก".repeat(101)), "first_name_th", 100],
+				[(values) => (values.nickname = "n".repeat(101)), "nickname", 100],
+				[(values) => (values.email = `${"e".repeat(251)}@x.co`), "email", 255],
+				[(values) => (values.line_id = "l".repeat(101)), "line_id", 100],
+				[(values) => (values.business.juristic_registration_no = "0".repeat(51)), "business.juristic_registration_no", 50],
+			]
+			for (const [mutate, path, limit] of cases) {
+				const values = makeValidFormValues()
+				mutate(values)
+				const result = safeParse(MemberWizardSchema, values)
+				const expectedPath = path.split(".")
+				expect(issuePaths(result)).toContainEqual(expectedPath)
+				expect(issueMessages(result)).toContain(`ความยาวต้องไม่เกิน ${limit} ตัวอักษร`)
+			}
+
+			// phone_no's 30-char limit is unreachable via the schema (the format
+			// regex caps realistic input far lower); it is guarded by the input's
+			// maxLength attribute instead.
+			const phoneValues = makeValidFormValues()
+			phoneValues.phone_no = `0${"1".repeat(30)}`
+			expect(issuePaths(safeParse(MemberWizardSchema, phoneValues))).toContainEqual(["phone_no"])
+
+			// At exactly the limit the values are fine.
+			const values = makeValidFormValues()
+			values.first_name_th = "ก".repeat(100)
+			expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+		})
 	})
 })
