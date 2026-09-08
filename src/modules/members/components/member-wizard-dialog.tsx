@@ -41,6 +41,9 @@ const STEP_TITLES: Record<WizardStep, string> = {
 	4: "ตรวจสอบข้อมูล",
 }
 
+/** How long the review step's submit button stays disabled after arrival (ms). */
+const SUBMIT_ARMING_MS = 500
+
 function stepFields(step: WizardStep): FieldPath<MemberWizardFormValues>[] {
 	if (step === 4) {
 		return []
@@ -94,6 +97,7 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	const [highestReached, setHighestReached] = useState<WizardStep>(1)
 	const [completedSteps, setCompletedSteps] = useState<ReadonlySet<WizardStep>>(new Set<WizardStep>())
 	const [showSummary, setShowSummary] = useState(false)
+	const [submitArming, setSubmitArming] = useState(false)
 	const [draftRestored, setDraftRestored] = useState(false)
 	const [closeGuardOpen, setCloseGuardOpen] = useState(false)
 	const [submitError, setSubmitError] = useState<ApiError | null>(null)
@@ -204,6 +208,25 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 		setHighestReached((previous) => Math.max(previous, target) as WizardStep)
 		goDirect(target)
 	}
+
+	// Arriving at the review step swaps the footer's bottom-right button from
+	// ถัดไป (type=button) to ยืนยันบันทึกข้อมูล (type=submit) at the SAME
+	// coordinates — a double click or impatient re-click would land on the
+	// armed submit and fire the upload+create without the user ever reading
+	// the review. The submit button stays disabled for a short arming window
+	// after the step becomes 4.
+	useEffect(() => {
+		if (step !== 4) {
+			return
+		}
+		setSubmitArming(true)
+		const timer = setTimeout(() => {
+			setSubmitArming(false)
+		}, SUBMIT_ARMING_MS)
+		return () => {
+			clearTimeout(timer)
+		}
+	}, [step])
 
 	function requestClose() {
 		if (submitting) {
@@ -389,7 +412,13 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 									<HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
 								</Button>
 							) : (
-								<Button type="submit" disabled={submitting} aria-busy={submitting} data-slot="wizard-submit">
+								<Button
+									type="submit"
+									disabled={submitting || submitArming}
+									aria-busy={submitting}
+									data-slot="wizard-submit"
+									title={submitArming ? "กรุณาตรวจสอบข้อมูลก่อนบันทึก" : undefined}
+								>
 									{submitting && <HugeiconsIcon icon={Loading03Icon} strokeWidth={2} className="animate-spin" data-icon="inline-start" />}
 									{submitting ? "กำลังบันทึก..." : "ยืนยันบันทึกข้อมูล"}
 								</Button>

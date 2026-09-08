@@ -132,8 +132,15 @@ async function fillValidForm() {
 	await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 }
 
+/** Wait out the submit-arming window, then click deliberately. */
+async function armAndSubmit() {
+	const submitButton = await screen.findByRole("button", { name: "ยืนยันบันทึกข้อมูล" })
+	await waitFor(() => expect((submitButton as HTMLButtonElement).disabled).toBe(false))
+	fireEvent.click(submitButton)
+}
+
 async function submitFromReview() {
-	fireEvent.click(screen.getByRole("button", { name: "ยืนยันบันทึกข้อมูล" }))
+	await armAndSubmit()
 	await screen.findByText("ลงทะเบียนสมาชิกเรียบร้อย")
 }
 
@@ -268,6 +275,38 @@ describe("MemberWizardDialog", () => {
 	})
 
 	describe("Unhappy cases", () => {
+		it("repro: a rapid second click at the 3→4 transition must not submit (ถัดไป swaps to ยืนยัน at the same spot)", async () => {
+			const { fetchMock } = renderWizard()
+			await goToStep2()
+			await fillStep2()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+			await fillStep3()
+
+			// Click #1 advances to review; the footer's bottom-right button then
+			// becomes ยืนยันบันทึกข้อมูล at the SAME coordinates. Click #2 (double
+			// click / impatient re-click) lands on it.
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			const submitButton = await screen.findByRole("button", { name: "ยืนยันบันทึกข้อมูล" })
+			expect((submitButton as HTMLButtonElement).disabled).toBe(true)
+			fireEvent.click(submitButton)
+
+			await new Promise((resolve) => setTimeout(resolve, 100))
+			const submitCalls = fetchMock.mock.calls.filter(([url, init]) => String(url) === "/api/v1/members" && init?.method === "POST")
+			expect(submitCalls).toHaveLength(0)
+			expect(screen.queryByText("ลงทะเบียนสมาชิกเรียบร้อย")).toBeNull()
+		})
+
+		it("a deliberate submit after reviewing still works", async () => {
+			const { fetchMock } = renderWizard()
+			await fillValidForm()
+			await armAndSubmit()
+
+			await screen.findByText("ลงทะเบียนสมาชิกเรียบร้อย")
+			const submitCalls = fetchMock.mock.calls.filter(([url, init]) => String(url) === "/api/v1/members" && init?.method === "POST")
+			expect(submitCalls).toHaveLength(1)
+		})
+
 		it("juristic applicant without the company certificate cannot advance past step 1", async () => {
 			renderWizard()
 			await screen.findByText("ลงทะเบียนสมาชิกใหม่")
@@ -353,7 +392,7 @@ describe("MemberWizardDialog", () => {
 				},
 			})
 			await fillValidForm()
-			fireEvent.click(screen.getByRole("button", { name: "ยืนยันบันทึกข้อมูล" }))
+			await armAndSubmit()
 
 			expect(await screen.findByText("เลขบัตรประชาชนนี้มีอยู่ในระบบแล้ว")).toBeTruthy()
 			expect(screen.queryByText("ลงทะเบียนสมาชิกเรียบร้อย")).toBeNull()
@@ -369,7 +408,7 @@ describe("MemberWizardDialog", () => {
 				},
 			})
 			await fillValidForm()
-			fireEvent.click(screen.getByRole("button", { name: "ยืนยันบันทึกข้อมูล" }))
+			await armAndSubmit()
 
 			expect(await screen.findByText("ตำแหน่งนี้มีผู้ดำรงตำแหน่งอยู่แล้ว (ประธาน YEC Lamphun)")).toBeTruthy()
 			expect(screen.queryByText("ลงทะเบียนสมาชิกเรียบร้อย")).toBeNull()
@@ -385,7 +424,7 @@ describe("MemberWizardDialog", () => {
 				},
 			})
 			await fillValidForm()
-			fireEvent.click(screen.getByRole("button", { name: "ยืนยันบันทึกข้อมูล" }))
+			await armAndSubmit()
 
 			expect(await screen.findByText("Internal Server Error")).toBeTruthy()
 			expect(screen.queryByText("ลงทะเบียนสมาชิกเรียบร้อย")).toBeNull()
