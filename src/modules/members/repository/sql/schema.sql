@@ -90,17 +90,3 @@ CREATE TABLE members (
     -- NOTE: chk_members_position is GONE — replaced by the FK to positions.
     -- NOTE: parent_id column is GONE — supervisor is derived at read time.
 );
-
--- ============================================================================
--- Partial unique indexes: contact uniqueness among LIVE members only.
--- (Postgres cannot express WHERE on a table CONSTRAINT; a partial unique INDEX
--- enforces the identical invariant — plain UNIQUE constraints are unique
--- indexes internally. Same technique as idx_one_pending_renewal_per_member.)
--- Soft-delete (deleted_at set) removes the row from these indexes, releasing
--- the phone/email/line_id for a NEW member — a plain UNIQUE would block that
--- forever. NULLs never conflict (unique indexes treat NULL as distinct), so
--- the optional email/line_id columns work as-is.
--- ============================================================================
-CREATE UNIQUE INDEX uniq_members_phone_no_live ON members (phone_no) WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX uniq_members_email_live    ON members (email)    WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX uniq_members_line_id_live  ON members (line_id)  WHERE deleted_at IS NULL;
