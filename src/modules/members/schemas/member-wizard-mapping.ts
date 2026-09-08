@@ -138,3 +138,14 @@ export function computeAgeLabel(dateOfBirthIso: string, now: Date = new Date()):
 export function memberFileLabel(value: MemberFileValue): string {
 	return value.file?.name ?? "ไม่ได้แนบ"
 }
+
+/**
+ * Display mask for เลขบัตรประชาชน: digits-only in, "X-XXXX-XXXXX-XX-X" out
+ * (grouped 1-4-5-2-1, capped at 13 digits, non-digits dropped) — the form
+ * value itself stays digits-only for validation and the wire payload.
+ */
+export function formatIdCardNo(raw: string): string {
+	const digits = raw.replace(/\D/g, "").slice(0, 13)
+	const groups = [digits.slice(0, 1), digits.slice(1, 5), digits.slice(5, 10), digits.slice(10, 12), digits.slice(12, 13)]
+	return groups.filter((group) => group !== "").join("-")
+}

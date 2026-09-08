@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, test } from "vitest"
 
-import { buildCreatePayload, computeAgeLabel, type UploadedFilePaths } from "src/modules/members/schemas/member-wizard-mapping"
+import { buildCreatePayload, computeAgeLabel, formatIdCardNo, type UploadedFilePaths } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 const uploads: UploadedFilePaths = {
@@ -149,6 +149,42 @@ describe("computeAgeLabel", () => {
 		test("returns empty for an empty or unparseable date", () => {
 			expect(computeAgeLabel("", new Date())).toBe("")
 			expect(computeAgeLabel("not-a-date", new Date())).toBe("")
+		})
+	})
+})
+
+describe("formatIdCardNo", () => {
+	describe("Happy cases", () => {
+		test("groups 13 digits as X-XXXX-XXXXX-XX-X", () => {
+			expect(formatIdCardNo("1234567890123")).toBe("1-2345-67890-12-3")
+		})
+
+		test("groups a partial entry the same way while typing", () => {
+			expect(formatIdCardNo("1")).toBe("1")
+			expect(formatIdCardNo("12")).toBe("1-2")
+			expect(formatIdCardNo("12345")).toBe("1-2345")
+			expect(formatIdCardNo("123456")).toBe("1-2345-6")
+			expect(formatIdCardNo("12345678901")).toBe("1-2345-67890-1")
+			expect(formatIdCardNo("123456789012")).toBe("1-2345-67890-12")
+		})
+
+		test("strips dashes so a pasted formatted value round-trips", () => {
+			expect(formatIdCardNo("1-2345-67890-12-3")).toBe("1-2345-67890-12-3")
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		test("caps at 13 digits", () => {
+			expect(formatIdCardNo("1234567890123456")).toBe("1-2345-67890-12-3")
+		})
+
+		test("drops non-digit characters", () => {
+			expect(formatIdCardNo("abc")).toBe("")
+			expect(formatIdCardNo("1-2a3")).toBe("1-23")
+		})
+
+		test("returns empty for empty input", () => {
+			expect(formatIdCardNo("")).toBe("")
 		})
 	})
 })
