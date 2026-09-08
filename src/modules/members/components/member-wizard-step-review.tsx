@@ -8,7 +8,7 @@ import { Button } from "src/shared/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "src/shared/components/ui/card"
 import { GENDER_LABELS, POSITION_LABELS, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
 import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
-import { memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import { formatIdCardNo, memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import { cn } from "src/shared/lib/utils/utils"
 
@@ -70,7 +70,7 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 				<ReviewRow label="ชื่อเล่น" value={values.nickname} />
 				<ReviewRow label="เพศ" value={GENDER_LABELS[values.gender] ?? values.gender} />
 				<ReviewRow label="วันเดือนปีเกิด" value={values.date_of_birth} />
-				<ReviewRow label="เลขบัตรประชาชน" value={values.id_card_no} />
+				<ReviewRow label="เลขบัตรประชาชน" value={formatIdCardNo(values.id_card_no)} />
 				<ReviewRow label="วันหมดอายุบัตร" value={values.id_card_expiry_date} />
 				<ReviewRow label="สัญชาติ" value={values.nationality} />
 				<ReviewRow label="รูปโปรไฟล์" value={memberFileLabel(values.profile_avatar)} />

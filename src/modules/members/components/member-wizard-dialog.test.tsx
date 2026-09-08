@@ -256,7 +256,8 @@ describe("MemberWizardDialog", () => {
 			await fillValidForm()
 
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
-			expect(screen.getByText("1234567890123")).toBeTruthy()
+			expect(screen.getByText("1-2345-67890-12-3")).toBeTruthy()
+			expect(screen.queryByText("1234567890123")).toBeNull()
 			expect(screen.getByText("อุตสาหกรรมการผลิต")).toBeTruthy()
 			expect(screen.getByText("avatar.png")).toBeTruthy()
 			expect(screen.getByText("ระบบจะคำนวณอัตโนมัติ")).toBeTruthy()
