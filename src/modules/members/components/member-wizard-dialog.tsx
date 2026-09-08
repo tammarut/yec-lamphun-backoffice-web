@@ -101,8 +101,6 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	const submitting = createMutation.isPending
 
 	const [step, setStep] = useState<WizardStep>(1)
-	const [highestReached, setHighestReached] = useState<WizardStep>(1)
-	const [completedSteps, setCompletedSteps] = useState<ReadonlySet<WizardStep>>(new Set<WizardStep>())
 	const [showSummary, setShowSummary] = useState(false)
 	const [submitArming, setSubmitArming] = useState(false)
 	const [draftRestored, setDraftRestored] = useState(false)
@@ -146,8 +144,6 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 		})
 		setDraftRestored(restored !== null)
 		setStep(1)
-		setHighestReached(1)
-		setCompletedSteps(new Set<WizardStep>())
 		setShowSummary(false)
 		setSubmitError(null)
 	}, [open, reset])
@@ -173,33 +169,15 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	}
 
 	/**
-	 * Rail navigation (create mode locks forward jumps): re-validate steps
-	 * 1…target−1 in order and drop the user on the first failing one; only a
-	 * fully valid prefix may be jumped past. Completed steps stay revisitable
-	 * through the same gate.
+	 * Rail navigation is backward-only (Step Rail): a rail button is disabled
+	 * ahead of the current step, so a click here is always a jump back. Safety
+	 * needs no re-validation pass — every earlier step was validated on the way
+	 * forward, and ถัดไป re-validates each step on the way back up.
 	 */
-	async function jumpViaRail(target: WizardStep) {
-		if (target === step) {
+	function jumpViaRail(target: WizardStep) {
+		if (target >= step) {
 			return
 		}
-		for (let current = 1; current < target; current++) {
-			const valid = await trigger(stepFields(current as WizardStep))
-			if (!valid) {
-				setStep(current as WizardStep)
-				setHighestReached((previous) => Math.max(previous, current) as WizardStep)
-				setShowSummary(true)
-				scrollTop()
-				return
-			}
-		}
-		setCompletedSteps((previous) => {
-			const next = new Set<WizardStep>(previous)
-			for (let current = 1; current < target; current++) {
-				next.add(current as WizardStep)
-			}
-			return next
-		})
-		setHighestReached(target)
 		goDirect(target)
 	}
 
@@ -210,9 +188,7 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 			setShowSummary(true)
 			return
 		}
-		setCompletedSteps((previous) => new Set<WizardStep>(previous).add(step))
 		const target = Math.min(step + 1, 4) as WizardStep
-		setHighestReached((previous) => Math.max(previous, target) as WizardStep)
 		goDirect(target)
 	}
 
@@ -351,9 +327,11 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 						<div className="flex min-h-0 flex-1">
 							<nav aria-label="ขั้นตอนการกรอกข้อมูล" data-slot="wizard-step-rail" className="hidden w-64 shrink-0 flex-col gap-1 border-r p-4 lg:flex">
 								{([1, 2, 3, 4] as const).map((target) => {
+									// Step Rail: purely position-derived — ✓ clickable behind
+									// the current step, locked ahead, no history kept.
 									const isCurrent = step === target
-									const isCompleted = completedSteps.has(target)
-									const isLocked = target > highestReached
+									const isCompleted = target < step
+									const isLocked = target > step
 									return (
 										<button
 											key={target}
@@ -361,7 +339,7 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 											disabled={isLocked || submitting}
 											aria-current={isCurrent ? "step" : undefined}
 											data-slot="wizard-rail-step"
-											data-state={isCurrent ? "current" : isCompleted ? "completed" : isLocked ? "locked" : "reachable"}
+											data-state={isCurrent ? "current" : isCompleted ? "completed" : "locked"}
 											onClick={() => void jumpViaRail(target)}
 											className={cn(
 												"flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",

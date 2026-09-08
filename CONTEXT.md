@@ -129,6 +129,10 @@ _Avoid_: dashboard summary, overview stat, dashboard totals
 
 ## Backoffice UI
 
+**Step Rail**:
+The desktop-only vertical navigator (ขั้นตอนการกรอกข้อมูล) of the member-registration wizard, listing its four steps. Navigation is backward-only: steps behind the current one show ✓ and are clickable, steps ahead are locked — ถัดไป is the only way to advance, so no step can ever be entered without every earlier step validating first. Mobile renders the ขั้นตอน X/4 progress bar instead and has no rail.
+_Avoid_: stepper, progress rail, tab navigation
+
 **Member Form Draft**:
 An autosaved snapshot of a partially filled member-registration wizard form, kept client-side in localStorage so an admin can resume after closing the wizard mid-entry. Exists only in create mode (never when editing a member), excludes Member File selections (files are not serializable), and is cleared on successful submission or explicit discard. Purely a browser-side concept — no API backs it.
 _Avoid_: autosave, form cache, saved form

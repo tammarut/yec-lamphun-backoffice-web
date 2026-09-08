@@ -268,6 +268,50 @@ describe("MemberWizardDialog", () => {
 			expect(await screen.findByPlaceholderText("เลขทะเบียนนิติบุคคล")).toBeTruthy()
 		})
 
+		it("locks the rail forward again after any jump back — rail, แก้ไข, or ย้อนกลับ (ถัดไป is the only way ahead)", async () => {
+			renderWizard()
+			await fillValidForm()
+			const rail = () => within(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" }))
+
+			// Rail jump back: step 1 current, everything ahead locked.
+			fireEvent.click(rail().getByText("ข้อมูลการสมัคร"))
+			await screen.findByText("ขั้นตอน 1/4 · ข้อมูลการสมัคร")
+			expect(rail().getByText("ข้อมูลส่วนตัว").closest("button")?.disabled).toBe(true)
+			expect(rail().getByText("ข้อมูลธุรกิจ").closest("button")?.disabled).toBe(true)
+			expect(rail().getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
+
+			// Walk forward to review again.
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText("ขั้นตอน 3/4 · ข้อมูลธุรกิจ")
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+
+			// แก้ไข back to step 2: step 1 stays ✓ clickable, 3/4 re-lock.
+			const personalSection = document.querySelector('[data-slot="wizard-review-section"][data-step="2"]') as HTMLElement
+			fireEvent.click(within(personalSection).getByRole("button", { name: "แก้ไข" }))
+			await screen.findByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")
+			expect(rail().getByText("ข้อมูลการสมัคร").closest("button")?.disabled).toBe(false)
+			expect(rail().getByText("ข้อมูลธุรกิจ").closest("button")?.disabled).toBe(true)
+			expect(rail().getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
+
+			// ย้อนกลับ re-locks the same way.
+			fireEvent.click(screen.getByRole("button", { name: "ย้อนกลับ" }))
+			await screen.findByText("ขั้นตอน 1/4 · ข้อมูลการสมัคร")
+			expect(rail().getByText("ข้อมูลส่วนตัว").closest("button")?.disabled).toBe(true)
+			expect(rail().getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
+
+			// ถัดไป is the only way ahead — walk 1→4 and the flow still completes.
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText("ขั้นตอน 3/4 · ข้อมูลธุรกิจ")
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			await submitFromReview()
+		})
+
 		it("submits uploads-first and shows the success dialog; เพิ่มสมาชิกอีกคน resets the form", async () => {
 			const { fetchMock } = renderWizard()
 			await fillValidForm()
