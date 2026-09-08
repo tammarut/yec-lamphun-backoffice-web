@@ -52,9 +52,14 @@ CREATE TABLE members (
     member_since TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     profile_avatar TEXT,
-    phone_no VARCHAR(30) UNIQUE NOT NULL,
-    email VARCHAR(255) UNIQUE,
-    line_id VARCHAR(100) UNIQUE,
+    -- Contact fields are NOT unique: nothing upstream (OpenAPI spec, domain,
+    -- UI) treats them as identity — the ID card blind index is the sole
+    -- identity check (app-level count query, deleted_at-aware). UNIQUE here
+    -- made shared household phones / company emails a hard 500 (23505 →
+    -- DatabaseError) with no pre-check possible. Dropped 2026-09 (PR #45).
+    phone_no VARCHAR(30) NOT NULL,
+    email VARCHAR(255),
+    line_id VARCHAR(100),
     shirt_size VARCHAR(10),
     -- Position (FK to positions; hierarchy is DERIVED, NOT stored on members)
     position_code VARCHAR(30) NOT NULL REFERENCES positions (code) ON DELETE RESTRICT,
