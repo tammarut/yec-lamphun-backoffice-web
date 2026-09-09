@@ -219,6 +219,22 @@ describe("MemberWizardDialog", () => {
 			expect((JSON.parse(localStorage.getItem("yec-member-form-draft") ?? "{}") as { id_card_no?: string }).id_card_no).toBe("12")
 		})
 
+		it("formats เบอร์โทรศัพท์ as xxx-xxx-xxxx while typing, storing the dashed value", async () => {
+			renderWizard()
+			await goToStep2()
+
+			const phoneInput = screen.getByPlaceholderText("xxx-xxx-xxxx")
+			fireEvent.change(phoneInput, { target: { value: "0812345678" } })
+			expect((phoneInput as HTMLInputElement).value).toBe("081-234-5678")
+
+			// A 9-digit landline masks with a partial last group.
+			fireEvent.change(phoneInput, { target: { value: "053123456" } })
+			expect((phoneInput as HTMLInputElement).value).toBe("053-123-456")
+
+			// Unlike the ID card, the DASHED string is the stored value (decision).
+			expect((JSON.parse(localStorage.getItem("yec-member-form-draft") ?? "{}") as { phone_no?: string }).phone_no).toBe("053-123-456")
+		})
+
 		it("searches ตำแหน่งใน YEC Lamphun by keyword instead of eyeballing the list", async () => {
 			renderWizard()
 			await goToStep2()
@@ -257,6 +273,7 @@ describe("MemberWizardDialog", () => {
 
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
 			expect(screen.getByText("1-2345-67890-12-3")).toBeTruthy()
+			expect(screen.getByText("081-234-5678")).toBeTruthy()
 			expect(screen.queryByText("1234567890123")).toBeNull()
 			expect(screen.getByText("อุตสาหกรรมการผลิต")).toBeTruthy()
 			expect(screen.getByText("avatar.png")).toBeTruthy()

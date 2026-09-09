@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, test } from "vitest"
 
-import { buildCreatePayload, computeAgeLabel, formatIdCardNo, type UploadedFilePaths } from "src/modules/members/schemas/member-wizard-mapping"
+import { buildCreatePayload, computeAgeLabel, formatIdCardNo, formatPhoneNumber, type UploadedFilePaths } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 const uploads: UploadedFilePaths = {
@@ -185,6 +185,46 @@ describe("formatIdCardNo", () => {
 
 		test("returns empty for empty input", () => {
 			expect(formatIdCardNo("")).toBe("")
+		})
+	})
+})
+
+describe("formatPhoneNumber", () => {
+	describe("Happy cases", () => {
+		test("groups 10 digits as xxx-xxx-xxxx", () => {
+			expect(formatPhoneNumber("0812345678")).toBe("081-234-5678")
+		})
+
+		test("groups a partial entry the same way while typing", () => {
+			expect(formatPhoneNumber("0")).toBe("0")
+			expect(formatPhoneNumber("081")).toBe("081")
+			expect(formatPhoneNumber("0812")).toBe("081-2")
+			expect(formatPhoneNumber("08123")).toBe("081-23")
+			expect(formatPhoneNumber("081234")).toBe("081-234")
+			expect(formatPhoneNumber("081234567")).toBe("081-234-567")
+		})
+
+		test("groups 9-digit landlines as xxx-xxx-xxx", () => {
+			expect(formatPhoneNumber("053123456")).toBe("053-123-456")
+		})
+
+		test("is idempotent on an already-formatted value", () => {
+			expect(formatPhoneNumber("081-234-5678")).toBe("081-234-5678")
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		test("caps at 10 digits", () => {
+			expect(formatPhoneNumber("08123456781234")).toBe("081-234-5678")
+		})
+
+		test("drops non-digit characters", () => {
+			expect(formatPhoneNumber("abc")).toBe("")
+			expect(formatPhoneNumber("081a234")).toBe("081-234")
+		})
+
+		test("returns empty for empty input", () => {
+			expect(formatPhoneNumber("")).toBe("")
 		})
 	})
 })

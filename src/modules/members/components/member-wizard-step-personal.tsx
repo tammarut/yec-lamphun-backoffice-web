@@ -10,7 +10,7 @@ import { Input } from "src/shared/components/ui/input"
 import { MemberComboboxSelect } from "src/modules/members/components/member-combobox-select"
 import { GENDER_LABELS, POSITION_LABELS, SHIRT_SIZE_LABELS, SINGLE_CARDINALITY_POSITIONS } from "src/modules/members/components/member-labels"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
-import { computeAgeLabel, formatIdCardNo } from "src/modules/members/schemas/member-wizard-mapping"
+import { computeAgeLabel, formatIdCardNo, formatPhoneNumber } from "src/modules/members/schemas/member-wizard-mapping"
 import { DB_MAX_LENGTHS, GENDERS, POSITIONS, SHIRT_SIZES, TITLES_EN, TITLES_TH, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 function TextField({
@@ -107,6 +107,9 @@ function SelectField({
 }
 
 /** Wizard step 2 — ข้อมูลส่วนตัว: profile, TH/EN names, id card, contacts, shirt/position. */
+/** Display length of the masked phone input: 10 digits + 2 dashes (the dashed string is the stored value). */
+const PHONE_MASKED_MAX_LENGTH = 12
+
 export function MemberWizardStepPersonal({ disabled = false }: { disabled?: boolean }) {
 	const { control, register, watch, formState } = useFormContext<MemberWizardFormValues>()
 	const ageLabel = computeAgeLabel(watch("date_of_birth"))
@@ -231,16 +234,34 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 			<FieldSet>
 				<FieldLegend variant="label">ข้อมูลติดต่อ &amp; อื่นๆ</FieldLegend>
 				<div className="grid gap-4 sm:grid-cols-3">
-					<TextField
-						name="phone_no"
-						label="เบอร์โทรศัพท์"
-						required
-						placeholder="xxx-xxx-xxxx"
-						type="tel"
-						inputMode="tel"
-						maxLength={DB_MAX_LENGTHS.phoneNo}
-						disabled={disabled}
-					/>
+					<Field data-invalid={formState.errors.phone_no ? true : undefined}>
+						<FieldLabel htmlFor="wizard-phone_no">
+							เบอร์โทรศัพท์<span className="text-destructive">*</span>
+						</FieldLabel>
+						<Controller
+							control={control}
+							name="phone_no"
+							render={({ field }) => (
+								<Input
+									id="wizard-phone_no"
+									type="tel"
+									inputMode="tel"
+									maxLength={PHONE_MASKED_MAX_LENGTH}
+									placeholder="xxx-xxx-xxxx"
+									disabled={disabled}
+									aria-invalid={formState.errors.phone_no ? true : undefined}
+									value={formatPhoneNumber(field.value)}
+									ref={field.ref}
+									onBlur={field.onBlur}
+									onChange={(event) => {
+										// Unlike the ID card, the DASHED string is the stored value.
+										field.onChange(formatPhoneNumber(event.target.value))
+									}}
+								/>
+							)}
+						/>
+						<FieldError errors={[formState.errors.phone_no]} />
+					</Field>
 					<TextField name="email" label="อีเมล" placeholder="name@example.com" type="email" inputMode="email" maxLength={DB_MAX_LENGTHS.email} disabled={disabled} />
 					<TextField name="line_id" label="Line ID" placeholder="Line ID" maxLength={DB_MAX_LENGTHS.lineId} disabled={disabled} />
 				</div>

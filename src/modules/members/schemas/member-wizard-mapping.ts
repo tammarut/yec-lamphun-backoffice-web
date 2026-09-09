@@ -149,3 +149,16 @@ export function formatIdCardNo(raw: string): string {
 	const groups = [digits.slice(0, 1), digits.slice(1, 5), digits.slice(5, 10), digits.slice(10, 12), digits.slice(12, 13)]
 	return groups.filter((group) => group !== "").join("-")
 }
+
+/**
+ * Display mask for เบอร์โทรศัพท์: "xxx-xxx-xxxx" (3-3-4, capped at 10 digits,
+ * non-digits dropped, partial last group for 9-digit landlines). Unlike
+ * `formatIdCardNo`, the DASHED string is itself the stored form value
+ * (decision: keep dashes), so this is safe to feed back through on every
+ * keystroke — formatting an already-masked value is a no-op.
+ */
+export function formatPhoneNumber(raw: string): string {
+	const digits = raw.replace(/\D/g, "").slice(0, 10)
+	const groups = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 10)]
+	return groups.filter((group) => group !== "").join("-")
+}
