@@ -2,7 +2,7 @@
 
 ## Goal
 
-The member directory at `/members`: searchable list/card views with server-side cursor paging, admin delete confirmation, selection-based CSV export (3a — shipped), and a 4-step add/edit wizard sheet (3b — split into a create PR then an edit PR).
+The member directory at `/members`: searchable list/card views with server-side cursor paging, admin delete confirmation, selection-based CSV export (3a — shipped), and a 4-step add/edit wizard sheet (3b — create shipped, edit remaining).
 
 ## Scope split (executed, then re-split for 3b)
 
@@ -10,7 +10,7 @@ The largest card, split across PRs (see README §2):
 
 - **3a — list view** — **SHIPPED**: PR #42 (`83b05fa`), then relocated into the module by the ADR-0022 folder refactor PR #43 (`4de4502`). Toolbar (search + view toggle), table + card grid, cursor load-more, admin selection + bulk bar with Export CSV, delete confirmation, all four list states, responsive, component tests. The admin จัดการ column renders **delete only**; the edit action arrives with 3b-edit.
 - **3b — add/edit wizard, re-split into two PRs** after the mockup v2 resync:
-	- **3b-create** (branch `feature/ui-03b-create-member`): the admin-only เพิ่มสมาชิก button + the full v2 wizard shell + the create flow end-to-end incl. file uploads. **Not blocked by anything** — `POST /api/v1/members` takes the full 13-digit `id_card_no`.
+	- **3b-create** (branch `feature/ui-03b-create-member`) — **SHIPPED**: PR #45 (`389b41e`). The admin-only เพิ่มสมาชิก button + the full v2 wizard shell + the create flow end-to-end incl. file uploads. Follow-ups folded into the same PR during review: the 500ms submit-arming window (footer ถัดไป→ยืนยัน same-coordinate swap guard), client VARCHAR guards (`DB_MAX_LENGTHS`), live-contact uniqueness (partial unique indexes + `FindLiveContactConflicts` 409 pre-checks in create AND update, self-excluding), id-card + phone input masks, searchable Comboboxes on all six dropdowns, backward-only step rail in create mode, and document-upload image previews (local FileReader `data:` URLs).
 	- **3b-edit** (branch `feature/ui-03b-edit-member` off main after 3b-create merges; **PR closes #41**): the จัดการ edit action, pre-fill from `GET [id]`, presigned previews + the CSP origin addition, and the `id_card_no` null-sticky PATCH prerequisite (README §8 item 9) — an **edit-side gap only**: `GET [id]` returns the Masked ID Card, so without null-stickiness every edit would force re-typing the full ID number. Creation is unaffected, which is why 3b-create ships first without it.
 
 **Dropped from the card** (README §8 item 8): the mockup's bulk status buttons (ปรับเป็นยังไม่ได้ต่ออายุ / ปรับเป็นปกติ) — still drawn in mockup v2, still dropped. The v1 wizard's Tab-2 status toggle is **gone in v2**: add mode renders disabled "ระบบจะระบุอัตโนมัติ/คำนวณอัตโนมัติ" fields, edit mode a read-only display with the lock note "ข้อมูลการต่ออายุและสถานะจัดการผ่านหน้า 'ต่ออายุสมาชิก' เท่านั้น" — v2 now agrees with the API (`PATCH` has no `status` field and never will; Member Status is owned by the renewal flow, card 04). The bulk bar therefore carries only the selection count and Export CSV.
@@ -31,7 +31,7 @@ The largest card, split across PRs (see README §2):
 - `PATCH /api/v1/members/[id]` — admin. Hybrid null-sticky update (ADR-0012) — **has no `status` field and never will** (README §8 item 8); **3b-edit prerequisite:** extend null-sticky to `id_card_no` (README §8 item 9). Edit-side only — `POST` already takes the full 13-digit number.
 - `DELETE /api/v1/members/[id]` — admin. Cascade soft-delete, idempotent 204 (ADR-0013).
 - `POST /api/v1/members/file/upload` — public multipart. Field names (exactly six; the wizard uses five — `payment_slip` belongs to the renewal flow): `id_card_image`, `company_certificate`, `profile_avatar`, `business_logo`, `business_product`, `payment_slip` — `src/modules/members/member-file.constants.ts` (7MB max, `.jpg/.jpeg/.png/.webp`) (**3b-create**).
-- `GET /api/v1/members/file/presign` — **admin**. Re-mints a temporary (1-hour) view URL for a private file path when a URL resolved by `GET [id]` has expired (**3b-edit**).
+- `GET /api/v1/members/file/presign` — **DEPRECATED in Apidog (2026-09-09) — do not implement.** Previews ride the 1-hour presigned URLs `GET [id]` already resolves server-side; an expired URL recovers by refetching the detail (**3b-edit**). The in-repo OpenAPI copy still lists the endpoint until the next Apidog re-export — ignore it there.
 - `GET /api/v1/business/categories` — public, returns `{ id, name }[]`. Feeds the category select (**3b-create**; edit pre-selects by `category_id` from `GET [id]` in 3b-edit). The mockup's 14 numbered label strings are vocabulary only — the select is fed live by this endpoint (README §8 item 10).
 
 ## UI structure (from mockup v2)
@@ -105,7 +105,7 @@ Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~lines 496–1238
 
 - Prereq: `id_card_no` null-sticky PATCH (README §8 item 9) — schema, service, tests, OpenAPI + Apidog re-export. Edit-side only; 3b-create already shipped without it because `POST` takes the full 13-digit number.
 - จัดการ edit action (table + card hover) opens the wizard pre-filled from `GET [id]`: Masked ID Card → leave blank + "ปล่อยว่างเพื่อคงค่าเดิม" helper once null-sticky lands; `business.location` arrives `[long, lat]` — swap for the two inputs, write back `[lat, long]`; renewal block read-only per v2.
-- Existing-file previews: private files (`company_certificate`, `id_card_image`) arrive as 1-hour presigned URLs; re-mint via `GET /api/v1/members/file/presign` when expired. CSP: presigned previews come from the R2 S3 endpoint host (`https://<account>.r2.cloudflarestorage.com`), NOT `R2_PUBLIC_BASE_URL` — add that origin to `img-src` in `next.config.ts` in this PR, or previews will be `(blocked:csp)` the same way avatars were.
+- Existing-file previews: private files (`company_certificate`, `id_card_image`) arrive as 1-hour presigned URLs resolved by `GET [id]`; when one expires (the image fails to load), refetch `GET [id]` — the response carries freshly minted URLs (the standalone presign endpoint is deprecated; do not build it). CSP: presigned previews come from the R2 S3 endpoint host (`https://<account>.r2.cloudflarestorage.com`), NOT `R2_PUBLIC_BASE_URL` — add that origin to `img-src` in `next.config.ts` in this PR, or previews will be `(blocked:csp)` the same way avatars were.
 - Unchanged files ride the PATCH as JSON null (ADR-0012 five file-path fields); edit mode keeps free step navigation, no draft, dirty-guard still applies.
 
 ## Out of scope
@@ -123,72 +123,114 @@ Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~lines 496–1238
 - [x] Admin-only UI (checkbox column, จัดการ, bulk bar, status badges) hidden when logged out.
 - [x] All four list states reachable; `bun run lint` + `bun run test` green.
 
-### 3b-create (next PR — `feature/ui-03b-create-member`)
+### 3b-create (SHIPPED — PR #45, `389b41e`)
 
-- [ ] Admin-only เพิ่มสมาชิก opens the v2 wizard: sheet, step rail with locked-forward create navigation, mobile ขั้นตอน X/4 progress, review step with แก้ไข jump-backs.
-- [ ] Per-field blur + step validation with Thai messages; the six API-required fields enforced; error summary + `aria-invalid`/`role="alert"` wiring.
-- [ ] Uploads-first: five file fields upload then attach paths; client size/extension checks mirror `member-file.constants.ts`.
-- [ ] Draft lifecycle per the Member Form Draft term (autosave, restore banner + เริ่มกรอกใหม่, clear on submit/discard; create mode only); dirty-guard close confirm + Escape + focus trap.
-- [ ] Submit → `POST /api/v1/members`; success dialog (ลงทะเบียนสมาชิกเรียบร้อย + เพิ่มสมาชิกอีกคน); list refreshes; server 400/409 surface as form errors.
-- [ ] Restricted-position client warning (code→cardinality map) + server 409 as a form error.
-- [ ] Category select live from `GET /business/categories`.
-- [ ] `bun run lint` + `bun run test` green; wizard component tests (validation gating, draft lifecycle, dirty guard).
+- [x] Admin-only เพิ่มสมาชิก opens the v2 wizard: sheet, step rail with locked-forward create navigation, mobile ขั้นตอน X/4 progress, review step with แก้ไข jump-backs.
+- [x] Per-field blur + step validation with Thai messages; the six API-required fields enforced; error summary + `aria-invalid`/`role="alert"` wiring.
+- [x] Uploads-first: five file fields upload then attach paths; client size/extension checks mirror `member-file.constants.ts`.
+- [x] Draft lifecycle per the Member Form Draft term (autosave, restore banner + เริ่มกรอกใหม่, clear on submit/discard; create mode only); dirty-guard close confirm + Escape + focus trap.
+- [x] Submit → `POST /api/v1/members`; success dialog (ลงทะเบียนสมาชิกเรียบร้อย + เพิ่มสมาชิกอีกคน); list refreshes; server 400/409 surface as form errors.
+- [x] Restricted-position client warning (code→cardinality map) + server 409 as a form error.
+- [x] Category select live from `GET /business/categories`.
+- [x] `bun run lint` + `bun run test` green; wizard component tests (validation gating, draft lifecycle, dirty guard).
 
 ### 3b-edit (final PR — `feature/ui-03b-edit-member`; **closes #41**)
 
 - [ ] `id_card_no` null-sticky PATCH landed (schema, service, tests, OpenAPI + Apidog re-export).
 - [ ] จัดการ edit action (table + card) opens the wizard pre-filled from `GET [id]`; masked ID → blank + "ปล่อยว่างเพื่อคงค่าเดิม".
-- [ ] Presigned previews for private files + re-mint on expiry via `GET /file/presign`; CSP `img-src` += `https://<account>.r2.cloudflarestorage.com`.
+- [ ] Presigned previews for private files from `GET [id]`'s resolved URLs; expired URLs recover via a detail refetch; CSP `img-src` += `https://<account>.r2.cloudflarestorage.com`.
 - [ ] Edit mode: free step navigation, no draft, dirty-guard applies, renewal block read-only with the lock note.
 - [ ] PATCH round-trip: unchanged files sent as JSON null (ADR-0012); success dialog บันทึกการแก้ไขเรียบร้อย; list refreshes.
 
 ## AI implementation prompt
 
-The 3a prompt has served its purpose (shipped). The card now carries the prompt for the next unit — 3b-create. The 3b-edit prompt gets authored into this card when 3b-create merges (same one-unit-ahead pattern).
+The 3a and 3b-create prompts have served their purpose (shipped). The card now carries the prompt for the final unit — 3b-edit.
 
 ```text
-Implement UI-03b-create (Member creation wizard) in this repo. UI-03b-edit
-(edit action, GET [id] pre-fill, presigned previews, CSP change) is a
-separate later session — do NOT build any of it. The id_card_no null-sticky
-PATCH extension is NOT needed here: POST /api/v1/members takes the full
-13-digit number.
+Implement UI-03b-edit (member edit flow) in this repo — the final UI-03
+unit; this is the PR that closes #41. The create wizard already shipped
+(PR #45): you are EXTENDING it with an edit mode, not rebuilding it.
+Unit 1 is backend, everything after is the edit UI on top.
 
 Read first, in order:
 1. AGENTS.md, then CONTEXT.md (terms: Member File, Member File Field,
-   Position, Status Badge, Member Form Draft).
-2. The card: docs/ui-conversion/cards/03-members.md — esp. "Scope split"
-   and "Wizard" under "UI structure".
-3. Mockup v2: ui-mockup/YEC-Lamphun.html, MemberSystem component
-   (~lines 496–1238) — structural reference only, never pixel-perfect.
-   Where mockup and API disagree, the API wins (README §8 item 10).
-4. ADR-0022 (modules own their frontend): wizard components in
-   src/modules/members/components/, hooks in src/modules/members/hooks/,
-   client valibot schemas in src/modules/members/schemas/. Components and
-   hooks must not import the module's repository/use-case/domain layers —
-   type-only imports excepted.
-5. API: docs/openapi/api-yec-lamphun-backoffice-web.openapi.json, then
-   src/app/api/v1/members/schema.ts (CreateMemberSchema — field-for-field,
-   incl. required-ness), src/app/api/v1/members/file/upload/route.ts +
-   src/modules/members/member-file.constants.ts (multipart field names,
-   7MB, image extensions), and the business-categories route feeding the
-   select.
-6. Existing list code to extend: src/modules/members/components/
-   members-view.tsx (toolbar — the เพิ่มสมาชิก button lands here),
-   member-labels.ts (position/status/shirt-size label maps),
-   src/modules/members/hooks/use-members.ts.
-7. src/modules/members/domain/position-conflict-policy.ts — restricted
-   positions; the client ships its own code→cardinality map.
-8. ADR-0012 (null-sticky files), ADR-0002 (two buckets). README §8 items
-   7–10.
+   Masked ID Card, Position, Status Badge, Member Form Draft, Step Rail).
+2. The card: docs/ui-conversion/cards/03-members.md — esp. "Scope split",
+   "Wizard" under "UI structure" (edit-mode rows), and §7 "Edit flow".
+3. Mockup v2: ui-mockup/YEC-Lamphun.html, MemberSystem wizard
+   (~lines 982–1235) — edit-mode presentation only (read-only renewal
+   block, free rail); never pixel-perfect. Where mockup and API disagree,
+   the API wins.
+4. ADRs: 0022 (modules own their frontend), 0021 (RHF + valibot — the
+   pattern the wizard already uses), 0012 (null-sticky PATCH — unit 1
+   extends it to id_card_no), 0002 (two buckets). README §8 items 8–10.
+5. API: docs/openapi/api-yec-lamphun-backoffice-web.openapi.json (note
+   GET /api/v1/members/file/presign is DEPRECATED in Apidog — do NOT
+   build it; the stale spec copy still lists it, ignore it there). Then
+   src/app/api/v1/members/schema.ts (PatchMemberSchema),
+   the GET [id] route + its response mapping (masked id_card_no, resolved
+   file URLs, business.location stored [long, lat] while the write
+   contract takes [lat, long]), and
+   src/modules/members/member-file-url.service.ts (the server-side
+   machinery that resolves private files to 1-hour presigned URLs).
+6. The shipped create wizard you are extending: src/modules/members/
+   components/member-wizard-dialog.tsx (+ its four step forms and
+   member-wizard-file-field.tsx), src/modules/members/schemas/
+   member-wizard-schema.ts + member-wizard-mapping.ts (the pre-fill seam:
+   MemberWizardFormValues mirrors the wire contract with { file,
+   existingUrl } file pairs; buildCreatePayload; formatIdCardNo;
+   formatPhoneNumber; DB_MAX_LENGTHS), hooks/use-create-member.ts
+   (uploads-first pattern) + hooks/use-members.ts, member-combobox-
+   select.tsx, member-labels.ts, and members-view/-table/-card-grid
+   (the จัดการ column the edit action joins).
+7. member-wizard-dialog.test.tsx — the jsdom recipes (combobox, radio,
+   pointer stubs, armAndSubmit) the edit-mode tests must extend.
+8. next.config.ts — CSP img-src derives from R2_PUBLIC_BASE_URL;
+   presigned previews come from the R2 S3 endpoint host
+   (https://<account>.r2.cloudflarestorage.com) and need that origin
+   added; verify with `curl -I` on the served header, never guess.
 
-Scope: the /members page's create flow only. In scope: admin-only
-เพิ่มสมาชิก button, the 4-step wizard sheet per the card (step rail,
-review step, blur validation + error summary, dirty-guard close confirm,
-draft autosave, success dialog), uploads-first create flow, client
-valibot schemas, component tests. Out of scope: edit action, GET [id]
-pre-fill, presigned previews, CSP changes, null-sticky work, bulk status
-(impossible — PATCH has no status field), any list-view redesign (v2
-changed none of it).
+Scope — unit 1 (backend, land first):
+- id_card_no null-sticky: PatchMemberSchema takes nullable id_card_no,
+  null (or absent) = keep the stored value; update-member service +
+  tests; OpenAPI re-export + the Apidog sync deliverable per repo
+  convention.
+
+Scope — the edit UI:
+- จัดการ edit action (table row + card hover) opens the wizard in edit
+  mode, pre-filled from GET [id] through the mapping seam.
+- Masked ID Card: NEVER write the masked value into form state — leave
+  the field blank with the helper "ปล่อยว่างเพื่อคงค่าเดิม"; blank
+  submits null → null-sticky keeps the stored number.
+- Files: existing files render as presigned previews resolved by
+  GET [id] (an expired URL recovers by refetching the detail — the
+  standalone presign endpoint is deprecated, never build it); a changed
+  file uploads first then attaches;
+  an UNCHANGED file rides the PATCH as JSON null (ADR-0012); a removal
+  follows the existing delete-path semantics.
+- Edit-mode shell per the card: free step navigation (rail unlocked),
+  no draft (never read/write localStorage), dirty-guard still applies,
+  renewal block read-only with the lock note, review step shows stored
+  values, success dialog บันทึกการแก้ไขเรียบร้อย, list refreshes.
+- Server 400/409 surface as form errors — the contact 409s (phone/
+  email/Line ID) already self-exclude the edited member server-side;
+  map them to the same Thai field errors create mode uses.
+
+Preserve — invariants from the 3b-create review (do not regress):
+- The 500ms submit-arming window on entering step 4 (footer ถัดไป→ยืนยัน
+  same-coordinate swap guard) — applies in edit mode too.
+- Create mode's rail stays backward-only (ถัดไป the only forward
+  navigation); only edit mode unlocks it.
+- Phone: the DASHED string (xxx-xxx-xxxx) is the stored value; legacy
+  DB rows are mixed digits/dashes, so pre-fill must tolerate both
+  (formatPhoneNumber is idempotent) and submit keeps dashes.
+- id_card_no stays digits-only in form state with the display mask.
+- DB_MAX_LENGTHS maxLength attrs stay on every input.
+
+Out of scope: create-flow redesign (share the shell, don't restyle it),
+list-view changes, bulk status (impossible — PATCH has no status field),
+a member detail page, the renewal flow (card 04), any new backend
+endpoint at all (the deprecated presign route included).
 
 Constraints:
 - TanStack Query mutations via fetchJson; errors are { error_message }.
@@ -196,9 +238,16 @@ Constraints:
 - Thai copy per the card; label maps from member-labels.ts; no status
   writes anywhere in the wizard.
 
-Definition of done: the card's 3b-create acceptance criteria, plus
-`bun run lint` and `bun run test` passing. Walk the acceptance criteria
-one by one at the end.
+Workflow: branch feature/ui-03b-edit-member off main; commit per unit;
+run /scrutinize before the PR; push and open the PR — its description
+closes #41 (the only PR allowed to carry a closing keyword); never
+merge. Surface every question or suggestion to the user as a decision
+(options + recommendation) — never decide for them.
+
+Definition of done: the card's 3b-edit acceptance criteria walked one by
+one, plus `bun run lint` and `bun run test` passing. Verify the CSP
+change against the actually served header (curl -I) before claiming the
+preview criterion.
 ```
 
 ## References

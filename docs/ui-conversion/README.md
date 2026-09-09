@@ -20,7 +20,7 @@ Convert the client-approved mockup `ui-mockup/YEC-Lamphun.html` into production 
 | [UI-00](cards/00-app-shell-and-admin-session.md) | App shell, routing & admin session | 01–04 | Foundation. Do this first, in full. |
 | [UI-01](cards/01-dashboard.md) | Dashboard | — | Any time after 00. |
 | [UI-02](cards/02-org-chart.md) | Org chart | — | Any time after 00. |
-| [UI-03](cards/03-members.md) | Members | — | Before 04 (04 reuses its patterns). **Split executed, then re-split for 3b**: 3a list/card + delete + CSV — SHIPPED as PR #42 (`83b05fa`), relocated into the module by the ADR-0022 refactor PR #43 (`4de4502`); 3b-create wizard shell + create flow (branch `feature/ui-03b-create-member`); 3b-edit edit action + pre-fill + presigned previews (branch `feature/ui-03b-edit-member` off main after 3b-create merges; PR closes #41). |
+| [UI-03](cards/03-members.md) | Members | — | Before 04 (04 reuses its patterns). **Split executed, then re-split for 3b**: 3a list/card + delete + CSV — SHIPPED as PR #42 (`83b05fa`), relocated into the module by the ADR-0022 refactor PR #43 (`4de4502`); 3b-create wizard shell + create flow — SHIPPED as PR #45 (`389b41e`); 3b-edit edit action + pre-fill + presigned previews (branch `feature/ui-03b-edit-member` off main; PR closes #41). |
 | [UI-04](cards/04-membership-renewal.md) | Membership renewal | — | Last. Reuses autocomplete + upload patterns from 03. |
 
 ## 3. Per-card workflow (mockup → production → tested)
