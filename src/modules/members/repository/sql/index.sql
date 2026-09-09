@@ -42,3 +42,24 @@ CREATE INDEX IF NOT EXISTS idx_positions_parent_position_code
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_holder_president
     ON members (position_code)
     WHERE position_code = 'PRESIDENT' AND deleted_at IS NULL;
+
+-- ============================================================================
+-- Contact uniqueness among LIVE members only (PR #45, 2026-09)
+-- ----------------------------------------------------------------------------
+-- phone_no / email / line_id are unique per LIVE member; soft-deleting a
+-- member (deleted_at set) drops its rows from these partial indexes,
+-- releasing the values for a NEW member — a plain UNIQUE would block that
+-- forever. NULLs never conflict (unique indexes treat NULL as distinct), so
+-- the optional email / line_id columns need no special handling. The
+-- services pre-check via FindLiveContactConflicts → 409 DUPLICATE_PHONE_NO /
+-- DUPLICATE_EMAIL / DUPLICATE_LINE_ID (same technique as
+-- idx_one_pending_renewal_per_member and uniq_holder_president above).
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_members_phone_no_live
+    ON members(phone_no)
+    WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_members_email_live
+    ON members(email)
+    WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_members_line_id_live
+    ON members(line_id)
+    WHERE deleted_at IS NULL;

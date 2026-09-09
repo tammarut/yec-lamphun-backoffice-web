@@ -12,6 +12,14 @@ export interface IMemberRepository {
 	/** Count non-deleted members matching the id_card blind index. >0 = duplicate. */
 	countMemberByIdCardHash(idCardNoHash: string): Promise<Result<number, DatabaseError>>
 
+	/** Which contact columns (phone/email/line) another LIVE member already holds (partial unique indexes). */
+	findLiveContactConflicts(
+		phoneNo: string,
+		email: string | null,
+		lineId: string | null,
+		excludeMemberId: number | null
+	): Promise<Result<{ phoneNo: boolean; email: boolean; lineId: boolean }, DatabaseError>>
+
 	/** Fetch a position by code, including cardinality (for the conflict policy). */
 	getPositionByCode(code: string): Promise<Result<PositionReadModel | null, DatabaseError>>
 

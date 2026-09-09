@@ -47,6 +47,15 @@ function renderView(options: { sessionOk: boolean; listResponse: (url: string) =
 		return jsonResponse(404)
 	})
 	vi.stubGlobal("fetch", fetchMock)
+	// The wizard's Progress primitive needs ResizeObserver, which jsdom lacks.
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		}
+	)
 	// use-mobile resolves matchMedia against innerWidth in an effect; jsdom
 	// starts at 1024px, so a real listener is enough for both branches.
 	vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: options.mobile === true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
@@ -93,6 +102,23 @@ describe("MembersView", () => {
 			expect(await screen.findByRole("checkbox", { name: "เลือก นายสมชาย ใจดี" })).toBeTruthy()
 			expect(screen.getByText("ปกติ")).toBeTruthy()
 			expect(screen.getByRole("columnheader", { name: "จัดการ" })).toBeTruthy()
+		})
+
+		it("admin: เพิ่มสมาชิก opens the creation wizard", async () => {
+			renderView({ sessionOk: true, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			fireEvent.click(screen.getByRole("button", { name: "เพิ่มสมาชิก" }))
+
+			expect(await screen.findByText("ลงทะเบียนสมาชิกใหม่")).toBeTruthy()
+			expect(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })).toBeTruthy()
+		})
+
+		it("public: no เพิ่มสมาชิก button", async () => {
+			renderView({ sessionOk: false, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			expect(screen.queryByRole("button", { name: "เพิ่มสมาชิก" })).toBeNull()
 		})
 
 		it("admin: selecting rows reveals the bulk bar, and delete removes the row after invalidation", async () => {

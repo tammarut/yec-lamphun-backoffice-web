@@ -681,3 +681,44 @@ export async function getExecutiveCommitteeMembers(sql: Sql): Promise<GetExecuti
 		businessName: row[7],
 	}))
 }
+
+export const findLiveContactConflictsQuery = `-- name: FindLiveContactConflicts :one
+SELECT
+    EXISTS (SELECT 1 FROM members m
+            WHERE m.deleted_at IS NULL AND m.phone_no = $1
+              AND ($2::BIGINT IS NULL OR m.id <> $2::BIGINT)) AS phone_no_conflict,
+    EXISTS (SELECT 1 FROM members m
+            WHERE m.deleted_at IS NULL AND m.email = $3
+              AND ($2::BIGINT IS NULL OR m.id <> $2::BIGINT)) AS email_conflict,
+    EXISTS (SELECT 1 FROM members m
+            WHERE m.deleted_at IS NULL AND m.line_id = $4
+              AND ($2::BIGINT IS NULL OR m.id <> $2::BIGINT)) AS line_id_conflict`
+
+export interface FindLiveContactConflictsArgs {
+	phoneNo: string
+	excludeMemberId: string | null
+	email: string | null
+	lineId: string | null
+}
+
+export interface FindLiveContactConflictsRow {
+	phoneNoConflict: boolean
+	emailConflict: boolean
+	lineIdConflict: boolean
+}
+
+export async function findLiveContactConflicts(sql: Sql, args: FindLiveContactConflictsArgs): Promise<FindLiveContactConflictsRow | null> {
+	const rows = await sql.unsafe(findLiveContactConflictsQuery, [args.phoneNo, args.excludeMemberId, args.email, args.lineId]).values()
+	if (rows.length !== 1) {
+		return null
+	}
+	const row = rows[0]
+	if (row === undefined) {
+		return null
+	}
+	return {
+		phoneNoConflict: row[0],
+		emailConflict: row[1],
+		lineIdConflict: row[2],
+	}
+}

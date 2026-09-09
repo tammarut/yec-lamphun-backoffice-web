@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Download02Icon, Grid02Icon, Menu01Icon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
+import { Download02Icon, Grid02Icon, Menu01Icon, PlusSignIcon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 
 import { BulkActionsBar } from "src/modules/members/components/bulk-actions-bar"
 import { DeleteMemberDialog } from "src/modules/members/components/delete-member-dialog"
+import { MemberWizardDialog } from "src/modules/members/components/member-wizard-dialog"
 import { MembersCardGrid } from "src/modules/members/components/members-card-grid"
 import { MembersTable } from "src/modules/members/components/members-table"
 import { downloadMembersCsv } from "src/modules/members/components/export-members-csv"
@@ -35,6 +36,7 @@ export function MembersView() {
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 	const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(new Set())
 	const [deleteTarget, setDeleteTarget] = useState<MemberListItem | null>(null)
+	const [wizardOpen, setWizardOpen] = useState(false)
 
 	// The view is DERIVED: the user's explicit pick wins; otherwise follow the
 	// breakpoint (card under 768px, table above). Deriving — rather than copying
@@ -109,7 +111,7 @@ export function MembersView() {
 
 	return (
 		<div data-slot="members-view" className="space-y-6">
-			{/* Toolbar: heading + search + view toggle (เพิ่มสมาชิก lands with the 3b wizard) */}
+			{/* Toolbar: heading + search + view toggle + admin create/export */}
 			<div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
 				<h1 className="text-2xl font-bold">รายชื่อสมาชิก</h1>
 				<div className="flex w-full gap-3 md:w-auto">
@@ -145,6 +147,12 @@ export function MembersView() {
 							<HugeiconsIcon icon={Grid02Icon} className="size-4" />
 						</Button>
 					</div>
+					{isAdmin && (
+						<Button data-slot="add-member" onClick={() => setWizardOpen(true)}>
+							<HugeiconsIcon icon={PlusSignIcon} className="size-4" />
+							<span className="hidden sm:inline">เพิ่มสมาชิก</span>
+						</Button>
+					)}
 					{isAdmin && (
 						<Button variant="outline" disabled={isLoading || members.length === 0} onClick={handleExport} data-slot="export-csv">
 							<HugeiconsIcon icon={Download02Icon} className="size-4" />
@@ -219,6 +227,8 @@ export function MembersView() {
 				}}
 				onConfirm={handleConfirmDelete}
 			/>
+
+			{isAdmin && <MemberWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />}
 		</div>
 	)
 }

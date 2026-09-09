@@ -297,3 +297,21 @@ WHERE m.deleted_at IS NULL
   AND m.status IN ('ACTIVE', 'PENDING_RENEWAL', 'EXPIRED')
   AND m.position_code != 'GENERAL_MEMBER'
 ORDER BY p.display_order ASC, m.id ASC;
+
+-- name: FindLiveContactConflicts :one
+-- Which contact columns (phone_no / email / line_id) are already taken by
+-- another LIVE member. NULL values never conflict (SQL equality with NULL).
+-- exclude_member_id NULL = create flow (no self to exclude); a value = update
+-- flow, excluding the member being edited from their own unchanged contacts.
+-- Backs the partial unique indexes uniq_members_phone_no_live / _email_live /
+-- _line_id_live (unique among deleted_at IS NULL rows only).
+SELECT
+    EXISTS (SELECT 1 FROM members m
+            WHERE m.deleted_at IS NULL AND m.phone_no = @phone_no
+              AND (sqlc.narg('exclude_member_id')::BIGINT IS NULL OR m.id <> sqlc.narg('exclude_member_id')::BIGINT)) AS phone_no_conflict,
+    EXISTS (SELECT 1 FROM members m
+            WHERE m.deleted_at IS NULL AND m.email = @email
+              AND (sqlc.narg('exclude_member_id')::BIGINT IS NULL OR m.id <> sqlc.narg('exclude_member_id')::BIGINT)) AS email_conflict,
+    EXISTS (SELECT 1 FROM members m
+            WHERE m.deleted_at IS NULL AND m.line_id = @line_id
+              AND (sqlc.narg('exclude_member_id')::BIGINT IS NULL OR m.id <> sqlc.narg('exclude_member_id')::BIGINT)) AS line_id_conflict;

@@ -36,6 +36,7 @@ describe("CreateNewMemberService", () => {
 		)
 		mockRepo.countMemberByIdCardHash.mockResolvedValue(ok(0))
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
+		mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: false, lineId: false }))
 		mockRepo.create.mockResolvedValue(ok(102))
 
 		service = new CreateNewMemberService(mockRepo, mockEncryption, mockBlindIndex)
@@ -162,6 +163,24 @@ describe("CreateNewMemberService", () => {
 			const error = result._unsafeUnwrapErr() as MemberConflictError
 			expect(error).toBeInstanceOf(MemberConflictError)
 			expect(error.reason).toBe("DUPLICATE_ID_CARD")
+		})
+
+		test("returns DUPLICATE_PHONE_NO / DUPLICATE_EMAIL / DUPLICATE_LINE_ID conflicts per live-contact match", async () => {
+			const cases: [{ phoneNo: boolean; email: boolean; lineId: boolean }, string][] = [
+				[{ phoneNo: true, email: false, lineId: false }, "DUPLICATE_PHONE_NO"],
+				[{ phoneNo: false, email: true, lineId: false }, "DUPLICATE_EMAIL"],
+				[{ phoneNo: false, email: false, lineId: true }, "DUPLICATE_LINE_ID"],
+			]
+			for (const [conflicts, expectedReason] of cases) {
+				mockRepo.findLiveContactConflicts.mockResolvedValue(ok(conflicts))
+
+				const result = await service.execute(makeRequest())
+
+				const error = result._unsafeUnwrapErr() as MemberConflictError
+				expect(error).toBeInstanceOf(MemberConflictError)
+				expect(error.reason).toBe(expectedReason)
+				expect(mockRepo.findLiveContactConflicts).toHaveBeenCalledWith(expect.any(String), expect.anything(), expect.anything(), null)
+			}
 		})
 
 		test("returns DatabaseError when repository.create fails", async () => {

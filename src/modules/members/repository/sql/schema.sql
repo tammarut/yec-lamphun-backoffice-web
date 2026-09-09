@@ -52,9 +52,15 @@ CREATE TABLE members (
     member_since TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     profile_avatar TEXT,
-    phone_no VARCHAR(30) UNIQUE NOT NULL,
-    email VARCHAR(255) UNIQUE,
-    line_id VARCHAR(100) UNIQUE,
+    -- Contact fields are unique among LIVE members only — enforced by the
+    -- partial unique indexes below (a plain UNIQUE would hold the value
+    -- hostage after a soft-delete, blocking re-registration). Soft-deleting a
+    -- member drops its rows from the partial indexes, releasing the values.
+    -- The services pre-check via FindLiveContactConflicts → 409
+    -- DUPLICATE_PHONE_NO / DUPLICATE_EMAIL / DUPLICATE_LINE_ID (2026-09, PR #45).
+    phone_no VARCHAR(30) NOT NULL,
+    email VARCHAR(255),
+    line_id VARCHAR(100),
     shirt_size VARCHAR(10),
     -- Position (FK to positions; hierarchy is DERIVED, NOT stored on members)
     position_code VARCHAR(30) NOT NULL REFERENCES positions (code) ON DELETE RESTRICT,
