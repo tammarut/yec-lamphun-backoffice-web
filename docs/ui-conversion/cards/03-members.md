@@ -2,7 +2,7 @@
 
 ## Goal
 
-The member directory at `/members`: searchable list/card views with server-side cursor paging, admin delete confirmation, selection-based CSV export (3a — shipped), and a 4-step add/edit wizard sheet (3b — split into a create PR then an edit PR).
+The member directory at `/members`: searchable list/card views with server-side cursor paging, admin delete confirmation, selection-based CSV export (3a — shipped), and a 4-step add/edit wizard sheet (3b — create shipped, edit remaining).
 
 ## Scope split (executed, then re-split for 3b)
 
@@ -10,7 +10,7 @@ The largest card, split across PRs (see README §2):
 
 - **3a — list view** — **SHIPPED**: PR #42 (`83b05fa`), then relocated into the module by the ADR-0022 folder refactor PR #43 (`4de4502`). Toolbar (search + view toggle), table + card grid, cursor load-more, admin selection + bulk bar with Export CSV, delete confirmation, all four list states, responsive, component tests. The admin จัดการ column renders **delete only**; the edit action arrives with 3b-edit.
 - **3b — add/edit wizard, re-split into two PRs** after the mockup v2 resync:
-	- **3b-create** (branch `feature/ui-03b-create-member`): the admin-only เพิ่มสมาชิก button + the full v2 wizard shell + the create flow end-to-end incl. file uploads. **Not blocked by anything** — `POST /api/v1/members` takes the full 13-digit `id_card_no`.
+	- **3b-create** (branch `feature/ui-03b-create-member`) — **SHIPPED**: PR #45 (`389b41e`). The admin-only เพิ่มสมาชิก button + the full v2 wizard shell + the create flow end-to-end incl. file uploads. Follow-ups folded into the same PR during review: the 500ms submit-arming window (footer ถัดไป→ยืนยัน same-coordinate swap guard), client VARCHAR guards (`DB_MAX_LENGTHS`), live-contact uniqueness (partial unique indexes + `FindLiveContactConflicts` 409 pre-checks in create AND update, self-excluding), id-card + phone input masks, searchable Comboboxes on all six dropdowns, backward-only step rail in create mode, and document-upload image previews (local FileReader `data:` URLs).
 	- **3b-edit** (branch `feature/ui-03b-edit-member` off main after 3b-create merges; **PR closes #41**): the จัดการ edit action, pre-fill from `GET [id]`, presigned previews + the CSP origin addition, and the `id_card_no` null-sticky PATCH prerequisite (README §8 item 9) — an **edit-side gap only**: `GET [id]` returns the Masked ID Card, so without null-stickiness every edit would force re-typing the full ID number. Creation is unaffected, which is why 3b-create ships first without it.
 
 **Dropped from the card** (README §8 item 8): the mockup's bulk status buttons (ปรับเป็นยังไม่ได้ต่ออายุ / ปรับเป็นปกติ) — still drawn in mockup v2, still dropped. The v1 wizard's Tab-2 status toggle is **gone in v2**: add mode renders disabled "ระบบจะระบุอัตโนมัติ/คำนวณอัตโนมัติ" fields, edit mode a read-only display with the lock note "ข้อมูลการต่ออายุและสถานะจัดการผ่านหน้า 'ต่ออายุสมาชิก' เท่านั้น" — v2 now agrees with the API (`PATCH` has no `status` field and never will; Member Status is owned by the renewal flow, card 04). The bulk bar therefore carries only the selection count and Export CSV.
@@ -123,16 +123,16 @@ Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~lines 496–1238
 - [x] Admin-only UI (checkbox column, จัดการ, bulk bar, status badges) hidden when logged out.
 - [x] All four list states reachable; `bun run lint` + `bun run test` green.
 
-### 3b-create (next PR — `feature/ui-03b-create-member`)
+### 3b-create (SHIPPED — PR #45, `389b41e`)
 
-- [ ] Admin-only เพิ่มสมาชิก opens the v2 wizard: sheet, step rail with locked-forward create navigation, mobile ขั้นตอน X/4 progress, review step with แก้ไข jump-backs.
-- [ ] Per-field blur + step validation with Thai messages; the six API-required fields enforced; error summary + `aria-invalid`/`role="alert"` wiring.
-- [ ] Uploads-first: five file fields upload then attach paths; client size/extension checks mirror `member-file.constants.ts`.
-- [ ] Draft lifecycle per the Member Form Draft term (autosave, restore banner + เริ่มกรอกใหม่, clear on submit/discard; create mode only); dirty-guard close confirm + Escape + focus trap.
-- [ ] Submit → `POST /api/v1/members`; success dialog (ลงทะเบียนสมาชิกเรียบร้อย + เพิ่มสมาชิกอีกคน); list refreshes; server 400/409 surface as form errors.
-- [ ] Restricted-position client warning (code→cardinality map) + server 409 as a form error.
-- [ ] Category select live from `GET /business/categories`.
-- [ ] `bun run lint` + `bun run test` green; wizard component tests (validation gating, draft lifecycle, dirty guard).
+- [x] Admin-only เพิ่มสมาชิก opens the v2 wizard: sheet, step rail with locked-forward create navigation, mobile ขั้นตอน X/4 progress, review step with แก้ไข jump-backs.
+- [x] Per-field blur + step validation with Thai messages; the six API-required fields enforced; error summary + `aria-invalid`/`role="alert"` wiring.
+- [x] Uploads-first: five file fields upload then attach paths; client size/extension checks mirror `member-file.constants.ts`.
+- [x] Draft lifecycle per the Member Form Draft term (autosave, restore banner + เริ่มกรอกใหม่, clear on submit/discard; create mode only); dirty-guard close confirm + Escape + focus trap.
+- [x] Submit → `POST /api/v1/members`; success dialog (ลงทะเบียนสมาชิกเรียบร้อย + เพิ่มสมาชิกอีกคน); list refreshes; server 400/409 surface as form errors.
+- [x] Restricted-position client warning (code→cardinality map) + server 409 as a form error.
+- [x] Category select live from `GET /business/categories`.
+- [x] `bun run lint` + `bun run test` green; wizard component tests (validation gating, draft lifecycle, dirty guard).
 
 ### 3b-edit (final PR — `feature/ui-03b-edit-member`; **closes #41**)
 
