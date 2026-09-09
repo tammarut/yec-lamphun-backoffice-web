@@ -141,7 +141,7 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 
 			<FieldSet>
 				<div className="grid gap-4 sm:grid-cols-4">
-					<SelectField name="gender" label="เพศ" values={GENDERS} labelOf={(v) => GENDER_LABELS[v] ?? v} disabled={disabled} />
+					<SelectField name="gender" label="เพศ" required values={GENDERS} labelOf={(v) => GENDER_LABELS[v] ?? v} disabled={disabled} />
 					<Field data-invalid={formState.errors.date_of_birth ? true : undefined}>
 						<FieldLabel htmlFor="wizard-date_of_birth">
 							วันเดือนปีเกิด<span className="text-destructive">*</span>
@@ -163,7 +163,9 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 				</div>
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Field data-invalid={formState.errors.id_card_no ? true : undefined}>
-						<FieldLabel htmlFor="wizard-id_card_no">เลขบัตรประชาชน (13 หลัก)</FieldLabel>
+						<FieldLabel htmlFor="wizard-id_card_no">
+							เลขบัตรประชาชน (13 หลัก)<span className="text-destructive">*</span>
+						</FieldLabel>
 						<Controller
 							control={control}
 							name="id_card_no"

@@ -203,6 +203,8 @@ describe("MemberWizardDialog", () => {
 			renderWizard()
 			await goToStep2()
 
+			// Required by the API — the label carries the red asterisk.
+			expect(screen.getByLabelText("เลขบัตรประชาชน (13 หลัก)*")).toBeTruthy()
 			const idInput = screen.getByPlaceholderText("x-xxxx-xxxxx-xx-x")
 			fireEvent.change(idInput, { target: { value: "1234567890123" } })
 			expect((idInput as HTMLInputElement).value).toBe("1-2345-67890-12-3")
