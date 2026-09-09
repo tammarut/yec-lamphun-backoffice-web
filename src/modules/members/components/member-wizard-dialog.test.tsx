@@ -260,6 +260,8 @@ describe("MemberWizardDialog", () => {
 			expect(screen.queryByText("1234567890123")).toBeNull()
 			expect(screen.getByText("อุตสาหกรรมการผลิต")).toBeTruthy()
 			expect(screen.getByText("avatar.png")).toBeTruthy()
+			// The review's file rows render live data:-URL thumbnails.
+			await waitFor(() => expect(document.querySelectorAll('img[src^="data:"]').length).toBeGreaterThan(0))
 			expect(screen.getByText("ระบบจะคำนวณอัตโนมัติ")).toBeTruthy()
 			expect(screen.getByText("ระบบจะระบุอัตโนมัติ")).toBeTruthy()
 
@@ -416,6 +418,38 @@ describe("MemberWizardDialog", () => {
 			// Same copy renders as the field helper AND the field error.
 			expect(screen.getAllByText("นิติบุคคลต้องแนบหนังสือรับรองบริษัท").length).toBeGreaterThan(0)
 			expect(screen.getByText("ข้อมูลส่วนตัว").closest("button")?.disabled).toBe(true)
+		})
+
+		it("picking a document file shows the selected-state preview card with เปลี่ยนไฟล์ / ลบไฟล์", async () => {
+			renderWizard()
+			await screen.findByText("ลงทะเบียนสมาชิกใหม่")
+
+			const idCardInput = document.querySelectorAll('input[type="file"]')[1] as HTMLInputElement
+			fireEvent.change(idCardInput, { target: { files: [new File(["id"], "id-card.jpg", { type: "image/jpeg" })] } })
+
+			expect(await screen.findByText("id-card.jpg")).toBeTruthy()
+			expect(screen.getByRole("button", { name: "เปลี่ยนไฟล์" })).toBeTruthy()
+			expect(screen.getByRole("button", { name: "ลบไฟล์" })).toBeTruthy()
+			await waitFor(() => expect(document.querySelector('img[src^="data:"]')).not.toBeNull())
+
+			// ลบไฟล์ clears back to the empty dashed box (both step-1 boxes empty).
+			fireEvent.click(screen.getByRole("button", { name: "ลบไฟล์" }))
+			await waitFor(() => expect(screen.queryByText("id-card.jpg")).toBeNull())
+			expect(await screen.findAllByText(/คลิกเพื่อแนบไฟล์รูปภาพ/)).toHaveLength(2)
+		})
+
+		it("removing the company certificate re-arms the juristic requirement", async () => {
+			renderWizard()
+			await screen.findByText("ลงทะเบียนสมาชิกใหม่")
+
+			fireEvent.click(screen.getByRole("radio", { name: /นิติบุคคล/ }))
+			const certInput = document.querySelectorAll('input[type="file"]')[0] as HTMLInputElement
+			fireEvent.change(certInput, { target: { files: [new File(["cert"], "cert.png", { type: "image/png" })] } })
+			expect(await screen.findByText("cert.png")).toBeTruthy()
+
+			fireEvent.click(screen.getByRole("button", { name: "ลบไฟล์" }))
+
+			expect(await screen.findByText("นิติบุคคลต้องแนบหนังสือรับรองบริษัท")).toBeTruthy()
 		})
 
 		it("rejects an oversized file client-side at selection (no upload)", async () => {

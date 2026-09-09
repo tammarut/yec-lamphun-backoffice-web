@@ -5,6 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useFormContext } from "react-hook-form"
 
 import { Button } from "src/shared/components/ui/button"
+import { MemberFileThumb } from "src/modules/members/components/member-wizard-file-field"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "src/shared/components/ui/card"
 import { GENDER_LABELS, POSITION_LABELS, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
 import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
@@ -19,6 +20,16 @@ function ReviewRow({ label, value }: { label: string; value: React.ReactNode }) 
 			<dt className="text-muted-foreground text-sm">{label}</dt>
 			<dd className={cn("col-span-2 text-sm", empty && "text-muted-foreground italic")}>{empty ? "-" : value}</dd>
 		</div>
+	)
+}
+
+/** Thumbnail + filename for a staged Member File; ไม่ได้แนบ renders as plain text upstream. */
+function FileValue({ value }: { value: { file: File | null; existingUrl: string | null } }) {
+	return (
+		<span className="flex items-center gap-2">
+			<MemberFileThumb file={value.file} className="border-border size-10 rounded-md border" />
+			{memberFileLabel(value)}
+		</span>
 	)
 }
 
@@ -57,8 +68,8 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 
 			<ReviewSection title="ข้อมูลการสมัคร" step={1} onEdit={onEdit}>
 				<ReviewRow label="ประเภทการสมัคร" value={REGISTRATION_TYPE_LABELS[values.registration_type] ?? values.registration_type} />
-				<ReviewRow label="หนังสือรับรองบริษัท" value={memberFileLabel(values.company_certificate)} />
-				<ReviewRow label="สำเนาบัตรประชาชน" value={memberFileLabel(values.id_card_image)} />
+				<ReviewRow label="หนังสือรับรองบริษัท" value={values.company_certificate.file === null ? "" : <FileValue value={values.company_certificate} />} />
+				<ReviewRow label="สำเนาบัตรประชาชน" value={values.id_card_image.file === null ? "" : <FileValue value={values.id_card_image} />} />
 			</ReviewSection>
 
 			<ReviewSection title="ข้อมูลส่วนตัว" step={2} onEdit={onEdit}>
@@ -73,7 +84,7 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 				<ReviewRow label="เลขบัตรประชาชน" value={formatIdCardNo(values.id_card_no)} />
 				<ReviewRow label="วันหมดอายุบัตร" value={values.id_card_expiry_date} />
 				<ReviewRow label="สัญชาติ" value={values.nationality} />
-				<ReviewRow label="รูปโปรไฟล์" value={memberFileLabel(values.profile_avatar)} />
+				<ReviewRow label="รูปโปรไฟล์" value={values.profile_avatar.file === null ? "" : <FileValue value={values.profile_avatar} />} />
 				<ReviewRow label="เบอร์โทรศัพท์" value={values.phone_no} />
 				<ReviewRow label="อีเมล" value={values.email} />
 				<ReviewRow label="Line ID" value={values.line_id} />
@@ -95,8 +106,8 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 				<ReviewRow label="รายละเอียดกิจการ" value={values.business.description} />
 				<ReviewRow label="ผลิตภัณฑ์/บริการหลัก" value={values.business.core_business} />
 				<ReviewRow label="Website" value={values.business.website} />
-				<ReviewRow label="โลโก้" value={memberFileLabel(values.business.logo)} />
-				<ReviewRow label="รูปผลิตภัณฑ์" value={memberFileLabel(values.business.product)} />
+				<ReviewRow label="โลโก้" value={values.business.logo.file === null ? "" : <FileValue value={values.business.logo} />} />
+				<ReviewRow label="รูปผลิตภัณฑ์" value={values.business.product.file === null ? "" : <FileValue value={values.business.product} />} />
 			</ReviewSection>
 		</div>
 	)

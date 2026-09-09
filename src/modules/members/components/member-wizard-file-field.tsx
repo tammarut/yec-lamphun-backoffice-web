@@ -5,7 +5,6 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useId, useRef, useState } from "react"
 import { useFormContext, useWatch } from "react-hook-form"
 
-import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
 import { Button } from "src/shared/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "src/shared/components/ui/field"
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES } from "src/modules/members/member-file.constants"
@@ -24,6 +23,40 @@ export function validateMemberFile(file: File): string | null {
 	return null
 }
 
+/**
+ * A picked-file preview thumbnail: derives its own CSP-safe `data:` URL from
+ * the staged File (blob: is not allowed by the CSP and no CSP change is in
+ * scope). The URL never enters form state, so drafts stay small and the wire
+ * payload stays untouched; re-derives on remount (stepping away and back).
+ */
+export function MemberFileThumb({ file, className }: { file: File | null; className?: string }) {
+	const [url, setUrl] = useState<string | null>(null)
+	useEffect(() => {
+		if (file === null) {
+			return
+		}
+		const reader = new FileReader()
+		reader.onload = () => {
+			setUrl(typeof reader.result === "string" ? reader.result : null)
+		}
+		reader.readAsDataURL(file)
+	}, [file])
+	if (url !== null && file !== null) {
+		// Plain <img>, not the Avatar primitive: this is a local FileReader
+		// data: URL (not a remote member avatar), and Avatar defers rendering
+		// until a browser image-load event that never fires in jsdom.
+		return (
+			// eslint-disable-next-line @next/next/no-img-element -- local data: URL preview, next/image adds nothing
+			<img src={url} alt="" data-slot="member-file-thumb" className={cn("object-cover", className)} />
+		)
+	}
+	return (
+		<span data-slot="member-file-thumb-fallback" className={cn("bg-muted text-muted-foreground flex items-center justify-center", className)}>
+			<HugeiconsIcon icon={Image01Icon} className="size-1/2" />
+		</span>
+	)
+}
+
 type MemberWizardFileFieldProps = {
 	/** RHF field path of the `{ file, existingUrl }` pair. */
 	name: "company_certificate" | "id_card_image" | "profile_avatar" | "business.logo" | "business.product"
@@ -38,10 +71,10 @@ type MemberWizardFileFieldProps = {
 /**
  * One Member File Field of the wizard: a hidden file input behind a dashed
  * upload box (or a round camera-overlay avatar), instant size/extension
- * checks mirroring member-file.constants.ts, and a CSP-safe `data:` URL
- * preview (blob: is not allowed by the CSP and no CSP change is in scope).
- * The actual upload happens at submit (uploads-first, one multipart POST) —
- * this component only stages the File in form state.
+ * checks mirroring member-file.constants.ts, and a selected-state preview
+ * card (thumbnail + เปลี่ยนไฟล์ / ลบไฟล์) once a file is staged. The actual
+ * upload happens at submit (uploads-first, one multipart POST) — this
+ * component only stages the File in form state.
  */
 export function MemberWizardFileField({ name, label, helper, required = false, variant = "document", disabled = false }: MemberWizardFileFieldProps) {
 	const inputId = useId()
@@ -50,22 +83,6 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 	const error = formState.errors[name as keyof MemberWizardFormValues]
 	const fileValue = useWatch({ name })
 	const fileName = fileValue?.file?.name ?? null
-	const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-
-	// The preview is component-local, but the staged File lives in form state —
-	// re-derive the data: URL after the component remounts (stepping away and
-	// back) while the File is still selected.
-	useEffect(() => {
-		const file = fileValue?.file ?? null
-		if (file === null) {
-			return
-		}
-		const reader = new FileReader()
-		reader.onload = () => {
-			setPreviewUrl(typeof reader.result === "string" ? reader.result : null)
-		}
-		reader.readAsDataURL(file)
-	}, [fileValue?.file])
 
 	function handleFileChange(file: File | undefined) {
 		if (!file) {
@@ -82,7 +99,6 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 
 	function handleRemove() {
 		setValue(name, { file: null, existingUrl: null }, { shouldDirty: true })
-		setPreviewUrl(null)
 		void trigger(name)
 	}
 
@@ -123,12 +139,7 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 							"hover:border-primary/50"
 						)}
 					>
-						<Avatar className="size-full">
-							{previewUrl !== null && <AvatarImage src={previewUrl} alt="" />}
-							<AvatarFallback className="bg-transparent">
-								<HugeiconsIcon icon={Image01Icon} className="text-muted-foreground size-8" />
-							</AvatarFallback>
-						</Avatar>
+						<MemberFileThumb file={fileValue?.file ?? null} className="size-full" />
 						<span className="bg-primary/90 text-primary-foreground absolute right-1 bottom-1 flex size-8 items-center justify-center rounded-full">
 							<HugeiconsIcon icon={Camera01Icon} className="size-4" />
 						</span>
@@ -146,7 +157,7 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 						)}
 					</div>
 				</div>
-			) : (
+			) : fileName === null ? (
 				<button
 					type="button"
 					onClick={pick}
@@ -158,12 +169,27 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 					)}
 				>
 					<HugeiconsIcon icon={Upload04Icon} className="size-7" />
-					{fileName !== null ? (
-						<span className="text-foreground text-sm">{fileName}</span>
-					) : (
-						<span className="text-sm">คลิกเพื่อแนบไฟล์รูปภาพ · ขนาดไม่เกิน 7MB ({ALLOWED_EXTENSIONS.join(", ")})</span>
-					)}
+					<span className="text-sm">คลิกเพื่อแนบไฟล์รูปภาพ · ขนาดไม่เกิน 7MB ({ALLOWED_EXTENSIONS.join(", ")})</span>
 				</button>
+			) : (
+				<div data-slot="member-file-selected" className={cn("flex w-full items-center gap-4 rounded-xl border p-3", error ? "border-destructive" : "border-border")}>
+					<MemberFileThumb file={fileValue?.file ?? null} className="border-border size-24 rounded-lg border" />
+					<div className="flex min-w-0 flex-1 flex-col gap-2">
+						<span className="text-foreground truncate text-sm font-medium" title={fileName}>
+							{fileName}
+						</span>
+						<div className="flex flex-wrap gap-2">
+							<Button type="button" variant="outline" size="sm" disabled={disabled} onClick={pick}>
+								<HugeiconsIcon icon={Upload04Icon} className="size-4" />
+								เปลี่ยนไฟล์
+							</Button>
+							<Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={handleRemove}>
+								<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+								ลบไฟล์
+							</Button>
+						</div>
+					</div>
+				</div>
 			)}
 			<FieldError errors={[error]} />
 		</Field>
