@@ -31,7 +31,7 @@ The largest card, split across PRs (see README §2):
 - `PATCH /api/v1/members/[id]` — admin. Hybrid null-sticky update (ADR-0012) — **has no `status` field and never will** (README §8 item 8); **3b-edit prerequisite:** extend null-sticky to `id_card_no` (README §8 item 9). Edit-side only — `POST` already takes the full 13-digit number.
 - `DELETE /api/v1/members/[id]` — admin. Cascade soft-delete, idempotent 204 (ADR-0013).
 - `POST /api/v1/members/file/upload` — public multipart. Field names (exactly six; the wizard uses five — `payment_slip` belongs to the renewal flow): `id_card_image`, `company_certificate`, `profile_avatar`, `business_logo`, `business_product`, `payment_slip` — `src/modules/members/member-file.constants.ts` (7MB max, `.jpg/.jpeg/.png/.webp`) (**3b-create**).
-- `GET /api/v1/members/file/presign` — **admin**. Re-mints a temporary (1-hour) view URL for a private file path when a URL resolved by `GET [id]` has expired (**3b-edit**). Documented in the spec but **no route exists yet** — 3b-edit implements it against the documented contract.
+- `GET /api/v1/members/file/presign` — **DEPRECATED in Apidog (2026-09-09) — do not implement.** Previews ride the 1-hour presigned URLs `GET [id]` already resolves server-side; an expired URL recovers by refetching the detail (**3b-edit**). The in-repo OpenAPI copy still lists the endpoint until the next Apidog re-export — ignore it there.
 - `GET /api/v1/business/categories` — public, returns `{ id, name }[]`. Feeds the category select (**3b-create**; edit pre-selects by `category_id` from `GET [id]` in 3b-edit). The mockup's 14 numbered label strings are vocabulary only — the select is fed live by this endpoint (README §8 item 10).
 
 ## UI structure (from mockup v2)
@@ -105,7 +105,7 @@ Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~lines 496–1238
 
 - Prereq: `id_card_no` null-sticky PATCH (README §8 item 9) — schema, service, tests, OpenAPI + Apidog re-export. Edit-side only; 3b-create already shipped without it because `POST` takes the full 13-digit number.
 - จัดการ edit action (table + card hover) opens the wizard pre-filled from `GET [id]`: Masked ID Card → leave blank + "ปล่อยว่างเพื่อคงค่าเดิม" helper once null-sticky lands; `business.location` arrives `[long, lat]` — swap for the two inputs, write back `[lat, long]`; renewal block read-only per v2.
-- Existing-file previews: private files (`company_certificate`, `id_card_image`) arrive as 1-hour presigned URLs; re-mint via `GET /api/v1/members/file/presign` when expired. CSP: presigned previews come from the R2 S3 endpoint host (`https://<account>.r2.cloudflarestorage.com`), NOT `R2_PUBLIC_BASE_URL` — add that origin to `img-src` in `next.config.ts` in this PR, or previews will be `(blocked:csp)` the same way avatars were.
+- Existing-file previews: private files (`company_certificate`, `id_card_image`) arrive as 1-hour presigned URLs resolved by `GET [id]`; when one expires (the image fails to load), refetch `GET [id]` — the response carries freshly minted URLs (the standalone presign endpoint is deprecated; do not build it). CSP: presigned previews come from the R2 S3 endpoint host (`https://<account>.r2.cloudflarestorage.com`), NOT `R2_PUBLIC_BASE_URL` — add that origin to `img-src` in `next.config.ts` in this PR, or previews will be `(blocked:csp)` the same way avatars were.
 - Unchanged files ride the PATCH as JSON null (ADR-0012 five file-path fields); edit mode keeps free step navigation, no draft, dirty-guard still applies.
 
 ## Out of scope
@@ -138,7 +138,7 @@ Mockup: `MemberSystem` component, `ui-mockup/YEC-Lamphun.html` ~lines 496–1238
 
 - [ ] `id_card_no` null-sticky PATCH landed (schema, service, tests, OpenAPI + Apidog re-export).
 - [ ] จัดการ edit action (table + card) opens the wizard pre-filled from `GET [id]`; masked ID → blank + "ปล่อยว่างเพื่อคงค่าเดิม".
-- [ ] Presigned previews for private files + re-mint on expiry via `GET /file/presign`; CSP `img-src` += `https://<account>.r2.cloudflarestorage.com`.
+- [ ] Presigned previews for private files from `GET [id]`'s resolved URLs; expired URLs recover via a detail refetch; CSP `img-src` += `https://<account>.r2.cloudflarestorage.com`.
 - [ ] Edit mode: free step navigation, no draft, dirty-guard applies, renewal block read-only with the lock note.
 - [ ] PATCH round-trip: unchanged files sent as JSON null (ADR-0012); success dialog บันทึกการแก้ไขเรียบร้อย; list refreshes.
 
@@ -164,15 +164,15 @@ Read first, in order:
 4. ADRs: 0022 (modules own their frontend), 0021 (RHF + valibot — the
    pattern the wizard already uses), 0012 (null-sticky PATCH — unit 1
    extends it to id_card_no), 0002 (two buckets). README §8 items 8–10.
-5. API: docs/openapi/api-yec-lamphun-backoffice-web.openapi.json — note
-   GET /api/v1/members/file/presign is DOCUMENTED BUT NOT IMPLEMENTED
-   (no route exists yet; build it in unit 1 to match the documented
-   contract). Then src/app/api/v1/members/schema.ts (PatchMemberSchema),
+5. API: docs/openapi/api-yec-lamphun-backoffice-web.openapi.json (note
+   GET /api/v1/members/file/presign is DEPRECATED in Apidog — do NOT
+   build it; the stale spec copy still lists it, ignore it there). Then
+   src/app/api/v1/members/schema.ts (PatchMemberSchema),
    the GET [id] route + its response mapping (masked id_card_no, resolved
    file URLs, business.location stored [long, lat] while the write
    contract takes [lat, long]), and
-   src/modules/members/member-file-url.service.ts (the existing presign
-   machinery to reuse for the new route).
+   src/modules/members/member-file-url.service.ts (the server-side
+   machinery that resolves private files to 1-hour presigned URLs).
 6. The shipped create wizard you are extending: src/modules/members/
    components/member-wizard-dialog.tsx (+ its four step forms and
    member-wizard-file-field.tsx), src/modules/members/schemas/
@@ -195,9 +195,6 @@ Scope — unit 1 (backend, land first):
   null (or absent) = keep the stored value; update-member service +
   tests; OpenAPI re-export + the Apidog sync deliverable per repo
   convention.
-- GET /api/v1/members/file/presign: admin, re-mints a 1-hour view URL
-  for a private file path — implement the route to match the documented
-  spec, reusing member-file-url machinery, with tests.
 
 Scope — the edit UI:
 - จัดการ edit action (table row + card hover) opens the wizard in edit
@@ -205,8 +202,10 @@ Scope — the edit UI:
 - Masked ID Card: NEVER write the masked value into form state — leave
   the field blank with the helper "ปล่อยว่างเพื่อคงค่าเดิม"; blank
   submits null → null-sticky keeps the stored number.
-- Files: existing files render as presigned previews (re-mint on expiry
-  via the presign route); a changed file uploads first then attaches;
+- Files: existing files render as presigned previews resolved by
+  GET [id] (an expired URL recovers by refetching the detail — the
+  standalone presign endpoint is deprecated, never build it); a changed
+  file uploads first then attaches;
   an UNCHANGED file rides the PATCH as JSON null (ADR-0012); a removal
   follows the existing delete-path semantics.
 - Edit-mode shell per the card: free step navigation (rail unlocked),
@@ -230,8 +229,8 @@ Preserve — invariants from the 3b-create review (do not regress):
 
 Out of scope: create-flow redesign (share the shell, don't restyle it),
 list-view changes, bulk status (impossible — PATCH has no status field),
-a member detail page, the renewal flow (card 04), any new backend write
-endpoint beyond the two unit-1 items.
+a member detail page, the renewal flow (card 04), any new backend
+endpoint at all (the deprecated presign route included).
 
 Constraints:
 - TanStack Query mutations via fetchJson; errors are { error_message }.
