@@ -1,8 +1,12 @@
 import * as v from "valibot"
 
 /**
- * Client-side valibot mirror of the server's `CreateMemberSchema`
- * (`src/app/api/v1/members/schema.ts`) for the member-creation wizard.
+ * Client-side valibot mirror of the server's `CreateMemberSchema` /
+ * `PatchMemberSchema` (`src/app/api/v1/members/schema.ts`) for the member
+ * wizard — built mode-aware via `buildMemberWizardSchema` (3b-edit): create
+ * enforces the POST contract; edit mirrors PATCH's null-sticky divergence
+ * (blank `id_card_no` = keep the stored card) and accepts a stored
+ * `company_certificate` (`existingUrl`) for juristic members.
  *
  * Required-ness follows the API, not the mockup's markers (README §8 item 10):
  * nickname, date_of_birth, nationality, id_card_expiry_date,
@@ -15,7 +19,7 @@ import * as v from "valibot"
  * each resolved by `member-wizard-mapping.ts` (the explicit form↔wire layer
  * the card mandates, kept pre-fill friendly for 3b-edit):
  * - the five Member File fields hold `{ file, existingUrl }` pairs (Files are
- *   not serializable into drafts or JSON; edit mode will slot URLs in);
+ *   not serializable into drafts or JSON; edit mode slots URLs in);
  * - `business.category_id` / `latitude` / `longitude` are strings (HTML select
  *   and text input values) parsed to wire types at the boundary;
  * - empty string means "unset" for every API-optional field.
@@ -118,6 +122,9 @@ const optionalCoordinate = (label: string) =>
 
 // --- The schema ---------------------------------------------------------------
 
+/** Wizard mode: create enforces the full POST contract; edit diverges where PATCH does. */
+export type MemberWizardMode = "create" | "edit"
+
 /**
  * Shared field map; only `registration_type` (the variant discriminator) and
  * `company_certificate` differ per branch below.
@@ -129,83 +136,116 @@ const optionalCoordinate = (label: string) =>
  * object schema that produced any issue (e.g. empty step-2 fields while the
  * user is still on step 1).
  */
-const wizardFields = {
-	id_card_image: memberFileValue,
-	profile_avatar: memberFileValue,
-	title_name_th: v.picklist(TITLES_TH, "กรุณาเลือกคำนำหน้าชื่อ"),
-	first_name_th: requiredText("กรุณากรอกชื่อ", DB_MAX_LENGTHS.firstNameTh),
-	last_name_th: requiredText("กรุณากรอกนามสกุล", DB_MAX_LENGTHS.lastNameTh),
-	title_name_en: v.union([v.picklist(TITLES_EN, "คำนำหน้าชื่อ (EN) ไม่ถูกต้อง"), v.literal("")]),
-	first_name_en: optionalText(DB_MAX_LENGTHS.firstNameEn),
-	last_name_en: optionalText(DB_MAX_LENGTHS.lastNameEn),
-	nickname: requiredText("กรุณากรอกชื่อเล่น", DB_MAX_LENGTHS.nickname),
-	gender: v.picklist(GENDERS, "กรุณาเลือกเพศ"),
-	date_of_birth: requiredIsoDate("กรุณาเลือกวันเดือนปีเกิด"),
-	nationality: requiredText("กรุณากรอกสัญชาติ", DB_MAX_LENGTHS.nationality),
-	id_card_no: v.pipe(
-		v.string(),
-		v.check((value) => value.replace(/\D/g, "").length > 0, "กรุณากรอกเลขบัตรประชาชน"),
-		v.check((value) => value.replace(/\D/g, "").length === 13, "เลขบัตรประชาชนต้องมีครบ 13 หลัก")
-	),
-	id_card_expiry_date: v.pipe(
-		v.string(),
-		v.check((value) => value !== "", "กรุณาเลือกวันหมดอายุบัตร"),
-		v.isoDate("รูปแบบวันที่ไม่ถูกต้อง"),
-		v.check((value) => value >= localIsoDateString(new Date()), "วันหมดอายุบัตรต้องไม่เป็นวันที่ผ่านมาแล้ว")
-	),
-	phone_no: v.pipe(
-		v.string(),
-		v.trim(),
-		v.minLength(1, "กรุณากรอกเบอร์โทรศัพท์"),
-		v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678"),
-		v.maxLength(DB_MAX_LENGTHS.phoneNo, `ความยาวต้องไม่เกิน ${DB_MAX_LENGTHS.phoneNo} ตัวอักษร`)
-	),
-	email: v.pipe(
-		v.string(),
-		v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง"),
-		v.maxLength(DB_MAX_LENGTHS.email, `ความยาวต้องไม่เกิน ${DB_MAX_LENGTHS.email} ตัวอักษร`)
-	),
-	line_id: optionalText(DB_MAX_LENGTHS.lineId),
-	shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
-	position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
-	business: v.object({
-		name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า", DB_MAX_LENGTHS.businessName),
-		juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล", DB_MAX_LENGTHS.juristicRegistrationNo),
-		category_id: v.pipe(
+function wizardFields(mode: MemberWizardMode) {
+	return {
+		id_card_image: memberFileValue,
+		profile_avatar: memberFileValue,
+		title_name_th: v.picklist(TITLES_TH, "กรุณาเลือกคำนำหน้าชื่อ"),
+		first_name_th: requiredText("กรุณากรอกชื่อ", DB_MAX_LENGTHS.firstNameTh),
+		last_name_th: requiredText("กรุณากรอกนามสกุล", DB_MAX_LENGTHS.lastNameTh),
+		title_name_en: v.union([v.picklist(TITLES_EN, "คำนำหน้าชื่อ (EN) ไม่ถูกต้อง"), v.literal("")]),
+		first_name_en: optionalText(DB_MAX_LENGTHS.firstNameEn),
+		last_name_en: optionalText(DB_MAX_LENGTHS.lastNameEn),
+		nickname: requiredText("กรุณากรอกชื่อเล่น", DB_MAX_LENGTHS.nickname),
+		gender: v.picklist(GENDERS, "กรุณาเลือกเพศ"),
+		date_of_birth: requiredIsoDate("กรุณาเลือกวันเดือนปีเกิด"),
+		nationality: requiredText("กรุณากรอกสัญชาติ", DB_MAX_LENGTHS.nationality),
+		// Edit mode mirrors the PATCH null-sticky rule: blank submits null and
+		// keeps the stored card, so only a non-blank value needs 13 digits.
+		id_card_no:
+			mode === "create"
+				? v.pipe(
+						v.string(),
+						v.check((value) => value.replace(/\D/g, "").length > 0, "กรุณากรอกเลขบัตรประชาชน"),
+						v.check((value) => value.replace(/\D/g, "").length === 13, "เลขบัตรประชาชนต้องมีครบ 13 หลัก")
+					)
+				: v.pipe(
+						v.string(),
+						v.check((value) => {
+							const digits = value.replace(/\D/g, "").length
+							return digits === 0 || digits === 13
+						}, "เลขบัตรประชาชนต้องมีครบ 13 หลัก")
+					),
+		id_card_expiry_date: v.pipe(
 			v.string(),
-			v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
-			v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
+			v.check((value) => value !== "", "กรุณาเลือกวันหมดอายุบัตร"),
+			v.isoDate("รูปแบบวันที่ไม่ถูกต้อง"),
+			v.check((value) => value >= localIsoDateString(new Date()), "วันหมดอายุบัตรต้องไม่เป็นวันที่ผ่านมาแล้ว")
 		),
-		address: v.string(),
-		latitude: optionalCoordinate("ละติจูด"),
-		longitude: optionalCoordinate("ลองจิจูด"),
-		description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
-		core_business: v.string(),
-		website: v.string(),
-		logo: memberFileValue,
-		product: memberFileValue,
-	}),
+		phone_no: v.pipe(
+			v.string(),
+			v.trim(),
+			v.minLength(1, "กรุณากรอกเบอร์โทรศัพท์"),
+			v.check((value) => PHONE_PATTERN.test(value), "รูปแบบเบอร์โทรไม่ถูกต้อง เช่น 081-234-5678"),
+			v.maxLength(DB_MAX_LENGTHS.phoneNo, `ความยาวต้องไม่เกิน ${DB_MAX_LENGTHS.phoneNo} ตัวอักษร`)
+		),
+		email: v.pipe(
+			v.string(),
+			v.check((value) => value.trim() === "" || EMAIL_PATTERN.test(value.trim()), "รูปแบบอีเมลไม่ถูกต้อง"),
+			v.maxLength(DB_MAX_LENGTHS.email, `ความยาวต้องไม่เกิน ${DB_MAX_LENGTHS.email} ตัวอักษร`)
+		),
+		line_id: optionalText(DB_MAX_LENGTHS.lineId),
+		shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
+		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
+		business: v.object({
+			name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า", DB_MAX_LENGTHS.businessName),
+			juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล", DB_MAX_LENGTHS.juristicRegistrationNo),
+			category_id: v.pipe(
+				v.string(),
+				v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
+				v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
+			),
+			address: v.string(),
+			latitude: optionalCoordinate("ละติจูด"),
+			longitude: optionalCoordinate("ลองจิจูด"),
+			description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
+			core_business: v.string(),
+			website: v.string(),
+			logo: memberFileValue,
+			product: memberFileValue,
+		}),
+	}
 }
 
-export const MemberWizardSchema = v.variant("registration_type", [
-	v.object({
-		...wizardFields,
-		registration_type: v.literal("INDIVIDUAL"),
-		company_certificate: memberFileValue,
-	}),
-	v.object({
-		...wizardFields,
-		registration_type: v.literal("JURISTIC_PERSON"),
-		company_certificate: v.pipe(
-			memberFileValue,
-			v.check((value) => value.file !== null, "นิติบุคคลต้องแนบหนังสือรับรองบริษัท")
-		),
-	}),
-])
+/**
+ * The wizard schema, mode-aware:
+ * - `id_card_no` — create requires 13 digits (POST); edit allows blank (PATCH
+ *   null-sticky keeps the stored card; GET /:id exposes only the masked value).
+ * - `company_certificate` under JURISTIC_PERSON — create requires a staged
+ *   File; edit also accepts the stored file (`existingUrl`), so re-editing a
+ *   juristic member without restaging the certificate validates.
+ *
+ * The form-VALUES shape is identical in both modes — only the rules differ —
+ * so `MemberWizardFormValues` (inferred from the create schema) covers both.
+ */
+export function buildMemberWizardSchema(mode: MemberWizardMode) {
+	const fields = wizardFields(mode)
+	return v.variant("registration_type", [
+		v.object({
+			...fields,
+			registration_type: v.literal("INDIVIDUAL"),
+			company_certificate: memberFileValue,
+		}),
+		v.object({
+			...fields,
+			registration_type: v.literal("JURISTIC_PERSON"),
+			company_certificate: v.pipe(
+				memberFileValue,
+				v.check((value) => value.file !== null || (mode === "edit" && value.existingUrl !== null), "นิติบุคคลต้องแนบหนังสือรับรองบริษัท")
+			),
+		}),
+	])
+}
+
+/** The create-mode schema (POST contract) — the wizard's historical default. */
+export const MemberWizardSchema = buildMemberWizardSchema("create")
 
 export type MemberWizardFormValues = v.InferInput<typeof MemberWizardSchema>
 
 export type MemberFileValue = { file: File | null; existingUrl: string | null }
+
+/** The five Member File field paths in `MemberWizardFormValues`. */
+export type MemberWizardFileFieldName = "company_certificate" | "id_card_image" | "profile_avatar" | "business.logo" | "business.product"
 
 /** Per-step field paths (RHF `trigger` names) — step 4 is review-only. */
 export const STEP_FIELDS = {

@@ -1,9 +1,18 @@
 "use client"
 
-import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, CheckmarkCircle01Icon, CheckmarkCircle02Icon, Loading03Icon, UserMultipleIcon } from "@hugeicons/core-free-icons"
+import {
+	ArrowLeft01Icon,
+	ArrowRight01Icon,
+	Cancel01Icon,
+	CheckmarkCircle01Icon,
+	CheckmarkCircle02Icon,
+	Loading03Icon,
+	UserEdit01Icon,
+	UserMultipleIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { valibotResolver } from "@hookform/resolvers/valibot"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { FormProvider, type FieldErrors, type FieldPath, useForm } from "react-hook-form"
 
 import { Alert, AlertTitle } from "src/shared/components/ui/alert"
@@ -23,12 +32,23 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "src/share
 import { Progress } from "src/shared/components/ui/progress"
 import { positionLabel } from "src/modules/members/components/member-labels"
 import { clearMemberFormDraft, restoreMemberFormDraft, saveMemberFormDraft } from "src/modules/members/components/member-form-draft"
+import { MemberWizardEditContext } from "src/modules/members/components/member-wizard-edit-context"
 import { MemberWizardStepApplication } from "src/modules/members/components/member-wizard-step-application"
 import { MemberWizardStepBusiness } from "src/modules/members/components/member-wizard-step-business"
 import { MemberWizardStepPersonal } from "src/modules/members/components/member-wizard-step-personal"
 import { MemberWizardStepReview } from "src/modules/members/components/member-wizard-step-review"
 import { useCreateMember } from "src/modules/members/hooks/use-create-member"
-import { MEMBER_WIZARD_DEFAULT_VALUES, MemberWizardSchema, STEP_FIELDS, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { useMemberDetail } from "src/modules/members/hooks/use-member-detail"
+import { useUpdateMember } from "src/modules/members/hooks/use-update-member"
+import { memberDetailToFormValues } from "src/modules/members/schemas/member-wizard-mapping"
+import {
+	MEMBER_WIZARD_DEFAULT_VALUES,
+	MemberWizardSchema,
+	STEP_FIELDS,
+	buildMemberWizardSchema,
+	type MemberWizardFileFieldName,
+	type MemberWizardFormValues,
+} from "src/modules/members/schemas/member-wizard-schema"
 import { ApiError } from "src/shared/lib/api/fetch-json"
 import { cn } from "src/shared/lib/utils/utils"
 
@@ -76,19 +96,31 @@ function countStepIssues(errors: FieldErrors<MemberWizardFormValues>, fields: re
 type MemberWizardDialogProps = {
 	open: boolean
 	onOpenChange: (open: boolean) => void
+	/**
+	 * Edit mode (3b-edit): the member to edit. Omit (or null) for create mode.
+	 * The dialog fetches GET /:id itself and pre-fills through
+	 * `memberDetailToFormValues`; one dialog instance per mode.
+	 */
+	editMember?: { id: number } | null
 }
 
 /**
- * The v2 member-creation wizard (card 03, 3b-create): a near-fullscreen
- * sheet-style Dialog with a locked-forward desktop step rail, a mobile
+ * The v2 member wizard (card 03): a near-fullscreen sheet-style Dialog with a
+ * desktop step rail (locked-forward in create, free in edit), a mobile
  * ขั้นตอน X/4 progress bar, per-field blur + per-step validation with a top
- * error summary, Member Form Draft autosave/restore, a dirty-guard close
- * confirm intercepting X/Escape/outside-click, and a success dialog with
- * เพิ่มสมาชิกอีกคน. Create mode only — 3b-edit inherits the shell.
+ * error summary, a dirty-guard close confirm intercepting X/Escape/
+ * outside-click, and a success dialog.
+ *
+ * Create mode adds Member Form Draft autosave/restore and เพิ่มสมาชิกอีกคน;
+ * edit mode (3b-edit) never touches the draft, pre-fills from GET /:id
+ * (masked id_card_no NEVER enters form state — blank submits null and the
+ * null-sticky PATCH keeps the stored card), unlocks the rail, renders the
+ * renewal block read-only, and shows presigned previews for stored files.
  */
-export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogProps) {
+export function MemberWizardDialog({ open, onOpenChange, editMember = null }: MemberWizardDialogProps) {
+	const editMode = editMember !== null
 	const form = useForm<MemberWizardFormValues>({
-		resolver: valibotResolver(MemberWizardSchema),
+		resolver: valibotResolver(editMode ? buildMemberWizardSchema("edit") : MemberWizardSchema),
 		mode: "onBlur",
 		defaultValues: MEMBER_WIZARD_DEFAULT_VALUES(),
 	})
@@ -98,7 +130,14 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	const { isDirty } = formState
 
 	const createMutation = useCreateMember()
-	const submitting = createMutation.isPending
+	const updateMutation = useUpdateMember()
+	const submitting = editMode ? updateMutation.isPending : createMutation.isPending
+
+	// Edit data: fetched only while the edit dialog is open. The query holds
+	// the LIVE response — presigned URLs here refresh on refetch without
+	// touching form state.
+	const detailQuery = useMemberDetail(editMode && open ? editMember.id : null)
+	const detail = detailQuery.data ?? null
 
 	const [step, setStep] = useState<WizardStep>(1)
 	const [showSummary, setShowSummary] = useState(false)
@@ -110,8 +149,9 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	const [successName, setSuccessName] = useState("")
 	const scrollRef = useRef<HTMLDivElement>(null)
 
-	// Programmatic resets (open-restore, เริ่มกรอกใหม่, add-another) must not
-	// leak into the autosave subscription as a fresh "empty" draft.
+	// Programmatic resets (open-restore, เริ่มกรอกใหม่, add-another, edit
+	// pre-fill) must not leak into the autosave subscription as a fresh
+	// "empty" draft.
 	const suppressAutosaveRef = useRef(false)
 	function withSuppressedAutosave(run: () => void) {
 		suppressAutosaveRef.current = true
@@ -121,8 +161,12 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 		}, 0)
 	}
 
-	// Every change saves the draft (create mode only — this dialog IS create mode).
+	// Every change saves the draft — CREATE MODE ONLY; edit mode never reads
+	// or writes the draft (Member Form Draft is a create-only concept).
 	useEffect(() => {
+		if (editMode) {
+			return
+		}
 		const subscription = watch((values) => {
 			if (!suppressAutosaveRef.current) {
 				// The subscription types values as partial, but every field has a
@@ -131,22 +175,71 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 			}
 		})
 		return () => subscription.unsubscribe()
-	}, [watch])
+	}, [watch, editMode])
 
-	// Opening the wizard: restore the draft (if any) over pristine defaults.
+	// Opening the wizard. Create: restore the draft (if any) over pristine
+	// defaults. Edit: reset the shell only — the pre-fill waits for GET /:id.
 	useLayoutEffect(() => {
 		if (!open) {
+			prefilledMemberIdRef.current = null
 			return
 		}
-		const restored = restoreMemberFormDraft()
-		withSuppressedAutosave(() => {
-			reset(restored ?? MEMBER_WIZARD_DEFAULT_VALUES())
-		})
-		setDraftRestored(restored !== null)
+		if (!editMode) {
+			const restored = restoreMemberFormDraft()
+			withSuppressedAutosave(() => {
+				reset(restored ?? MEMBER_WIZARD_DEFAULT_VALUES())
+			})
+			setDraftRestored(restored !== null)
+		}
 		setStep(1)
 		setShowSummary(false)
 		setSubmitError(null)
-	}, [open, reset])
+	}, [open, reset, editMode])
+
+	// Edit pre-fill: reset ONCE per member when the detail arrives, so dirty
+	// tracking starts pristine and later refetches (presign re-mints) never
+	// clobber the user's in-progress edits.
+	const prefilledMemberIdRef = useRef<number | null>(null)
+	useLayoutEffect(() => {
+		if (!editMode || !open || detail === null || prefilledMemberIdRef.current === detail.id) {
+			return
+		}
+		prefilledMemberIdRef.current = detail.id
+		reset(memberDetailToFormValues(detail))
+	}, [editMode, open, detail, reset])
+
+	// Expired-presign recovery: a stored preview that fails to load refetches
+	// the detail (fresh URLs). Capped at one attempt per field per open, so a
+	// genuinely missing object cannot loop.
+	const urlRetryRef = useRef<Set<MemberWizardFileFieldName>>(new Set())
+	const handleExistingImageError = useCallback(
+		(field: MemberWizardFileFieldName) => {
+			if (editMember === null || urlRetryRef.current.has(field)) {
+				return
+			}
+			urlRetryRef.current.add(field)
+			void detailQuery.refetch()
+		},
+		[editMember, detailQuery]
+	)
+
+	const editContextValue = useMemo(() => {
+		if (!editMode || detail === null) {
+			return null
+		}
+		return {
+			renewal: { memberSince: detail.member_since, status: detail.status },
+			maskedIdCardNo: detail.id_card_no,
+			existingUrls: {
+				company_certificate: detail.company_certificate,
+				id_card_image: detail.id_card_image,
+				profile_avatar: detail.profile_avatar,
+				"business.logo": detail.business.logo,
+				"business.product": detail.business.product,
+			} satisfies Record<MemberWizardFileFieldName, string | null>,
+			onExistingImageError: handleExistingImageError,
+		}
+	}, [editMode, detail, handleExistingImageError])
 
 	function handleStartFresh() {
 		clearMemberFormDraft()
@@ -169,13 +262,14 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	}
 
 	/**
-	 * Rail navigation is backward-only (Step Rail): a rail button is disabled
-	 * ahead of the current step, so a click here is always a jump back. Safety
-	 * needs no re-validation pass — every earlier step was validated on the way
-	 * forward, and ถัดไป re-validates each step on the way back up.
+	 * Rail navigation. Create mode is backward-only (Step Rail): a rail button
+	 * is disabled ahead of the current step, so a click here is always a jump
+	 * back — no re-validation pass needed. Edit mode unlocks the rail: any
+	 * step is directly reachable (the card's free-navigation rule); the final
+	 * submit still validates the whole schema via the resolver.
 	 */
 	function jumpViaRail(target: WizardStep) {
-		if (target >= step) {
+		if (!editMode && target >= step) {
 			return
 		}
 		goDirect(target)
@@ -197,7 +291,7 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	// coordinates — a double click or impatient re-click would land on the
 	// armed submit and fire the upload+create without the user ever reading
 	// the review. The submit button stays disabled for a short arming window
-	// after the step becomes 4.
+	// after the step becomes 4. Applies in BOTH modes.
 	useEffect(() => {
 		if (step !== 4) {
 			return
@@ -229,7 +323,11 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	}
 
 	function handleDiscardAndClose() {
-		clearMemberFormDraft()
+		// Edit mode never owns a draft — clearing it here would wipe a
+		// create-mode draft belonging to the OTHER dialog instance.
+		if (!editMode) {
+			clearMemberFormDraft()
+		}
 		setCloseGuardOpen(false)
 		onOpenChange(false)
 	}
@@ -237,10 +335,16 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 	const submit = handleSubmit(async (values) => {
 		setSubmitError(null)
 		try {
-			await createMutation.mutateAsync(values)
+			if (editMode && editMember !== null) {
+				await updateMutation.mutateAsync({ id: editMember.id, values })
+			} else {
+				await createMutation.mutateAsync(values)
+			}
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 409) {
 				// Live-contact conflicts (partial unique indexes, live members only).
+				// The server excludes the edited member, so these only fire when
+				// ANOTHER live member holds the contact.
 				const contactConflict = CONTACT_CONFLICTS.find((candidate) => error.message.includes(candidate.match))
 				if (contactConflict !== undefined) {
 					setError(contactConflict.field, { type: "conflict", message: contactConflict.thaiMessage })
@@ -269,201 +373,239 @@ export function MemberWizardDialog({ open, onOpenChange }: MemberWizardDialogPro
 			setSubmitError(error instanceof ApiError ? error : new ApiError("บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง", 0))
 			return
 		}
-		clearMemberFormDraft()
+		if (!editMode) {
+			clearMemberFormDraft()
+		}
 		setSuccessName(`${values.title_name_th}${values.first_name_th} ${values.last_name_th}`)
 		onOpenChange(false)
 		setSuccessOpen(true)
 	})
 
 	const stepIssueCount = showSummary ? countStepIssues(formState.errors, stepFields(step)) : 0
+	// In edit mode the step body waits for GET /:id — no half-prefilled form.
+	const detailReady = !editMode || detail !== null
+	const detailLoading = editMode && detailQuery.isPending
 
 	return (
 		<FormProvider {...form}>
-			<Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
-				<DialogContent
-					data-slot="member-wizard-dialog"
-					showCloseButton={false}
-					onEscapeKeyDown={(event) => {
-						event.preventDefault()
-						requestClose()
-					}}
-					onInteractOutside={(event) => {
-						event.preventDefault()
-						requestClose()
-					}}
-					className="flex h-dvh max-w-none flex-col gap-0 rounded-none p-0 sm:h-[92vh] sm:max-w-6xl sm:rounded-2xl"
-				>
-					<div data-slot="wizard-header" className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 sm:py-4">
-						<div className="flex items-center gap-3">
-							<span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
-								<HugeiconsIcon icon={UserMultipleIcon} className="size-5" />
-							</span>
-							<div className="min-w-0">
-								<DialogTitle className="truncate text-base font-semibold sm:text-lg">ลงทะเบียนสมาชิกใหม่</DialogTitle>
-								<DialogDescription className="text-muted-foreground text-xs">ระบบสมาชิก YEC Lamphun</DialogDescription>
-							</div>
-						</div>
-						<div className="flex items-center gap-2">
-							<Badge variant="outline" className="text-muted-foreground bg-muted hidden border-transparent sm:inline-flex">
-								บันทึกฉบับร่างอัตโนมัติ
-							</Badge>
-							<Button type="button" variant="ghost" size="icon" aria-label="ปิดหน้าต่าง" onClick={requestClose} disabled={submitting}>
-								<HugeiconsIcon icon={Cancel01Icon} className="size-5" />
-							</Button>
-						</div>
-					</div>
-
-					<form noValidate onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-						<div className="border-b px-4 py-3 lg:hidden" data-slot="wizard-mobile-progress">
-							<div className="mb-2 flex items-baseline justify-between">
-								<span className="text-sm font-medium">
-									ขั้นตอน {step}/4 · {STEP_TITLES[step]}
+			<MemberWizardEditContext.Provider value={editContextValue}>
+				<Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
+					<DialogContent
+						data-slot="member-wizard-dialog"
+						showCloseButton={false}
+						onEscapeKeyDown={(event) => {
+							event.preventDefault()
+							requestClose()
+						}}
+						onInteractOutside={(event) => {
+							event.preventDefault()
+							requestClose()
+						}}
+						className="flex h-dvh max-w-none flex-col gap-0 rounded-none p-0 sm:h-[92vh] sm:max-w-6xl sm:rounded-2xl"
+					>
+						<div data-slot="wizard-header" className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 sm:py-4">
+							<div className="flex items-center gap-3">
+								<span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
+									<HugeiconsIcon icon={editMode ? UserEdit01Icon : UserMultipleIcon} className="size-5" />
 								</span>
-								<span className="text-muted-foreground text-xs">{Math.round((step / 4) * 100)}%</span>
+								<div className="min-w-0">
+									<DialogTitle className="truncate text-base font-semibold sm:text-lg">{editMode ? "แก้ไขข้อมูลสมาชิก" : "ลงทะเบียนสมาชิกใหม่"}</DialogTitle>
+									<DialogDescription className="text-muted-foreground text-xs">ระบบสมาชิก YEC Lamphun</DialogDescription>
+								</div>
 							</div>
-							<Progress value={(step / 4) * 100} aria-label={`ขั้นตอนที่ ${step} จาก 4`} />
+							<div className="flex items-center gap-2">
+								{!editMode && (
+									<Badge variant="outline" className="text-muted-foreground bg-muted hidden border-transparent sm:inline-flex">
+										บันทึกฉบับร่างอัตโนมัติ
+									</Badge>
+								)}
+								<Button type="button" variant="ghost" size="icon" aria-label="ปิดหน้าต่าง" onClick={requestClose} disabled={submitting}>
+									<HugeiconsIcon icon={Cancel01Icon} className="size-5" />
+								</Button>
+							</div>
 						</div>
 
-						<div className="flex min-h-0 flex-1">
-							<nav aria-label="ขั้นตอนการกรอกข้อมูล" data-slot="wizard-step-rail" className="hidden w-64 shrink-0 flex-col gap-1 border-r p-4 lg:flex">
-								{([1, 2, 3, 4] as const).map((target) => {
-									// Step Rail: purely position-derived — ✓ clickable behind
-									// the current step, locked ahead, no history kept.
-									const isCurrent = step === target
-									const isCompleted = target < step
-									const isLocked = target > step
-									return (
-										<button
-											key={target}
-											type="button"
-											disabled={isLocked || submitting}
-											aria-current={isCurrent ? "step" : undefined}
-											data-slot="wizard-rail-step"
-											data-state={isCurrent ? "current" : isCompleted ? "completed" : "locked"}
-											onClick={() => void jumpViaRail(target)}
-											className={cn(
-												"flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
-												isCurrent ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted",
-												isLocked && "text-muted-foreground/60 cursor-not-allowed hover:bg-transparent"
-											)}
-										>
-											<span
+						<form noValidate onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+							<div className="border-b px-4 py-3 lg:hidden" data-slot="wizard-mobile-progress">
+								<div className="mb-2 flex items-baseline justify-between">
+									<span className="text-sm font-medium">
+										ขั้นตอน {step}/4 · {STEP_TITLES[step]}
+									</span>
+									<span className="text-muted-foreground text-xs">{Math.round((step / 4) * 100)}%</span>
+								</div>
+								<Progress value={(step / 4) * 100} aria-label={`ขั้นตอนที่ ${step} จาก 4`} />
+							</div>
+
+							<div className="flex min-h-0 flex-1">
+								<nav aria-label="ขั้นตอนการกรอกข้อมูล" data-slot="wizard-step-rail" className="hidden w-64 shrink-0 flex-col gap-1 border-r p-4 lg:flex">
+									{([1, 2, 3, 4] as const).map((target) => {
+										// Create mode: purely position-derived — ✓ clickable behind
+										// the current step, locked ahead. Edit mode: nothing locked.
+										const isCurrent = step === target
+										const isCompleted = target < step
+										const isLocked = !editMode && target > step
+										return (
+											<button
+												key={target}
+												type="button"
+												disabled={isLocked || submitting}
+												aria-current={isCurrent ? "step" : undefined}
+												data-slot="wizard-rail-step"
+												data-state={isCurrent ? "current" : isCompleted ? "completed" : isLocked ? "locked" : "upcoming"}
+												onClick={() => void jumpViaRail(target)}
 												className={cn(
-													"flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-													isCompleted
-														? "border-primary bg-primary text-primary-foreground"
-														: isCurrent
-															? "border-primary text-primary"
-															: "border-border text-muted-foreground"
+													"flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
+													isCurrent ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted",
+													isLocked && "text-muted-foreground/60 cursor-not-allowed hover:bg-transparent"
 												)}
 											>
-												{isCompleted ? <HugeiconsIcon icon={CheckmarkCircle01Icon} className="size-4" /> : target}
-											</span>
-											{STEP_TITLES[target]}
-										</button>
-									)
-								})}
-								<p className="text-muted-foreground mt-auto text-xs leading-relaxed">ข้อมูลจะถูกบันทึกเป็นฉบับร่างอัตโนมัติ หากปิดหน้าต่างกลางทาง</p>
-							</nav>
+												<span
+													className={cn(
+														"flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+														isCompleted
+															? "border-primary bg-primary text-primary-foreground"
+															: isCurrent
+																? "border-primary text-primary"
+																: "border-border text-muted-foreground"
+													)}
+												>
+													{isCompleted ? <HugeiconsIcon icon={CheckmarkCircle01Icon} className="size-4" /> : target}
+												</span>
+												{STEP_TITLES[target]}
+											</button>
+										)
+									})}
+									{!editMode && (
+										<p className="text-muted-foreground mt-auto text-xs leading-relaxed">ข้อมูลจะถูกบันทึกเป็นฉบับร่างอัตโนมัติ หากปิดหน้าต่างกลางทาง</p>
+									)}
+								</nav>
 
-							<div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6" data-slot="wizard-body">
-								{draftRestored && (
-									<div
-										data-slot="wizard-draft-banner"
-										className="border-warning/30 bg-warning/10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm"
-									>
-										<span>กู้คืนฉบับร่างที่บันทึกไว้ล่าสุดแล้ว</span>
-										<Button type="button" variant="link" size="sm" onClick={handleStartFresh} className="h-auto p-0">
-											เริ่มกรอกใหม่
-										</Button>
-									</div>
-								)}
-								{stepIssueCount > 0 && (
-									<Alert variant="destructive" data-slot="wizard-error-summary" className="mb-4">
-										<AlertTitle>{`พบข้อผิดพลาด ${stepIssueCount} รายการ กรุณาตรวจสอบข้อมูล`}</AlertTitle>
-									</Alert>
-								)}
-								{submitError !== null && (
-									<Alert variant="destructive" data-slot="wizard-submit-error" className="mb-4">
-										<AlertTitle>{submitError.message}</AlertTitle>
-									</Alert>
-								)}
-								{step === 1 && <MemberWizardStepApplication disabled={submitting} />}
-								{step === 2 && <MemberWizardStepPersonal disabled={submitting} />}
-								{step === 3 && <MemberWizardStepBusiness disabled={submitting} />}
-								{step === 4 && <MemberWizardStepReview onEdit={goDirect} />}{" "}
+								<div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6" data-slot="wizard-body">
+									{detailLoading ? (
+										<div data-slot="wizard-detail-loading" className="flex h-full min-h-64 flex-col items-center justify-center gap-3 text-center">
+											<HugeiconsIcon icon={Loading03Icon} strokeWidth={2} className="text-muted-foreground size-8 animate-spin" />
+											<span className="text-muted-foreground text-sm">กำลังโหลดข้อมูลสมาชิก...</span>
+										</div>
+									) : editMode && detailQuery.isError ? (
+										<Alert variant="destructive" data-slot="wizard-detail-error" className="mb-4">
+											<AlertTitle>โหลดข้อมูลสมาชิกไม่สำเร็จ</AlertTitle>
+											<div className="mt-2 flex items-center gap-2">
+												<span className="text-sm">{detailQuery.error.message}</span>
+												<Button type="button" variant="outline" size="sm" onClick={() => void detailQuery.refetch()}>
+													ลองใหม่
+												</Button>
+											</div>
+										</Alert>
+									) : (
+										<>
+											{draftRestored && (
+												<div
+													data-slot="wizard-draft-banner"
+													className="border-warning/30 bg-warning/10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm"
+												>
+													<span>กู้คืนฉบับร่างที่บันทึกไว้ล่าสุดแล้ว</span>
+													<Button type="button" variant="link" size="sm" onClick={handleStartFresh} className="h-auto p-0">
+														เริ่มกรอกใหม่
+													</Button>
+												</div>
+											)}
+											{stepIssueCount > 0 && (
+												<Alert variant="destructive" data-slot="wizard-error-summary" className="mb-4">
+													<AlertTitle>{`พบข้อผิดพลาด ${stepIssueCount} รายการ กรุณาตรวจสอบข้อมูล`}</AlertTitle>
+												</Alert>
+											)}
+											{submitError !== null && (
+												<Alert variant="destructive" data-slot="wizard-submit-error" className="mb-4">
+													<AlertTitle>{submitError.message}</AlertTitle>
+												</Alert>
+											)}
+											{step === 1 && <MemberWizardStepApplication disabled={submitting} />}
+											{step === 2 && <MemberWizardStepPersonal disabled={submitting} />}
+											{step === 3 && <MemberWizardStepBusiness disabled={submitting} />}
+											{step === 4 && <MemberWizardStepReview onEdit={goDirect} />}{" "}
+										</>
+									)}
+								</div>
 							</div>
-						</div>
 
-						<div data-slot="wizard-footer" className="flex items-center justify-between gap-2 border-t px-4 py-3 sm:px-6">
-							<Button type="button" variant="outline" disabled={step === 1 || submitting} onClick={() => goDirect((step - 1) as WizardStep)}>
-								<HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
-								ย้อนกลับ
-							</Button>
-							{step < 4 ? (
-								<Button type="button" disabled={submitting} onClick={() => void handleNext()}>
-									ถัดไป
-									<HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
+							<div data-slot="wizard-footer" className="flex items-center justify-between gap-2 border-t px-4 py-3 sm:px-6">
+								<Button type="button" variant="outline" disabled={step === 1 || submitting || !detailReady} onClick={() => goDirect((step - 1) as WizardStep)}>
+									<HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+									ย้อนกลับ
 								</Button>
+								{step < 4 ? (
+									<Button type="button" disabled={submitting || !detailReady} onClick={() => void handleNext()}>
+										ถัดไป
+										<HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
+									</Button>
+								) : (
+									<Button
+										type="submit"
+										disabled={submitting || submitArming || !detailReady}
+										aria-busy={submitting}
+										data-slot="wizard-submit"
+										title={submitArming ? "กรุณาตรวจสอบข้อมูลก่อนบันทึก" : undefined}
+									>
+										{submitting && <HugeiconsIcon icon={Loading03Icon} strokeWidth={2} className="animate-spin" data-icon="inline-start" />}
+										{submitting ? "กำลังบันทึก..." : "ยืนยันบันทึกข้อมูล"}
+									</Button>
+								)}
+							</div>
+						</form>
+					</DialogContent>
+				</Dialog>
+
+				<AlertDialog open={closeGuardOpen} onOpenChange={setCloseGuardOpen}>
+					<AlertDialogContent data-slot="wizard-close-guard">
+						<AlertDialogHeader>
+							<AlertDialogTitle>มีข้อมูลที่ยังไม่ได้บันทึก</AlertDialogTitle>
+							{editMode ? (
+								// Edit mode has no draft to save — offering บันทึกฉบับร่าง
+								// would be indistinguishable from ออกโดยไม่บันทึก.
+								<AlertDialogDescription>การแก้ไขที่ยังไม่ได้บันทึกจะสูญหาย</AlertDialogDescription>
 							) : (
+								<AlertDialogDescription>ต้องการบันทึกฉบับร่างไว้ก่อนออกจากหน้านี้หรือไม่?</AlertDialogDescription>
+							)}
+						</AlertDialogHeader>
+						<AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+							{!editMode && <AlertDialogAction onClick={handleSaveDraftAndClose}>บันทึกฉบับร่าง</AlertDialogAction>}
+							<AlertDialogAction onClick={handleDiscardAndClose} className="border-input bg-background text-foreground hover:bg-muted sm:mt-0">
+								ออกโดยไม่บันทึก
+							</AlertDialogAction>
+							<AlertDialogCancel className="sm:mt-0">แก้ไขต่อ</AlertDialogCancel>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+
+				<Dialog open={successOpen} onOpenChange={setSuccessOpen}>
+					<DialogContent data-slot="wizard-success-dialog" className="sm:max-w-md">
+						<div className="flex flex-col items-center gap-3 py-4 text-center">
+							<span className="bg-success/15 text-success flex size-16 items-center justify-center rounded-full">
+								<HugeiconsIcon icon={CheckmarkCircle02Icon} className="size-8" />
+							</span>
+							<DialogTitle className="text-lg font-semibold">{editMode ? "บันทึกการแก้ไขเรียบร้อย" : "ลงทะเบียนสมาชิกเรียบร้อย"}</DialogTitle>
+							<DialogDescription>ข้อมูลของ {successName} ถูกบันทึกลงระบบแล้ว</DialogDescription>
+						</div>
+						<div className="flex flex-col gap-2">
+							<Button type="button" onClick={() => setSuccessOpen(false)}>
+								ดูรายชื่อสมาชิก
+							</Button>
+							{!editMode && (
 								<Button
-									type="submit"
-									disabled={submitting || submitArming}
-									aria-busy={submitting}
-									data-slot="wizard-submit"
-									title={submitArming ? "กรุณาตรวจสอบข้อมูลก่อนบันทึก" : undefined}
+									type="button"
+									variant="outline"
+									onClick={() => {
+										setSuccessOpen(false)
+										onOpenChange(true)
+									}}
 								>
-									{submitting && <HugeiconsIcon icon={Loading03Icon} strokeWidth={2} className="animate-spin" data-icon="inline-start" />}
-									{submitting ? "กำลังบันทึก..." : "ยืนยันบันทึกข้อมูล"}
+									เพิ่มสมาชิกอีกคน
 								</Button>
 							)}
 						</div>
-					</form>
-				</DialogContent>
-			</Dialog>
-
-			<AlertDialog open={closeGuardOpen} onOpenChange={setCloseGuardOpen}>
-				<AlertDialogContent data-slot="wizard-close-guard">
-					<AlertDialogHeader>
-						<AlertDialogTitle>มีข้อมูลที่ยังไม่ได้บันทึก</AlertDialogTitle>
-						<AlertDialogDescription>ต้องการบันทึกฉบับร่างไว้ก่อนออกจากหน้านี้หรือไม่?</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter className="flex-col gap-2 sm:flex-col">
-						<AlertDialogAction onClick={handleSaveDraftAndClose}>บันทึกฉบับร่าง</AlertDialogAction>
-						<AlertDialogAction onClick={handleDiscardAndClose} className="border-input bg-background text-foreground hover:bg-muted sm:mt-0">
-							ออกโดยไม่บันทึก
-						</AlertDialogAction>
-						<AlertDialogCancel className="sm:mt-0">แก้ไขต่อ</AlertDialogCancel>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-
-			<Dialog open={successOpen} onOpenChange={setSuccessOpen}>
-				<DialogContent data-slot="wizard-success-dialog" className="sm:max-w-md">
-					<div className="flex flex-col items-center gap-3 py-4 text-center">
-						<span className="bg-success/15 text-success flex size-16 items-center justify-center rounded-full">
-							<HugeiconsIcon icon={CheckmarkCircle02Icon} className="size-8" />
-						</span>
-						<DialogTitle className="text-lg font-semibold">ลงทะเบียนสมาชิกเรียบร้อย</DialogTitle>
-						<DialogDescription>ข้อมูลของ {successName} ถูกบันทึกลงระบบแล้ว</DialogDescription>
-					</div>
-					<div className="flex flex-col gap-2">
-						<Button type="button" onClick={() => setSuccessOpen(false)}>
-							ดูรายชื่อสมาชิก
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => {
-								setSuccessOpen(false)
-								onOpenChange(true)
-							}}
-						>
-							เพิ่มสมาชิกอีกคน
-						</Button>
-					</div>
-				</DialogContent>
-			</Dialog>
+					</DialogContent>
+				</Dialog>
+			</MemberWizardEditContext.Provider>
 		</FormProvider>
 	)
 }

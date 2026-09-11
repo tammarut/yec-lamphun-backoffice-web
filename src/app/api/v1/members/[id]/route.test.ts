@@ -257,7 +257,8 @@ describe("PATCH /api/v1/members/:id", () => {
 
 		it("maps an ABSENT id_card_no key to idCardNo: null (null-sticky keep)", async () => {
 			mockUpdateService.execute.mockResolvedValue(ok(undefined))
-			const { id_card_no: _omitted, ...bodyWithoutIdCard } = validPatchBody
+			const bodyWithoutIdCard: Record<string, unknown> = { ...validPatchBody }
+			delete bodyWithoutIdCard["id_card_no"]
 			const { req, ctx } = makePatchRequest("101", bodyWithoutIdCard)
 			const response = await PATCH(req, ctx)
 			expect(response.status).toBe(204)

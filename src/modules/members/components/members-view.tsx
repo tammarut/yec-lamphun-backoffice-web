@@ -37,6 +37,7 @@ export function MembersView() {
 	const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(new Set())
 	const [deleteTarget, setDeleteTarget] = useState<MemberListItem | null>(null)
 	const [wizardOpen, setWizardOpen] = useState(false)
+	const [editTarget, setEditTarget] = useState<MemberListItem | null>(null)
 
 	// The view is DERIVED: the user's explicit pick wins; otherwise follow the
 	// breakpoint (card under 768px, table above). Deriving — rather than copying
@@ -202,11 +203,19 @@ export function MembersView() {
 					<p className="text-muted-foreground">ไม่พบข้อมูลสมาชิก</p>
 				</div>
 			) : viewMode === "list" ? (
-				<MembersTable members={members} isAdmin={isAdmin} selectedIds={selectedIds} onToggleOne={toggleOne} onToggleAll={toggleAll} onDeleteClick={setDeleteTarget} />
+				<MembersTable
+					members={members}
+					isAdmin={isAdmin}
+					selectedIds={selectedIds}
+					onToggleOne={toggleOne}
+					onToggleAll={toggleAll}
+					onDeleteClick={setDeleteTarget}
+					onEditClick={setEditTarget}
+				/>
 			) : (
 				// Card view is display-only (the mockup has no card checkboxes):
 				// a table-made selection persists here and still drives Export CSV.
-				<MembersCardGrid members={members} isAdmin={isAdmin} onDeleteClick={setDeleteTarget} />
+				<MembersCardGrid members={members} isAdmin={isAdmin} onDeleteClick={setDeleteTarget} onEditClick={setEditTarget} />
 			)}
 
 			{!isLoading && hasMore && (
@@ -229,6 +238,18 @@ export function MembersView() {
 			/>
 
 			{isAdmin && <MemberWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />}
+
+			{/* Separate instance from the create wizard: one dialog per mode, so the
+			    edit dialog's resolver/prefill/dirty-guard never bleed into a create
+			    session (and the create draft is never at risk from an edit close). */}
+			{isAdmin && editTarget !== null && (
+				<MemberWizardDialog
+					key={`edit-${editTarget.id}`}
+					open={editTarget !== null}
+					onOpenChange={(open) => (open ? undefined : setEditTarget(null))}
+					editMember={{ id: editTarget.id }}
+				/>
+			)}
 		</div>
 	)
 }

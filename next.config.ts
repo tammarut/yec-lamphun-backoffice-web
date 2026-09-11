@@ -10,6 +10,15 @@ const isProduction = appEnv === "production"
 // each environment allow-lists exactly its own host.
 const publicFileOrigin = new URL(envConfig.R2_PUBLIC_BASE_URL).origin
 
+// Private member files (id_card_image, company_certificate) render as
+// presigned URLs minted by GET /api/v1/members/:id against the R2 S3 endpoint
+// host — https://<account>.r2.cloudflarestorage.com (ADR-0002), NOT the public
+// base URL. The edit wizard (3b-edit) shows these previews, so img-src must
+// allow-list that origin too; derived from the same config so each
+// environment allow-lists exactly its own account host. Docker builds need
+// R2_ACCOUNT_ID as a build-arg for the same reason as R2_PUBLIC_BASE_URL.
+const privateFileOrigin = `https://${envConfig.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+
 // Security headers (OWASP recommended)
 const securityHeaders = [
 	{ key: "X-Content-Type-Options", value: "nosniff" },
@@ -21,8 +30,8 @@ const securityHeaders = [
 	{
 		key: "Content-Security-Policy",
 		value: isProduction
-			? `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin}; font-src 'self'; connect-src 'self'; frame-src none; object-src 'none';`
-			: `default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin}; font-src 'self'; connect-src 'self' http://localhost:*`,
+			? `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin} ${privateFileOrigin}; font-src 'self'; connect-src 'self'; frame-src none; object-src 'none';`
+			: `default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin} ${privateFileOrigin}; font-src 'self'; connect-src 'self' http://localhost:*`,
 	},
 ]
 

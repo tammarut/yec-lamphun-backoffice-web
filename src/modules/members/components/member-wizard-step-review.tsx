@@ -5,12 +5,14 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useFormContext } from "react-hook-form"
 
 import { Button } from "src/shared/components/ui/button"
-import { MemberFileThumb } from "src/modules/members/components/member-wizard-file-field"
+import { MemberExistingFileThumb, MemberFileThumb } from "src/modules/members/components/member-wizard-file-field"
+import { useMemberWizardEdit } from "src/modules/members/components/member-wizard-edit-context"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "src/shared/components/ui/card"
 import { GENDER_LABELS, POSITION_LABELS, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
+import { StatusBadge } from "src/modules/members/components/status-badge"
 import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
-import { formatIdCardNo, memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
-import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { formatIdCardNo, formatThaiDate, memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import type { MemberWizardFileFieldName, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import { cn } from "src/shared/lib/utils/utils"
 
 function ReviewRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -23,11 +25,17 @@ function ReviewRow({ label, value }: { label: string; value: React.ReactNode }) 
 	)
 }
 
-/** Thumbnail + filename for a staged Member File; ไม่ได้แนบ renders as plain text upstream. */
-function FileValue({ value }: { value: { file: File | null; existingUrl: string | null } }) {
+/** Thumbnail + filename for a staged or stored Member File; ไม่ได้แนบ renders as plain text upstream. */
+function FileValue({ value, name }: { value: { file: File | null; existingUrl: string | null }; name: MemberWizardFileFieldName }) {
+	const edit = useMemberWizardEdit()
+	const liveUrl = value.file === null ? (edit?.existingUrls[name] ?? null) : null
 	return (
 		<span className="flex items-center gap-2">
-			<MemberFileThumb file={value.file} className="border-border size-10 rounded-md border" />
+			{value.file !== null ? (
+				<MemberFileThumb file={value.file} className="border-border size-10 rounded-md border" />
+			) : liveUrl !== null ? (
+				<MemberExistingFileThumb url={liveUrl} field={name} onError={edit?.onExistingImageError} className="border-border size-10 rounded-md border" />
+			) : null}
 			{memberFileLabel(value)}
 		</span>
 	)
@@ -56,8 +64,13 @@ function ReviewSection({ title, step, onEdit, children }: { title: string; step:
 export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) => void }) {
 	const { getValues } = useFormContext<MemberWizardFormValues>()
 	const values = getValues()
+	const edit = useMemberWizardEdit()
 	const categoriesQuery = useBusinessCategories()
 	const categoryName = categoriesQuery.data?.find((category) => String(category.id) === values.business.category_id)?.category_name ?? "-"
+	// Blank id_card_no in edit mode keeps the stored card — show the Masked ID
+	// Card (display-only, from the detail response) with the คงค่าเดิม hint.
+	const idCardReview =
+		edit !== null && values.id_card_no.trim() === "" ? (edit.maskedIdCardNo !== null ? `${edit.maskedIdCardNo} (คงค่าเดิม)` : "คงค่าเดิม") : formatIdCardNo(values.id_card_no)
 
 	return (
 		<div data-slot="wizard-step-review" className="flex flex-col gap-4">
@@ -68,8 +81,20 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 
 			<ReviewSection title="ข้อมูลการสมัคร" step={1} onEdit={onEdit}>
 				<ReviewRow label="ประเภทการสมัคร" value={REGISTRATION_TYPE_LABELS[values.registration_type] ?? values.registration_type} />
-				<ReviewRow label="หนังสือรับรองบริษัท" value={values.company_certificate.file === null ? "" : <FileValue value={values.company_certificate} />} />
-				<ReviewRow label="สำเนาบัตรประชาชน" value={values.id_card_image.file === null ? "" : <FileValue value={values.id_card_image} />} />
+				<ReviewRow
+					label="หนังสือรับรองบริษัท"
+					value={
+						values.company_certificate.file === null && values.company_certificate.existingUrl === null ? (
+							""
+						) : (
+							<FileValue value={values.company_certificate} name="company_certificate" />
+						)
+					}
+				/>
+				<ReviewRow
+					label="สำเนาบัตรประชาชน"
+					value={values.id_card_image.file === null && values.id_card_image.existingUrl === null ? "" : <FileValue value={values.id_card_image} name="id_card_image" />}
+				/>
 			</ReviewSection>
 
 			<ReviewSection title="ข้อมูลส่วนตัว" step={2} onEdit={onEdit}>
@@ -81,17 +106,33 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 				<ReviewRow label="ชื่อเล่น" value={values.nickname} />
 				<ReviewRow label="เพศ" value={GENDER_LABELS[values.gender] ?? values.gender} />
 				<ReviewRow label="วันเดือนปีเกิด" value={values.date_of_birth} />
-				<ReviewRow label="เลขบัตรประชาชน" value={formatIdCardNo(values.id_card_no)} />
+				<ReviewRow label="เลขบัตรประชาชน" value={idCardReview} />
 				<ReviewRow label="วันหมดอายุบัตร" value={values.id_card_expiry_date} />
 				<ReviewRow label="สัญชาติ" value={values.nationality} />
-				<ReviewRow label="รูปโปรไฟล์" value={values.profile_avatar.file === null ? "" : <FileValue value={values.profile_avatar} />} />
+				<ReviewRow
+					label="รูปโปรไฟล์"
+					value={
+						values.profile_avatar.file === null && values.profile_avatar.existingUrl === null ? "" : <FileValue value={values.profile_avatar} name="profile_avatar" />
+					}
+				/>
 				<ReviewRow label="เบอร์โทรศัพท์" value={values.phone_no} />
 				<ReviewRow label="อีเมล" value={values.email} />
 				<ReviewRow label="Line ID" value={values.line_id} />
 				<ReviewRow label="ไซส์เสื้อ" value={values.shirt_size === "" ? "" : (SHIRT_SIZE_LABELS[values.shirt_size] ?? values.shirt_size)} />
 				<ReviewRow label="ตำแหน่งใน YEC Lamphun" value={POSITION_LABELS[values.position] ?? values.position} />
-				<ReviewRow label="เป็นสมาชิกตั้งแต่" value="ระบบจะคำนวณอัตโนมัติ" />
-				<ReviewRow label="สถานะสมาชิก" value="ระบบจะระบุอัตโนมัติ" />
+				<ReviewRow label="เป็นสมาชิกตั้งแต่" value={edit !== null ? formatThaiDate(edit.renewal.memberSince) : "ระบบจะคำนวณอัตโนมัติ"} />
+				<ReviewRow
+					label="สถานะสมาชิก"
+					value={
+						edit !== null ? (
+							<span className="inline-flex items-center">
+								<StatusBadge status={edit.renewal.status} />
+							</span>
+						) : (
+							"ระบบจะระบุอัตโนมัติ"
+						)
+					}
+				/>
 			</ReviewSection>
 
 			<ReviewSection title="ข้อมูลธุรกิจ" step={3} onEdit={onEdit}>
@@ -106,8 +147,20 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 				<ReviewRow label="รายละเอียดกิจการ" value={values.business.description} />
 				<ReviewRow label="ผลิตภัณฑ์/บริการหลัก" value={values.business.core_business} />
 				<ReviewRow label="Website" value={values.business.website} />
-				<ReviewRow label="โลโก้" value={values.business.logo.file === null ? "" : <FileValue value={values.business.logo} />} />
-				<ReviewRow label="รูปผลิตภัณฑ์" value={values.business.product.file === null ? "" : <FileValue value={values.business.product} />} />
+				<ReviewRow
+					label="โลโก้"
+					value={values.business.logo.file === null && values.business.logo.existingUrl === null ? "" : <FileValue value={values.business.logo} name="business.logo" />}
+				/>
+				<ReviewRow
+					label="รูปผลิตภัณฑ์"
+					value={
+						values.business.product.file === null && values.business.product.existingUrl === null ? (
+							""
+						) : (
+							<FileValue value={values.business.product} name="business.product" />
+						)
+					}
+				/>
 			</ReviewSection>
 		</div>
 	)
