@@ -6,10 +6,10 @@ import { CryptoError, type IBlindIndexService, type IEncryptionService } from "s
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { MemberDetailReadModel } from "src/modules/members/domain/member-read-models"
 import type { IMemberRepository } from "../../interfaces"
-import type { CreateMemberRequest } from "../create-new-member/create-member.types"
 import { MemberConflictError, MemberValidationError } from "../create-new-member/create-member.errors"
 import { MemberNotFoundError } from "../get-member-by-id/get-member-by-id.errors"
 import { UpdateMemberService } from "./update-member.service"
+import type { UpdateMemberRequest } from "./update-member.types"
 
 describe("UpdateMemberService", () => {
 	let service: UpdateMemberService
@@ -84,6 +84,37 @@ describe("UpdateMemberService", () => {
 			// id_card_image / company_certificate resolve to stored doc paths.
 			expect(updatedMember.documents.some((d: { type: string; filePath: string }) => d.type === "ID_CARD")).toBe(true)
 			expect(updatedMember.documents.some((d: { type: string; filePath: string }) => d.type === "COMPANY_CERTIFICATE")).toBe(true)
+		})
+
+		test("null id_card_no keeps the stored cipher + hash (null-sticky, no re-encrypt)", async () => {
+			// Arrange — request sends null: "keep the stored id card".
+			const req = makeRequest({ idCardNo: null })
+
+			// Act
+			const result = await service.execute(101, req)
+
+			// Assert — the aggregate carries the STORED cipher pair verbatim:
+			// no plaintext validation ran, no encrypt/hash round-trip happened,
+			// and the hash equals the stored hash so the conditional duplicate
+			// check sees "unchanged" and skips.
+			expect(result.isOk()).toBe(true)
+			const updatedMember = mockRepo.update.mock.calls[0]![1]
+			expect(updatedMember.idCardNo).toBe("encrypted-ciphertext")
+			expect(updatedMember.idCardNoHash).toBe("stored-hmac-hash")
+			expect(mockEncryption.encrypt).not.toHaveBeenCalled()
+			expect(mockBlindIndex.hash).not.toHaveBeenCalled()
+			expect(mockRepo.countMemberByIdCardHash).not.toHaveBeenCalled()
+		})
+
+		test("a non-null id_card_no still re-validates and re-encrypts", async () => {
+			// Act — a NEW 13-digit number must flow through the normal path.
+			const result = await service.execute(101, makeRequest({ idCardNo: "9876543210987" }))
+
+			// Assert — encrypt + hash ran (same hash as stored by default mock,
+			// so no dup check; the point is the crypto path is live).
+			expect(result.isOk()).toBe(true)
+			expect(mockEncryption.encrypt).toHaveBeenCalledWith("9876543210987")
+			expect(mockBlindIndex.hash).toHaveBeenCalledWith("9876543210987")
 		})
 
 		test("allows changing position to a vacant SINGLE position", async () => {
@@ -345,7 +376,7 @@ function makeReadModel(overrides: Partial<MemberDetailReadModel> = {}): MemberDe
 	}
 }
 
-function makeRequest(overrides: Partial<CreateMemberRequest> = {}): CreateMemberRequest {
+function makeRequest(overrides: Partial<UpdateMemberRequest> = {}): UpdateMemberRequest {
 	return {
 		registrationType: "INDIVIDUAL",
 		companyCertificate: "members/documents/cert-stored.jpg",

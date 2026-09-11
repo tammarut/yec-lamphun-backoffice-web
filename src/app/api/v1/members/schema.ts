@@ -116,6 +116,12 @@ export type CreateMemberSchemaOutput = InferOutput<typeof CreateMemberSchema>
  * "leave existing value unchanged", ADR-0012) are NOT expressed here — they are
  * a service-layer concern, not a structural one. The schema's job ends at
  * types/enums/formats/required-ness, same as POST.
+ *
+ * One structural divergence from POST: `id_card_no` is nullable and optional —
+ * null (or an absent key) means "keep the stored value" (README §8 item 9).
+ * GET /:id returns only the Masked ID Card, so without this divergence every
+ * edit would force re-typing the full 13-digit number. A non-empty string is
+ * still validated (13 digits) by the domain, same as POST.
  */
 export const PatchMemberSchema = object({
 	registration_type: RegistrationTypeSchema,
@@ -132,7 +138,7 @@ export const PatchMemberSchema = object({
 	gender: GenderSchema,
 	date_of_birth: isoDateToDate,
 	nationality: pipe(string(), minLength(1, "nationality is required")),
-	id_card_no: pipe(string(), minLength(1, "id_card_no is required")),
+	id_card_no: optional(union([pipe(string(), minLength(1, "id_card_no is required")), null_()])),
 	id_card_expiry_date: isoDateToDate,
 	phone_no: pipe(string(), minLength(1, "phone_no is required")),
 	email: optional(nullableString),

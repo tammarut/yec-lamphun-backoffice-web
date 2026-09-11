@@ -7,9 +7,9 @@ import { shouldPositionConflict } from "../../domain/position-conflict-policy"
 import type { MemberDocumentType } from "../../domain/member-read-models"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberConflictError, MemberValidationError, type MemberConflictReason } from "../create-new-member/create-member.errors"
-import type { CreateMemberRequest } from "../create-new-member/create-member.types"
 import { MemberNotFoundError } from "../get-member-by-id/get-member-by-id.errors"
 import type { UpdateMemberError } from "./update-member.errors"
+import type { UpdateMemberRequest } from "./update-member.types"
 
 /**
  * Use case: update an existing member by id (PATCH /api/v1/members/:id).
@@ -28,6 +28,10 @@ import type { UpdateMemberError } from "./update-member.errors"
  * business.logo, business.product, the stored value is substituted before
  * building the aggregate, so the UPDATE never nulls them out. From the
  * aggregate's perspective the request always carries concrete file paths.
+ * id_card_no follows the same null-sticky rule (README §8 item 9) but is
+ * resolved differently — the stored value is ciphertext, not plaintext, so it
+ * cannot be substituted into the request; Member.update carries it over via
+ * the preserved cipher instead.
  *
  * Delegates the self-invariants (id_card expiry + format + encrypt, position
  * active, business VO with location swap, document collection) to
@@ -48,7 +52,7 @@ export class UpdateMemberService {
 		@inject(REGISTER_KEY.BLIND_INDEX_SERVICE) private readonly blindIndex: IBlindIndexService
 	) {}
 
-	async execute(id: number, req: CreateMemberRequest): Promise<Result<void, UpdateMemberError>> {
+	async execute(id: number, req: UpdateMemberRequest): Promise<Result<void, UpdateMemberError>> {
 		// 1. Existence check + fetch stored values needed for the conditional
 		//    checks and sticky-file resolution. getMemberDetailById returns
 		//    null for not-found / soft-deleted → 404 (the two are deliberately
@@ -96,13 +100,16 @@ export class UpdateMemberService {
 		}
 
 		// 4. Validate + encrypt + build the updated aggregate, preserving the
-		//    existing member's lifecycle fields (grilling Q4). Self-invariants
-		//    live in Member.update, same as Member.create.
+		//    existing member's lifecycle fields (grilling Q4) and — when the
+		//    request sends null — the stored id-card cipher (null-sticky
+		//    id_card_no, README §8 item 9). Self-invariants live in
+		//    Member.update, same as Member.create.
 		const updatedMember = Member.update(resolvedReq, position, this.encryption, this.blindIndex, new Date(), {
 			memberSince: existing.memberSince,
 			expiresAt: existing.expiresAt,
 			status: existing.status,
 			renewalSuccessfulCount: existing.renewalSuccessfulCount,
+			idCardCipher: { idCardNo: existing.idCardNo, idCardNoHash: existing.idCardNoHash },
 		})
 		if (updatedMember.isErr()) {
 			return err(updatedMember.error)
@@ -170,20 +177,22 @@ export class UpdateMemberService {
  * Resolve the five sticky file-path fields (ADR-0012): when the request sends
  * `null` for any of them, substitute the existing stored value so the aggregate
  * and UPDATE see a concrete path and never null it out. All other fields pass
- * through verbatim (scalars write through, including nulls that clear columns).
+ * through verbatim (scalars write through, including nulls that clear columns;
+ * a null idCardNo passes through unresolved — Member.update handles it via the
+ * preserved cipher).
  *
  * The five sticky fields: profile_avatar, id_card_image, company_certificate,
  * business.logo, business.product.
  */
 function resolveStickyFilePath(
-	req: CreateMemberRequest,
+	req: UpdateMemberRequest,
 	existing: {
 		profileAvatar: string | null
 		idCardImagePath: string | null
 		companyCertificatePath: string | null
 		business: { logoFilePath: string | null; productFilePath: string | null } | null
 	}
-): CreateMemberRequest {
+): UpdateMemberRequest {
 	return {
 		...req,
 		profileAvatar: req.profileAvatar ?? existing.profileAvatar,
@@ -204,7 +213,7 @@ function resolveStickyFilePath(
  * an edit that doesn't touch documents causes no soft-delete churn.
  */
 function computeDocumentTypesToReplace(
-	resolvedReq: CreateMemberRequest,
+	resolvedReq: UpdateMemberRequest,
 	existing: { idCardImagePath: string | null; companyCertificatePath: string | null }
 ): readonly MemberDocumentType[] {
 	const types: MemberDocumentType[] = []

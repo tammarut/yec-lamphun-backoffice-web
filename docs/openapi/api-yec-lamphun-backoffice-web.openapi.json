@@ -307,7 +307,7 @@
 			"patch": {
 				"summary": "Update a member by id (/api/v1/members/:id)",
 				"deprecated": false,
-				"description": "# Update a member by id record from a UI form submission\n> Execute under the same DB transaction\n\nStaff-only endpoint (validates `session_id` cookie via `withAuth`).\nReceives already-uploaded R2 file paths from `POST /api/v1/members/file/upload`.\n\n## PATCH semantics (hybrid, ADR-0012)\n\nThe body is the **full** `CreateNewMemberRequest` object (every key required, identical structure to `POST /api/v1/members`).\n\n- **Scalar fields** (names, phone, email, etc.): always overwritten. A JSON `null` on a nullable scalar **clears** the column (e.g. `email: null` removes the email).\n- The member being edited is EXCLUDED from the check: re-saving their own unchanged phone/email/line_id is not a conflict\n- **File-path fields are sticky on `null`**: the following five fields treat JSON `null` as **\"leave the existing stored value unchanged\"** — sending `null` does NOT clear them:\n  - `profile_avatar`\n  - `id_card_image`\n  - `company_certificate`\n  - `business.logo`\n  - `business.product`\n\nThis prevents a form that doesn't re-upload a file from accidentally wiping an avatar / orphaning an uploaded R2 object. Lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) are **never** modified by PATCH.\n\n## ✍️ Pseudocode\n\n1. Authenticate via `session_id` cookie (`withAuth`) — 401 on failure\n2. Parse path `id` → integer > 0 (400 on invalid)\n3. Parse JSON body; structural-validate via Valibot `PatchMemberSchema` (types, enums, formats, required-ness) — 400 on failure\n4. **Resolve the five sticky file-path fields**: for each of `profile_avatar`, `id_card_image`, `company_certificate`, `business.logo`, `business.product`, if the request sent `null`, substitute the existing stored value\n5. Fetch the existing member by id (`getMemberDetailById`)\n    - Not found / soft-deleted → **404 Not Found** (indistinguishable)\n6. Fetch the requested position by code\n    - Unknown code → **400** (`Unknown position code`)\n7. **Conditional position-conflict check — only if the requested position differs from the stored one**\n    - If unchanged → skip (the member holding their own position is not a conflict)\n    - If changed → count active holders of the target position; if it is a `SINGLE`-cardinality position and someone already holds it → **409 Conflict** (`Position <code> is already held`)\n8. Re-validate self-invariants and rebuild the aggregate (`Member.update`):\n    - `id_card_expiry_date` must not be before today → **400**\n    - `id_card_no` must be 13 digits → **400**\n    - position must be active → **400**\n    - Encrypt `id_card_no` (AES-256-GCM, base64) + hash (HMAC-SHA256, hex)\n    - Swap business `location` `[lat, long]` → `[long, lat]`\n    - Preserve lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) from the existing member\n9. **Conditional duplicate-id_card check — only if the new id_card hash differs from the stored hash**\n    - If unchanged → skip (otherwise the member would conflict with themselves)\n    - If changed → query for an existing member with the new hash; if found → **409 Conflict** (`A member with this ID card already exists`)\n10. **Begin DB transaction** (single transaction for all writes below)\n11. `UPDATE members SET <mutable columns>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`\n    - Omits lifecycle columns (status, member_since, expires_at, renewal_successful_count) — they are preserved\n    - On failure → ROLLBACK → **500**\n12. `UPDATE member_business SET <columns>, updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL`\n    - `location` written in `[long, lat]` order\n    - On failure → ROLLBACK → **500**\n13. **Only for document types whose resolved path DIFFERED from the stored path** (`id_card_image` and/or `company_certificate`):\n    - Soft-delete existing rows: `UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL`\n    - Insert the new row(s) of the replaced type(s)\n    - On failure → ROLLBACK → **500**\n14. **Commit** DB transaction\n15. No response body — **204 No Content**\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/members/:id { payload }\n\n    nextjsapi ->> nextjsapi: withAuth: validate session_id cookie\n    break Unauthorized (missing/invalid session)\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi ->> nextjsapi: Validate id path param (integer > 0) + body (PatchMemberSchema)\n    break Invalid id or body (missing fields, invalid types, bad enums/formats)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi ->> nextjsapi: Resolve 5 sticky file-path fields<br/>(null → keep stored value)\n\n    nextjsapi->>+database: SELECT member + business + docs WHERE id = ?\n    database-->>-nextjsapi: Return member row or null\n\n    break Member id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"not found this member id\" }\n    end\n\n    nextjsapi->>+database: SELECT position WHERE code = ?\n    database-->>-nextjsapi: Return position row or null\n\n    break Unknown position code\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Unknown position code: <code>\" }\n    end\n\n    opt Requested position != stored position\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE position_code = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return holder count\n        break SINGLE position already held by another member\n            nextjsapi-->>browser: 409 Conflict { error_message: \"Position <code> is already held\" }\n        end\n    end\n\n    Note over nextjsapi: Validate self-invariants (Member.update):<br/>- id_card_expiry_date ≥ today<br/>- id_card_no 13 digits<br/>- position active<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Swap location [lat,long] → [long,lat]<br/>- Preserve lifecycle fields (status, member_since,<br/>  expires_at, renewal_successful_count)\n    break Past expiry / bad id_card / inactive position\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    opt New id_card hash != stored id_card hash\n        nextjsapi ->> nextjsapi: Hash input id_card_no (HMAC-SHA256)\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE id_card_no_hash = ?\n        database-->>-nextjsapi: Return count\n        break Found duplicate id_card\n            nextjsapi-->>browser: 409 Conflict { error_message: \"A member with this ID card already exists\" }\n        end\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction\n\n        nextjsapi->>database: BEGIN TRANSACTION\n\n        nextjsapi->>+database: UPDATE members SET <mutable>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi: location already swapped to [long, lat]\n        nextjsapi->>+database: UPDATE member_business SET ..., updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        opt id_card_image and/or company_certificate path CHANGED\n            Note over nextjsapi: Soft-delete ONLY the replaced type(s)\n            nextjsapi->>+database: UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL\n            database-->>-nextjsapi: Return result\n            break Soft-delete fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n            nextjsapi->>+database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n            database-->>-nextjsapi: Return result\n            break Insert fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n        end\n\n        nextjsapi->>+database: COMMIT\n        database-->>-nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 204 No Content (empty body)\n```\n",
+				"description": "# Update a member by id record from a UI form submission\n> Execute under the same DB transaction\n\nStaff-only endpoint (validates `session_id` cookie via `withAuth`).\nReceives already-uploaded R2 file paths from `POST /api/v1/members/file/upload`.\n\n## PATCH semantics (hybrid, ADR-0012)\n\nThe body is the **full** `UpdateMemberRequest` object — identical structure to `POST /api/v1/members` (`CreateNewMemberRequest`) except `id_card_no`, which is nullable and optional here.\n\n- **Scalar fields** (names, phone, email, etc.): always overwritten. A JSON `null` on a nullable scalar **clears** the column (e.g. `email: null` removes the email).\n- The member being edited is EXCLUDED from the check: re-saving their own unchanged phone/email/line_id is not a conflict\n- **File-path fields are sticky on `null`**: the following five fields treat JSON `null` as **\"leave the existing stored value unchanged\"** — sending `null` does NOT clear them:\n  - `profile_avatar`\n  - `id_card_image`\n  - `company_certificate`\n  - `business.logo`\n  - `business.product`\n- **`id_card_no` is sticky on `null` (or absent)**: keeps the stored id card. `GET /:id` returns only the Masked ID Card, so the edit form cannot echo the plaintext back — null-stickiness lets an edit save without re-typing the 13-digit number. A non-null value must be 13 digits and replaces the stored card (re-encrypted + re-hashed).\n\nThis prevents a form that doesn't re-upload a file from accidentally wiping an avatar / orphaning an uploaded R2 object. Lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) are **never** modified by PATCH.\n\n## ✍️ Pseudocode\n\n1. Authenticate via `session_id` cookie (`withAuth`) — 401 on failure\n2. Parse path `id` → integer > 0 (400 on invalid)\n3. Parse JSON body; structural-validate via Valibot `PatchMemberSchema` (types, enums, formats, required-ness) — 400 on failure\n4. **Resolve the five sticky file-path fields**: for each of `profile_avatar`, `id_card_image`, `company_certificate`, `business.logo`, `business.product`, if the request sent `null`, substitute the existing stored value (a null `id_card_no` is resolved inside `Member.update` instead — the stored value is ciphertext, so the cipher + hash pair is carried over as-is)\n5. Fetch the existing member by id (`getMemberDetailById`)\n    - Not found / soft-deleted → **404 Not Found** (indistinguishable)\n6. Fetch the requested position by code\n    - Unknown code → **400** (`Unknown position code`)\n7. **Conditional position-conflict check — only if the requested position differs from the stored one**\n    - If unchanged → skip (the member holding their own position is not a conflict)\n    - If changed → count active holders of the target position; if it is a `SINGLE`-cardinality position and someone already holds it → **409 Conflict** (`Position <code> is already held`)\n8. Re-validate self-invariants and rebuild the aggregate (`Member.update`):\n    - `id_card_expiry_date` must not be before today → **400**\n    - `id_card_no` must be 13 digits → **400** (only when a non-null value is sent)\n    - position must be active → **400**\n    - Encrypt `id_card_no` (AES-256-GCM, base64) + hash (HMAC-SHA256, hex) — skipped for `null`; the stored cipher + hash are preserved as-is\n    - Swap business `location` `[lat, long]` → `[long, lat]`\n    - Preserve lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) from the existing member\n9. **Conditional duplicate-id_card check — only if the new id_card hash differs from the stored hash**\n    - If unchanged → skip (otherwise the member would conflict with themselves)\n    - If changed → query for an existing member with the new hash; if found → **409 Conflict** (`A member with this ID card already exists`)\n10. **Begin DB transaction** (single transaction for all writes below)\n11. `UPDATE members SET <mutable columns>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`\n    - Omits lifecycle columns (status, member_since, expires_at, renewal_successful_count) — they are preserved\n    - On failure → ROLLBACK → **500**\n12. `UPDATE member_business SET <columns>, updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL`\n    - `location` written in `[long, lat]` order\n    - On failure → ROLLBACK → **500**\n13. **Only for document types whose resolved path DIFFERED from the stored path** (`id_card_image` and/or `company_certificate`):\n    - Soft-delete existing rows: `UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL`\n    - Insert the new row(s) of the replaced type(s)\n    - On failure → ROLLBACK → **500**\n14. **Commit** DB transaction\n15. No response body — **204 No Content**\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/members/:id { payload }\n\n    nextjsapi ->> nextjsapi: withAuth: validate session_id cookie\n    break Unauthorized (missing/invalid session)\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi ->> nextjsapi: Validate id path param (integer > 0) + body (PatchMemberSchema)\n    break Invalid id or body (missing fields, invalid types, bad enums/formats)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi ->> nextjsapi: Resolve 5 sticky file-path fields<br/>(null → keep stored value)\n\n    nextjsapi->>+database: SELECT member + business + docs WHERE id = ?\n    database-->>-nextjsapi: Return member row or null\n\n    break Member id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"not found this member id\" }\n    end\n\n    nextjsapi->>+database: SELECT position WHERE code = ?\n    database-->>-nextjsapi: Return position row or null\n\n    break Unknown position code\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Unknown position code: <code>\" }\n    end\n\n    opt Requested position != stored position\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE position_code = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return holder count\n        break SINGLE position already held by another member\n            nextjsapi-->>browser: 409 Conflict { error_message: \"Position <code> is already held\" }\n        end\n    end\n\n    Note over nextjsapi: Validate self-invariants (Member.update):<br/>- id_card_expiry_date ≥ today<br/>- id_card_no 13 digits (non-null only; null keeps the stored cipher)<br/>- position active<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Swap location [lat,long] → [long,lat]<br/>- Preserve lifecycle fields (status, member_since,<br/>  expires_at, renewal_successful_count)\n    break Past expiry / bad id_card / inactive position\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    opt New id_card hash != stored id_card hash\n        nextjsapi ->> nextjsapi: Hash input id_card_no (HMAC-SHA256)\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE id_card_no_hash = ?\n        database-->>-nextjsapi: Return count\n        break Found duplicate id_card\n            nextjsapi-->>browser: 409 Conflict { error_message: \"A member with this ID card already exists\" }\n        end\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction\n\n        nextjsapi->>database: BEGIN TRANSACTION\n\n        nextjsapi->>+database: UPDATE members SET <mutable>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi: location already swapped to [long, lat]\n        nextjsapi->>+database: UPDATE member_business SET ..., updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        opt id_card_image and/or company_certificate path CHANGED\n            Note over nextjsapi: Soft-delete ONLY the replaced type(s)\n            nextjsapi->>+database: UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL\n            database-->>-nextjsapi: Return result\n            break Soft-delete fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n            nextjsapi->>+database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n            database-->>-nextjsapi: Return result\n            break Insert fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n        end\n\n        nextjsapi->>+database: COMMIT\n        database-->>-nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 204 No Content (empty body)\n```\n",
 				"tags": ["module_member"],
 				"parameters": [
 					{
@@ -336,7 +336,7 @@
 					"content": {
 						"application/json": {
 							"schema": {
-								"$ref": "#/components/schemas/CreateNewMemberRequest"
+								"$ref": "#/components/schemas/UpdateMemberRequest"
 							},
 							"example": {
 								"registration_type": "JURISTIC_PERSON",
@@ -353,7 +353,7 @@
 								"gender": "MALE",
 								"date_of_birth": "1980-10-19",
 								"nationality": "Thai",
-								"id_card_no": "6134876163390",
+								"id_card_no": null,
 								"id_card_expiry_date": "2036-07-13",
 								"phone_no": "0952532000",
 								"email": "aek_update@airsworld.net",
@@ -3052,6 +3052,147 @@
 					"nickname",
 					"date_of_birth",
 					"id_card_no",
+					"id_card_expiry_date",
+					"phone_no",
+					"business",
+					"gender",
+					"nationality",
+					"position",
+					"company_certificate",
+					"id_card_image",
+					"profile_avatar"
+				]
+			},
+			"UpdateMemberRequest": {
+				"type": "object",
+				"description": "PATCH /api/v1/members/{id} request body. Identical to CreateNewMemberRequest except id_card_no: nullable and optional — null (or absent) keeps the stored value (null-sticky, ADR-0012 extension); 13 digits when provided.",
+				"properties": {
+					"registration_type": {
+						"type": "string",
+						"enum": ["INDIVIDUAL", "JURISTIC_PERSON"],
+						"examples": ["INDIVIDUAL"]
+					},
+					"company_certificate": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg"]
+					},
+					"id_card_image": {
+						"type": ["string", "null"],
+						"examples": ["members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg"]
+					},
+					"profile_avatar": {
+						"type": ["string", "null"],
+						"examples": ["members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg"]
+					},
+					"title_name_th": {
+						"type": "string",
+						"examples": ["นาง"],
+						"enum": ["นาย", "นางสาว", "นาง", "อื่นๆ"]
+					},
+					"first_name_th": {
+						"type": "string",
+						"examples": ["มาลี"]
+					},
+					"last_name_th": {
+						"type": "string",
+						"examples": ["รักสุข"]
+					},
+					"title_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Mrs."],
+						"enum": ["Mr.", "Mrs.", "Ms.", "Miss"]
+					},
+					"first_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Malee"]
+					},
+					"last_name_en": {
+						"type": ["string", "null"],
+						"examples": ["Raksuk"]
+					},
+					"nickname": {
+						"type": "string",
+						"examples": ["malee"]
+					},
+					"gender": {
+						"type": "string",
+						"enum": ["MALE", "FEMALE", "OTHER"],
+						"examples": ["FEMALE"]
+					},
+					"date_of_birth": {
+						"type": "string",
+						"format": "date",
+						"examples": ["1985-08-20"]
+					},
+					"nationality": {
+						"type": "string",
+						"examples": ["Thai"]
+					},
+					"id_card_no": {
+						"type": ["string", "null"],
+						"description": "Null (or absent) keeps the stored id card (null-sticky); 13 digits when replacing it.",
+						"examples": ["6134876163390"]
+					},
+					"id_card_expiry_date": {
+						"type": "string",
+						"format": "date",
+						"examples": ["2027-08-19"],
+						"description": "id_card_expiry_date must not < today"
+					},
+					"phone_no": {
+						"type": "string",
+						"examples": ["+66877777777"]
+					},
+					"email": {
+						"type": ["string", "null"],
+						"format": "email",
+						"examples": ["malee.r@example.com"]
+					},
+					"line_id": {
+						"type": ["string", "null"],
+						"examples": ["malee.line"]
+					},
+					"shirt_size": {
+						"type": ["string", "null"],
+						"enum": ["SSS", "SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"],
+						"examples": ["M"]
+					},
+					"position": {
+						"type": "string",
+						"enum": [
+							"GENERAL_MEMBER",
+							"PRESIDENT",
+							"ADVISORY_BOARD",
+							"SECRETARY",
+							"TREASURER",
+							"ASST_SECRETARY",
+							"LEGAL_COORDINATOR",
+							"VP_ADMIN_INTERNAL",
+							"VP_BUSINESS_INNOVATION",
+							"VP_NETWORK_INTERNATIONAL",
+							"VP_PR_IMAGE",
+							"VP_ACTIVITIES_RELATIONS",
+							"VP_DATA_REGISTRATION",
+							"COMM_ADMIN_INTERNAL",
+							"COMM_BUSINESS_INNOVATION",
+							"COMM_NETWORK_INTERNATIONAL",
+							"COMM_PR_IMAGE",
+							"COMM_ACTIVITIES_RELATIONS",
+							"COMM_DATA_REGISTRATION"
+						],
+						"examples": ["GENERAL_MEMBER"]
+					},
+					"business": {
+						"$ref": "#/components/schemas/CreateNewMemberBusinessRequest"
+					}
+				},
+				"required": [
+					"registration_type",
+					"title_name_th",
+					"first_name_th",
+					"last_name_th",
+					"nickname",
+					"date_of_birth",
 					"id_card_expiry_date",
 					"phone_no",
 					"business",
