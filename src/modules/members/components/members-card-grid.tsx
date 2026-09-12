@@ -1,7 +1,7 @@
 "use client"
 
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Delete02Icon } from "@hugeicons/core-free-icons"
+import { Delete02Icon, Edit01Icon } from "@hugeicons/core-free-icons"
 
 import { fullNameTh, positionLabel } from "src/modules/members/components/member-labels"
 import { MemberContacts } from "src/modules/members/components/member-contacts"
@@ -12,13 +12,15 @@ import { Button } from "src/shared/components/ui/button"
 
 type MembersCardGridProps = {
 	members: readonly MemberListItem[]
-	/** Staff mode: status badge + delete button on hover. */
+	/** Staff mode: status badge + edit/delete buttons on hover. */
 	isAdmin: boolean
 	onDeleteClick: (member: MemberListItem) => void
+	/** Opens the edit wizard (3b-edit) — joins delete on hover. */
+	onEditClick: (member: MemberListItem) => void
 }
 
 /** Member directory card view (mockup card grid): responsive 1–4 columns. */
-export function MembersCardGrid({ members, isAdmin, onDeleteClick }: MembersCardGridProps) {
+export function MembersCardGrid({ members, isAdmin, onDeleteClick, onEditClick }: MembersCardGridProps) {
 	return (
 		<div data-slot="members-card-grid" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 			{members.map((member) => (
@@ -29,7 +31,17 @@ export function MembersCardGrid({ members, isAdmin, onDeleteClick }: MembersCard
 						</div>
 					)}
 					{isAdmin && (
-						<div className="absolute top-3 right-3 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+						<div className="absolute top-3 right-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+							<Button
+								variant="outline"
+								size="icon"
+								className="bg-card size-8 rounded-full shadow-sm"
+								title="แก้ไขข้อมูลสมาชิก"
+								aria-label={`แก้ไขข้อมูลสมาชิก ${fullNameTh(member)}`}
+								onClick={() => onEditClick(member)}
+							>
+								<HugeiconsIcon icon={Edit01Icon} className="size-4" />
+							</Button>
 							<Button
 								variant="outline"
 								size="icon"

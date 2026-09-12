@@ -8,7 +8,6 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { MemberConflictError, MemberValidationError } from "src/modules/members/use-case/create-new-member/create-member.errors"
-import type { CreateMemberRequest } from "src/modules/members/use-case/create-new-member/create-member.types"
 import type { DeleteMemberError } from "src/modules/members/use-case/delete-member/delete-member.errors"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
 import type { GetMemberByIdError } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.errors"
@@ -16,6 +15,7 @@ import { MemberNotFoundError } from "src/modules/members/use-case/get-member-by-
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 import type { UpdateMemberError } from "src/modules/members/use-case/update-member/update-member.errors"
+import type { UpdateMemberRequest } from "src/modules/members/use-case/update-member/update-member.types"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { createLogger } from "src/shared/lib/logger/logger"
 import { PatchMemberSchema, type PatchMemberSchemaOutput } from "../schema"
@@ -69,6 +69,9 @@ export const GET = withAuth<MemberDetailResponse | ResponseBodyError>(async func
 // company_certificate, business.logo, business.product) treat JSON null as
 // "leave existing value unchanged"; all scalar fields write through. The
 // stickiness is enforced in the service, not the schema (ADR-0012).
+// id_card_no follows the same null-sticky rule (README §8 item 9): null (or an
+// absent key) keeps the stored id card — GET /:id returns only the masked
+// value, so a non-sticky PATCH would force re-typing the 13-digit number.
 //
 // Success → 204 No Content (empty body), per spec. Errors → { error_message }.
 // ============================================================================
@@ -188,7 +191,7 @@ function mapDeleteError(error: DeleteMemberError): NextResponse<ResponseBodyErro
 }
 
 /** Map the snake_case Valibot output to the camelCase service DTO. */
-function toServiceRequest(o: PatchMemberSchemaOutput): CreateMemberRequest {
+function toServiceRequest(o: PatchMemberSchemaOutput): UpdateMemberRequest {
 	return {
 		registrationType: o.registration_type,
 		companyCertificate: o.company_certificate,
@@ -204,7 +207,8 @@ function toServiceRequest(o: PatchMemberSchemaOutput): CreateMemberRequest {
 		gender: o.gender,
 		dateOfBirth: o.date_of_birth,
 		nationality: o.nationality,
-		idCardNo: o.id_card_no,
+		// Null-sticky (README §8 item 9): an absent key coalesces to null = keep.
+		idCardNo: o.id_card_no ?? null,
 		idCardExpiryDate: o.id_card_expiry_date,
 		phoneNo: o.phone_no,
 		email: o.email ?? null,

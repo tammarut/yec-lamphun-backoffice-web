@@ -7,8 +7,10 @@ import { useFormContext, useWatch } from "react-hook-form"
 
 import { Button } from "src/shared/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "src/shared/components/ui/field"
+import { useMemberWizardEdit } from "src/modules/members/components/member-wizard-edit-context"
+import { fileLabelFromUrl } from "src/modules/members/schemas/member-wizard-mapping"
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES } from "src/modules/members/member-file.constants"
-import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import type { MemberWizardFileFieldName, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import { cn } from "src/shared/lib/utils/utils"
 
 /** Instant client mirror of the upload route's checks (member-file.constants.ts). */
@@ -57,9 +59,33 @@ export function MemberFileThumb({ file, className }: { file: File | null; classN
 	)
 }
 
+/**
+ * A stored file's remote preview (edit mode): the presigned/public URL from
+ * GET /:id, rendered live from the dialog's detail query — never from form
+ * state, so a refetch with freshly minted URLs re-renders it. `onError`
+ * reports back (expired presign → the dialog refetches; the standalone
+ * presign endpoint is deprecated). Plain `<img>` for the jsdom reason below.
+ */
+export function MemberExistingFileThumb({
+	url,
+	field,
+	onError,
+	className,
+}: {
+	url: string
+	field: MemberWizardFileFieldName
+	onError?: (field: MemberWizardFileFieldName) => void
+	className?: string
+}) {
+	return (
+		// eslint-disable-next-line @next/next/no-img-element -- remote presigned URL; next/image adds nothing
+		<img src={url} alt="" data-slot="member-existing-thumb" className={cn("object-cover", className)} onError={() => onError?.(field)} />
+	)
+}
+
 type MemberWizardFileFieldProps = {
 	/** RHF field path of the `{ file, existingUrl }` pair. */
-	name: "company_certificate" | "id_card_image" | "profile_avatar" | "business.logo" | "business.product"
+	name: MemberWizardFileFieldName
 	label: string
 	helper?: string
 	required?: boolean
@@ -75,6 +101,12 @@ type MemberWizardFileFieldProps = {
  * card (thumbnail + เปลี่ยนไฟล์ / ลบไฟล์) once a file is staged. The actual
  * upload happens at submit (uploads-first, one multipart POST) — this
  * component only stages the File in form state.
+ *
+ * Edit mode: a stored file renders from its resolved URL (live via the edit
+ * context) and is REPLACE-ONLY — PATCH cannot clear a file path (ADR-0012
+ * null = keep), so no ลบ action is offered while the stored file shows.
+ * Unstaging a newly picked file reverts to the stored preview (the pair
+ * returns to its pre-fill value, so dirty-tracking goes back to pristine).
  */
 export function MemberWizardFileField({ name, label, helper, required = false, variant = "document", disabled = false }: MemberWizardFileFieldProps) {
 	const inputId = useId()
@@ -83,6 +115,11 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 	const error = formState.errors[name as keyof MemberWizardFormValues]
 	const fileValue = useWatch({ name })
 	const fileName = fileValue?.file?.name ?? null
+	const edit = useMemberWizardEdit()
+	// The LIVE resolved URL from the detail query — form state keeps only the
+	// pre-fill snapshot for dirty-tracking and the juristic-certificate rule.
+	const liveExistingUrl = fileValue?.file === null ? (edit?.existingUrls[name] ?? null) : null
+	const showingExisting = liveExistingUrl !== null
 
 	function handleFileChange(file: File | undefined) {
 		if (!file) {
@@ -98,7 +135,9 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 	}
 
 	function handleRemove() {
-		setValue(name, { file: null, existingUrl: null }, { shouldDirty: true })
+		// Edit: unstaging reverts to the STORED file (replace-only — PATCH
+		// cannot clear it), restoring the pre-fill pair exactly.
+		setValue(name, { file: null, existingUrl: edit?.existingUrls[name] ?? null }, { shouldDirty: true })
 		void trigger(name)
 	}
 
@@ -139,7 +178,15 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 							"hover:border-primary/50"
 						)}
 					>
-						<MemberFileThumb file={fileValue?.file ?? null} className="size-full" />
+						{fileValue?.file !== null ? (
+							<MemberFileThumb file={fileValue?.file ?? null} className="size-full" />
+						) : showingExisting && liveExistingUrl !== null ? (
+							<MemberExistingFileThumb url={liveExistingUrl} field={name} onError={edit?.onExistingImageError} className="size-full" />
+						) : (
+							<span data-slot="member-file-thumb-fallback" className="bg-muted text-muted-foreground flex size-full items-center justify-center">
+								<HugeiconsIcon icon={Image01Icon} className="size-1/2" />
+							</span>
+						)}
 						<span className="bg-primary/90 text-primary-foreground absolute right-1 bottom-1 flex size-8 items-center justify-center rounded-full">
 							<HugeiconsIcon icon={Camera01Icon} className="size-4" />
 						</span>
@@ -147,7 +194,7 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 					<div className="flex flex-col items-start gap-1">
 						<Button type="button" variant="outline" size="sm" disabled={disabled} onClick={pick}>
 							<HugeiconsIcon icon={Upload04Icon} className="size-4" />
-							เลือกรูปโปรไฟล์
+							{showingExisting ? "เปลี่ยนรูปโปรไฟล์" : "เลือกรูปโปรไฟล์"}
 						</Button>
 						{fileName !== null && (
 							<Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={handleRemove}>
@@ -157,7 +204,7 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 						)}
 					</div>
 				</div>
-			) : fileName === null ? (
+			) : fileName === null && !showingExisting ? (
 				<button
 					type="button"
 					onClick={pick}
@@ -173,20 +220,32 @@ export function MemberWizardFileField({ name, label, helper, required = false, v
 				</button>
 			) : (
 				<div data-slot="member-file-selected" className={cn("flex w-full items-center gap-4 rounded-xl border p-3", error ? "border-destructive" : "border-border")}>
-					<MemberFileThumb file={fileValue?.file ?? null} className="border-border size-24 rounded-lg border" />
+					{fileValue?.file !== null ? (
+						<MemberFileThumb file={fileValue?.file ?? null} className="border-border size-24 rounded-lg border" />
+					) : (
+						liveExistingUrl !== null && (
+							<MemberExistingFileThumb url={liveExistingUrl} field={name} onError={edit?.onExistingImageError} className="border-border size-24 rounded-lg border" />
+						)
+					)}
 					<div className="flex min-w-0 flex-1 flex-col gap-2">
-						<span className="text-foreground truncate text-sm font-medium" title={fileName}>
-							{fileName}
+						<span
+							className="text-foreground truncate text-sm font-medium"
+							title={fileName ?? (liveExistingUrl !== null ? fileLabelFromUrl(liveExistingUrl) : undefined)}
+						>
+							{fileName ?? (liveExistingUrl !== null ? fileLabelFromUrl(liveExistingUrl) : "")}
 						</span>
 						<div className="flex flex-wrap gap-2">
 							<Button type="button" variant="outline" size="sm" disabled={disabled} onClick={pick}>
 								<HugeiconsIcon icon={Upload04Icon} className="size-4" />
 								เปลี่ยนไฟล์
 							</Button>
-							<Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={handleRemove}>
-								<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
-								ลบไฟล์
-							</Button>
+							{/* Replace-only in edit: a stored file path cannot be cleared via PATCH (null = keep), so no ลบไฟล์ while the stored file shows. */}
+							{fileName !== null && (
+								<Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={handleRemove}>
+									<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+									ลบไฟล์
+								</Button>
+							)}
 						</div>
 					</div>
 				</div>

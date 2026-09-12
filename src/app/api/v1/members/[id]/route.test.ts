@@ -246,6 +246,24 @@ describe("PATCH /api/v1/members/:id", () => {
 			// The service receives the parsed integer id + the DTO.
 			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ registrationType: "INDIVIDUAL" }))
 		})
+
+		it("maps a JSON-null id_card_no to idCardNo: null (null-sticky keep)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, id_card_no: null })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ idCardNo: null }))
+		})
+
+		it("maps an ABSENT id_card_no key to idCardNo: null (null-sticky keep)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const bodyWithoutIdCard: Record<string, unknown> = { ...validPatchBody }
+			delete bodyWithoutIdCard["id_card_no"]
+			const { req, ctx } = makePatchRequest("101", bodyWithoutIdCard)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ idCardNo: null }))
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -286,6 +304,14 @@ describe("PATCH /api/v1/members/:id", () => {
 			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, first_name_th: undefined })
 			const response = await PATCH(req, ctx)
 			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when id_card_no is an empty string (null-sticky accepts null, not blank)", async () => {
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, id_card_no: "" })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("id_card_no is required")
 		})
 
 		it("returns 404 when the member is not found", async () => {

@@ -1,12 +1,15 @@
+import type { MemberStatus } from "src/modules/members/components/members-types"
 import type { MemberFileValue, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 
 /**
  * The explicit form↔wire mapping layer between `MemberWizardFormValues` and
- * the JSON body of POST /api/v1/members (mirrors `CreateMemberSchema`):
- * uploaded file paths replace the `{ file, existingUrl }` pairs, lat/long
- * strings parse into the wire `[lat, long]` pair, empty optionals become
- * JSON null, and `shirt_size` — which the API accepts only as a valid enum
- * value or absent — is omitted entirely when unset.
+ * the JSON bodies of POST / PATCH /api/v1/members (mirrors the server
+ * schemas): uploaded file paths replace the `{ file, existingUrl }` pairs,
+ * lat/long strings parse into the wire `[lat, long]` pair, empty optionals
+ * become JSON null, and `shirt_size` — which the API accepts only as a valid
+ * enum value or absent — is omitted entirely when unset. The edit direction
+ * (GET /:id → form values) lives in `memberDetailToFormValues` below.
  */
 
 /** The five `*_file_path` keys of POST /api/v1/members/file/upload's response that member creation consumes. */
@@ -68,6 +71,11 @@ function locationOrNull(values: MemberWizardFormValues): [number, number] | null
 	return [Number(latitude), Number(longitude)]
 }
 
+/** The PATCH /api/v1/members/{id} request body — the create payload with the null-sticky id_card_no. */
+export type UpdateMemberApiPayload = Omit<CreateMemberApiPayload, "id_card_no"> & {
+	id_card_no: string | null
+}
+
 export function buildCreatePayload(values: MemberWizardFormValues, uploads: UploadedFilePaths | null): CreateMemberApiPayload {
 	return {
 		registration_type: values.registration_type,
@@ -107,6 +115,22 @@ export function buildCreatePayload(values: MemberWizardFormValues, uploads: Uplo
 }
 
 /**
+ * The edit-mode payload (PATCH): identical to the create payload except
+ * `id_card_no` — blank submits null, which the API's null-sticky rule
+ * resolves to "keep the stored card" (GET /:id exposes only the masked
+ * value, so the form can never echo the plaintext back).
+ *
+ * File paths reuse the create helper unchanged: a changed file rides the
+ * upload response's path, an unchanged/absent file sends null (sticky keep).
+ */
+export function buildUpdatePayload(values: MemberWizardFormValues, uploads: UploadedFilePaths | null): UpdateMemberApiPayload {
+	return {
+		...buildCreatePayload(values, uploads),
+		id_card_no: values.id_card_no.trim() === "" ? null : values.id_card_no.trim(),
+	}
+}
+
+/**
  * Auto-computed readonly อายุ label ("X ปี Y เดือน", months only under a
  * year) from a date-of-birth ISO string; "" when unset/unparseable. The
  * day-of-month borrow keeps "2 days before the birthday" at 11 months.
@@ -134,9 +158,107 @@ export function computeAgeLabel(dateOfBirthIso: string, now: Date = new Date()):
 	return `${years} ปี ${remainingMonths} เดือน`
 }
 
-/** Human label for a Member File field in review/summaries: file name or "ไม่ได้แนบ". */
+/** Filename of a stored Member File, decoded from its (presigned or public) URL; "ไฟล์เดิม" when undecodable. */
+export function fileLabelFromUrl(url: string): string {
+	try {
+		const path = new URL(url).pathname
+		const name = decodeURIComponent(
+			path
+				.split("/")
+				.filter((segment) => segment !== "")
+				.at(-1) ?? ""
+		)
+		return name === "" ? "ไฟล์เดิม" : name
+	} catch {
+		return "ไฟล์เดิม"
+	}
+}
+
+/** Human label for a Member File field in review/summaries: staged name, stored filename, or "ไม่ได้แนบ". */
 export function memberFileLabel(value: MemberFileValue): string {
-	return value.file?.name ?? "ไม่ได้แนบ"
+	if (value.file !== null) {
+		return value.file.name
+	}
+	return value.existingUrl !== null ? fileLabelFromUrl(value.existingUrl) : "ไม่ได้แนบ"
+}
+
+/** Thai short-date display for a membership timestamp (renewal block / review). */
+export function formatThaiDate(isoDateTime: string): string {
+	const date = new Date(isoDateTime)
+	if (Number.isNaN(date.getTime())) {
+		return "-"
+	}
+	return date.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })
+}
+
+/** ระยะเวลาการเป็นสมาชิก label, computed from member_since ("X ปี Y เดือน"; "-" when unparseable). */
+export function membershipDurationLabel(memberSinceIso: string, now: Date = new Date()): string {
+	const label = computeAgeLabel(memberSinceIso.slice(0, 10), now)
+	return label === "" ? "-" : label
+}
+
+/**
+ * The edit-mode pre-fill (GET /:id → form values), the inverse of the payload
+ * builders above:
+ * - `id_card_no` maps to "" — the Masked ID Card NEVER enters form state; a
+ *   blank submits null and the API keeps the stored card (null-sticky).
+ * - `phone_no` runs through `formatPhoneNumber`, which is idempotent: legacy
+ *   rows arrive mixed digits/dashes and re-format to the canonical dashed
+ *   form, which is itself the stored value (submit keeps the dashes).
+ * - `business.location` arrives `[long, lat]` (storage order) and splits into
+ *   the two string inputs; the payload builders write back `[lat, long]`.
+ * - File fields slot the resolved URLs into `{ file: null, existingUrl }` —
+ *   private files carry 1-hour presigned URLs minted by GET /:id.
+ * - Null optionals become the "" sentinel; `shirt_size`/`category_id` map to
+ *   their string form values.
+ */
+export function memberDetailToFormValues(detail: MemberDetailResponse): MemberWizardFormValues {
+	const existingFile = (url: string | null): MemberFileValue => ({ file: null, existingUrl: url })
+	// The response types the enum-ish columns as plain string; the DB stores
+	// the same enum domains the server validated on write, so the cast is the
+	// honest statement of that invariant at the mapping boundary.
+	return {
+		registration_type: detail.registration_type,
+		company_certificate: existingFile(detail.company_certificate),
+		id_card_image: existingFile(detail.id_card_image),
+		profile_avatar: existingFile(detail.profile_avatar),
+		title_name_th: detail.title_name_th as MemberWizardFormValues["title_name_th"],
+		first_name_th: detail.first_name_th,
+		last_name_th: detail.last_name_th,
+		title_name_en: (detail.title_name_en ?? "") as MemberWizardFormValues["title_name_en"],
+		first_name_en: detail.first_name_en ?? "",
+		last_name_en: detail.last_name_en ?? "",
+		nickname: detail.nickname,
+		gender: detail.gender,
+		date_of_birth: detail.date_of_birth,
+		nationality: detail.nationality,
+		id_card_no: "",
+		id_card_expiry_date: detail.id_card_expiry_date,
+		phone_no: formatPhoneNumber(detail.phone_no),
+		email: detail.email ?? "",
+		line_id: detail.line_id ?? "",
+		shirt_size: (detail.shirt_size ?? "") as MemberWizardFormValues["shirt_size"],
+		position: detail.position as MemberWizardFormValues["position"],
+		business: {
+			name: detail.business.name,
+			juristic_registration_no: detail.business.juristic_registration_no,
+			category_id: String(detail.business.category_id),
+			address: detail.business.address ?? "",
+			latitude: detail.business.location === null ? "" : String(detail.business.location[1]),
+			longitude: detail.business.location === null ? "" : String(detail.business.location[0]),
+			description: detail.business.description,
+			core_business: detail.business.core_business ?? "",
+			website: detail.business.website ?? "",
+			logo: existingFile(detail.business.logo),
+			product: existingFile(detail.business.product),
+		},
+	}
+}
+
+/** The renewal block's read-only display data in edit mode (renewal-owned, card 04). */
+export type MemberRenewalDisplay = {
+	memberSince: string
+	status: MemberStatus
 }
 
 /**

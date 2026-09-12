@@ -9,8 +9,10 @@ import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet 
 import { Input } from "src/shared/components/ui/input"
 import { MemberComboboxSelect } from "src/modules/members/components/member-combobox-select"
 import { GENDER_LABELS, POSITION_LABELS, SHIRT_SIZE_LABELS, SINGLE_CARDINALITY_POSITIONS } from "src/modules/members/components/member-labels"
+import { StatusBadge } from "src/modules/members/components/status-badge"
+import { useMemberWizardEdit } from "src/modules/members/components/member-wizard-edit-context"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
-import { computeAgeLabel, formatIdCardNo, formatPhoneNumber } from "src/modules/members/schemas/member-wizard-mapping"
+import { computeAgeLabel, formatIdCardNo, formatPhoneNumber, formatThaiDate, membershipDurationLabel } from "src/modules/members/schemas/member-wizard-mapping"
 import { DB_MAX_LENGTHS, GENDERS, POSITIONS, SHIRT_SIZES, TITLES_EN, TITLES_TH, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 function TextField({
@@ -115,6 +117,7 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 	const ageLabel = computeAgeLabel(watch("date_of_birth"))
 	const position = watch("position")
 	const restrictedPosition = SINGLE_CARDINALITY_POSITIONS.has(position)
+	const edit = useMemberWizardEdit()
 
 	return (
 		<FieldSet data-slot="wizard-step-personal" className="gap-8">
@@ -164,7 +167,9 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Field data-invalid={formState.errors.id_card_no ? true : undefined}>
 						<FieldLabel htmlFor="wizard-id_card_no">
-							เลขบัตรประชาชน (13 หลัก)<span className="text-destructive">*</span>
+							เลขบัตรประชาชน (13 หลัก)
+							{/* Edit mirrors the PATCH contract: blank = keep the stored card (null-sticky), so the field is optional there. */}
+							{edit === null && <span className="text-destructive">*</span>}
 						</FieldLabel>
 						<Controller
 							control={control}
@@ -188,6 +193,7 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 							)}
 						/>
 						<FieldError errors={[formState.errors.id_card_no]} />
+						{edit !== null && !formState.errors.id_card_no && <FieldDescription>ปล่อยว่างเพื่อคงค่าเดิม</FieldDescription>}
 					</Field>
 					<Field data-invalid={formState.errors.id_card_expiry_date ? true : undefined}>
 						<FieldLabel htmlFor="wizard-id_card_expiry_date">
@@ -210,24 +216,43 @@ export function MemberWizardStepPersonal({ disabled = false }: { disabled?: bool
 				<div className="bg-muted/40 grid gap-4 rounded-xl p-4 sm:grid-cols-3">
 					<Field>
 						<FieldLabel htmlFor="wizard-renewal-since">เป็นสมาชิกตั้งแต่</FieldLabel>
-						<Input id="wizard-renewal-since" disabled placeholder="ระบบจะระบุอัตโนมัติ" />
+						<Input
+							id="wizard-renewal-since"
+							disabled
+							placeholder="ระบบจะระบุอัตโนมัติ"
+							readOnly={edit !== null}
+							value={edit !== null ? formatThaiDate(edit.renewal.memberSince) : undefined}
+						/>
 					</Field>
 					<Field>
 						<FieldLabel htmlFor="wizard-renewal-duration">ระยะเวลาการเป็นสมาชิก</FieldLabel>
-						<Input id="wizard-renewal-duration" disabled placeholder="ระบบจะคำนวณอัตโนมัติ" />
+						<Input
+							id="wizard-renewal-duration"
+							disabled
+							placeholder="ระบบจะคำนวณอัตโนมัติ"
+							readOnly={edit !== null}
+							value={edit !== null ? membershipDurationLabel(edit.renewal.memberSince) : undefined}
+						/>
 					</Field>
 					<Field>
 						<FieldLabel htmlFor="wizard-renewal-status">สถานะสมาชิก</FieldLabel>
 						<div className="flex h-9 items-center">
-							<Badge id="wizard-renewal-status" variant="outline" className="text-muted-foreground bg-muted border-transparent">
-								ระบบจะระบุอัตโนมัติ
-							</Badge>
+							{edit !== null ? (
+								<StatusBadge status={edit.renewal.status} />
+							) : (
+								<Badge id="wizard-renewal-status" variant="outline" className="text-muted-foreground bg-muted border-transparent">
+									ระบบจะระบุอัตโนมัติ
+								</Badge>
+							)}
 						</div>
 					</Field>
 					<FieldDescription className="sm:col-span-3">
 						<span className="inline-flex items-center gap-1.5">
 							<HugeiconsIcon icon={LockKeyIcon} className="size-4" />
-							ข้อมูลการต่ออายุและสถานะสมาชิกจะถูกจัดการผ่านระบบการต่ออายุโดยอัตโนมัติ
+							{edit !== null
+								? // Edit lock note (mockup v2): the renewal flow (card 04) owns these values.
+									'ข้อมูลการต่ออายุและสถานะจัดการผ่านหน้า "ต่ออายุสมาชิก" เท่านั้น เพื่อให้ระบบคำนวณจากหลักฐานการชำระเงิน'
+								: "ข้อมูลการต่ออายุและสถานะสมาชิกจะถูกจัดการผ่านระบบการต่ออายุโดยอัตโนมัติ"}
 						</span>
 					</FieldDescription>
 				</div>

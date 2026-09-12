@@ -3,6 +3,7 @@ import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/
 import { CryptoError } from "src/modules/shared/crypto"
 import { computeMembershipExpiry } from "src/modules/shared/membership/membership-expiry"
 import type { CreateMemberRequest } from "../use-case/create-new-member/create-member.types"
+import type { UpdateMemberRequest } from "../use-case/update-member/update-member.types"
 import { MemberValidationError } from "./errors"
 import type { IdCardCipher } from "./id-card"
 import { IdCard } from "./id-card"
@@ -277,13 +278,18 @@ export class Member {
 	 *
 	 * Owns the SAME self-invariants as {@link create}:
 	 *   - id_card_expiry_date must not be before today
-	 *   - id_card_no must be 13 digits (then re-encrypted + re-hashed)
+	 *   - id_card_no must be 13 digits (then re-encrypted + re-hashed) — unless
+	 *     `req.idCardNo` is null, which carries over `preserved.idCardCipher`
+	 *     verbatim (null-sticky id_card_no, README §8 item 9; GET /:id exposes
+	 *     only the masked value, so "keep" cannot be re-derived from plaintext)
 	 *   - position must be active
 	 *   - business VO is created (owns the [lat,long]→[long,lat] swap)
 	 *   - documents are collected from the request file paths
 	 *
 	 * Does NOT own cross-member rules (duplicate id_card, occupied SINGLE
-	 * position) — those live in the update use case, same as create.
+	 * position) — those live in the update use case, same as create. A carried-
+	 * over cipher hashes identically to the stored one, so the use case's
+	 * conditional duplicate-id_card check skips it without special-casing.
 	 *
 	 * The caller (update use case) is responsible for the PATCH-semantics
 	 * resolution: by the time `req` reaches here, the five sticky file-path
@@ -296,7 +302,7 @@ export class Member {
 	 * member; everything else is taken from `req`.
 	 */
 	static update(
-		req: CreateMemberRequest,
+		req: UpdateMemberRequest,
 		position: PositionReadModel,
 		encryption: IEncryptionService,
 		blindIndex: IBlindIndexService,
@@ -306,6 +312,7 @@ export class Member {
 			expiresAt: Date | null
 			status: MemberProps["status"]
 			renewalSuccessfulCount: number
+			idCardCipher: IdCardCipher
 		}
 	): Result<Member, MemberValidationError | CryptoError> {
 		// Self-invariant: id_card must not already be expired.
@@ -319,12 +326,12 @@ export class Member {
 			return err(new MemberValidationError(`Position ${position.code} is not active`))
 		}
 
-		// Self-invariant: id_card format, then encrypt + hash.
-		const idCardResult = IdCard.fromPlaintext(req.idCardNo)
-		if (idCardResult.isErr()) {
-			return err(idCardResult.error)
-		}
-		const cipherIdCardNoResult = idCardResult.value.toCipher(encryption, blindIndex)
+		// Self-invariant: id_card format, then encrypt + hash. Null = null-sticky
+		// keep — the stored cipher+hash pair is carried over as-is (no decrypt
+		// round-trip, no re-encrypt; the hash equals the stored hash, so the
+		// update use case's conditional duplicate check sees "unchanged").
+		const cipherIdCardNoResult =
+			req.idCardNo === null ? ok(preserved.idCardCipher) : IdCard.fromPlaintext(req.idCardNo).andThen((idCard) => idCard.toCipher(encryption, blindIndex))
 		if (cipherIdCardNoResult.isErr()) {
 			return err(cipherIdCardNoResult.error)
 		}
@@ -389,7 +396,7 @@ export class Member {
 }
 
 /** Collect the document VOs implied by the request (ID_CARD + COMPANY_CERTIFICATE). */
-function collectDocuments(req: CreateMemberRequest): readonly MemberDocument[] {
+function collectDocuments(req: UpdateMemberRequest): readonly MemberDocument[] {
 	const docs: MemberDocument[] = []
 	if (req.idCardImage) {
 		docs.push(MemberDocument.create("ID_CARD" satisfies MemberDocumentType, req.idCardImage))

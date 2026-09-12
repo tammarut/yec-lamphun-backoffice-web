@@ -1,7 +1,7 @@
 "use client"
 
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Delete02Icon } from "@hugeicons/core-free-icons"
+import { Delete02Icon, Edit01Icon } from "@hugeicons/core-free-icons"
 
 import { fullNameTh, positionLabel } from "src/modules/members/components/member-labels"
 import { MemberContacts } from "src/modules/members/components/member-contacts"
@@ -21,13 +21,15 @@ type MembersTableProps = {
 	onToggleOne: (id: number, checked: boolean) => void
 	onToggleAll: (checked: boolean) => void
 	onDeleteClick: (member: MemberListItem) => void
+	/** Opens the edit wizard (3b-edit) — stacked beside delete in จัดการ. */
+	onEditClick: (member: MemberListItem) => void
 }
 
 /**
  * Member directory table (mockup list view). Columns: [admin checkbox] ·
  * ชื่อ-สกุล/ตำแหน่ง · ธุรกิจ/กิจการ · รายละเอียดธุรกิจ · ติดต่อ · [admin] จัดการ.
  */
-export function MembersTable({ members, isAdmin, selectedIds, onToggleOne, onToggleAll, onDeleteClick }: MembersTableProps) {
+export function MembersTable({ members, isAdmin, selectedIds, onToggleOne, onToggleAll, onDeleteClick, onEditClick }: MembersTableProps) {
 	const allSelected = members.length > 0 && members.every((member) => selectedIds.has(member.id))
 	const someSelected = members.some((member) => selectedIds.has(member.id))
 
@@ -96,7 +98,17 @@ export function MembersTable({ members, isAdmin, selectedIds, onToggleOne, onTog
 								</TableCell>
 								{isAdmin && (
 									<TableCell className="align-top">
-										<div className="flex justify-end">
+										<div className="mt-2 flex justify-end gap-1">
+											<Button
+												variant="ghost"
+												size="icon"
+												className="text-muted-foreground hover:text-foreground"
+												title="แก้ไขข้อมูลสมาชิก"
+												aria-label={`แก้ไขข้อมูลสมาชิก ${fullNameTh(member)}`}
+												onClick={() => onEditClick(member)}
+											>
+												<HugeiconsIcon icon={Edit01Icon} className="size-4" />
+											</Button>
 											<Button
 												variant="ghost"
 												size="icon"

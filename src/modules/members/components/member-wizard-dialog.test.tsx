@@ -37,7 +37,54 @@ function jsonResponse(status: number, body?: unknown): Response {
 
 type ResponseRouter = (url: string, init?: RequestInit) => Response | undefined
 
-function renderWizard(options: { mobile?: boolean; route?: ResponseRouter; onOpenChange?: (open: boolean) => void } = {}) {
+/** A representative GET /:id detail for the edit wizard — juristic, one of each file state. */
+const EDIT_MEMBER_ID = 101
+const EDIT_DETAIL = {
+	id: EDIT_MEMBER_ID,
+	registration_type: "JURISTIC_PERSON",
+	company_certificate: "https://acct.r2.cloudflarestorage.com/private/members/documents/1_cert.jpg?X-Amz-Signature=abc",
+	id_card_image: null,
+	profile_avatar: "https://r2-public.example/public/members/profile_avatars/2_av.png",
+	title_name_th: "นาย",
+	first_name_th: "ประเสริฐ",
+	last_name_th: "โชคดี",
+	title_name_en: null,
+	first_name_en: "Prasert",
+	last_name_en: null,
+	nickname: "prasert",
+	gender: "MALE",
+	date_of_birth: "1990-05-15",
+	nationality: "ไทย",
+	id_card_no: "632XXXXXX1483",
+	id_card_expiry_date: "2028-12-31",
+	member_since: "2024-01-18T16:00:00.000Z",
+	expires_at: "2025-01-18T23:59:59.000Z",
+	phone_no: "0872492219",
+	email: null,
+	line_id: "prasert.line",
+	shirt_size: null,
+	position: "GENERAL_MEMBER",
+	status: "ACTIVE",
+	created_at: "2024-01-18T16:00:00.000Z",
+	updated_at: "2024-01-18T16:00:00.000Z",
+	business: {
+		id: 14,
+		name: "V Foods",
+		description: "desc",
+		juristic_registration_no: "105557026729",
+		category_id: 1,
+		address: null,
+		location: [100.55, 13.72],
+		core_business: null,
+		website: null,
+		logo: "https://r2-public.example/public/members/business/logo.png",
+		product: null,
+		created_at: "2024-01-18T16:00:00.000Z",
+		updated_at: "2024-01-18T16:00:00.000Z",
+	},
+}
+
+function renderWizard(options: { mobile?: boolean; edit?: boolean; route?: ResponseRouter; onOpenChange?: (open: boolean) => void } = {}) {
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
 		const routed = options.route?.(url, init)
@@ -52,6 +99,12 @@ function renderWizard(options: { mobile?: boolean; route?: ResponseRouter; onOpe
 		}
 		if (url === "/api/v1/members" && init?.method === "POST") {
 			return jsonResponse(201, { id: 42 })
+		}
+		if (url === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH") {
+			return new Response(null, { status: 204 })
+		}
+		if (url === `/api/v1/members/${EDIT_MEMBER_ID}`) {
+			return jsonResponse(200, EDIT_DETAIL)
 		}
 		return jsonResponse(404, { error_message: `unexpected url ${url}` })
 	})
@@ -73,6 +126,7 @@ function renderWizard(options: { mobile?: boolean; route?: ResponseRouter; onOpe
 						onOpenChange(next)
 						setOpen(next)
 					}}
+					{...(options.edit === true ? { editMember: { id: EDIT_MEMBER_ID } } : {})}
 				/>
 			</QueryClientProvider>
 		)
@@ -138,6 +192,19 @@ async function armAndSubmit() {
 	const submitButton = await screen.findByRole("button", { name: "ยืนยันบันทึกข้อมูล" })
 	await waitFor(() => expect((submitButton as HTMLButtonElement).disabled).toBe(false))
 	fireEvent.click(submitButton)
+}
+
+/**
+ * Wait for the edit pre-fill to LAND before navigating: the header title
+ * paints before GET /:id resolves, and rail-jumping on the still-default
+ * form would submit/validate the empty create defaults. The stored
+ * registration_type (juristic) flipping the create-default radio is a
+ * deterministic signal that the reset ran.
+ */
+async function openEditAndWaitForPrefill() {
+	await screen.findByText("แก้ไขข้อมูลสมาชิก")
+	// The RadioGroup renders ARIA radios (no native input) — aria-checked it is.
+	await waitFor(() => expect(screen.getByRole("radio", { name: /นิติบุคคล/ }).getAttribute("aria-checked")).toBe("true"))
 }
 
 async function submitFromReview() {
@@ -611,6 +678,245 @@ describe("MemberWizardDialog", () => {
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 
 			expect(await screen.findByText("โหลดหมวดธุรกิจไม่สำเร็จ")).toBeTruthy()
+		})
+	})
+
+	describe("Edit mode (3b-edit)", () => {
+		it("loads the detail, then pre-fills: title, no autosave badge, free rail, no draft writes", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+
+			expect(await screen.findByText("แก้ไขข้อมูลสมาชิก")).toBeTruthy()
+			expect(screen.queryByText("บันทึกฉบับร่างอัตโนมัติ")).toBeNull()
+			// GET /:id was fetched once for the pre-fill.
+			expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(1)
+			// Free rail: every step clickable straight from step 1.
+			const rail = screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })
+			for (const title of ["ข้อมูลส่วนตัว", "ข้อมูลธุรกิจ", "ตรวจสอบข้อมูล"]) {
+				expect(within(rail).getByText(title).closest("button")?.disabled).toBe(false)
+			}
+			// Edit mode never reads or writes the draft.
+			expect(localStorage.getItem("yec-member-form-draft")).toBeNull()
+		})
+
+		it("pre-fills step 2 with the masked id BLANK + the keep hint, dashed phone, read-only renewal", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			// Free rail: jump straight to step 2 from step 1.
+			fireEvent.click(screen.getByText("ข้อมูลส่วนตัว").closest("button") as Element)
+			await screen.findByPlaceholderText("ชื่อจริง")
+
+			// The Masked ID Card NEVER enters form state — blank + helper, no asterisk.
+			expect(screen.getByLabelText("เลขบัตรประชาชน (13 หลัก)")).toBeTruthy()
+			expect((screen.getByPlaceholderText("x-xxxx-xxxxx-xx-x") as HTMLInputElement).value).toBe("")
+			expect(screen.getByText("ปล่อยว่างเพื่อคงค่าเดิม")).toBeTruthy()
+
+			// Phone pre-fill normalized through the idempotent dashed mask.
+			expect((screen.getByPlaceholderText("xxx-xxx-xxxx") as HTMLInputElement).value).toBe("087-249-2219")
+			expect((screen.getByPlaceholderText("ชื่อจริง") as HTMLInputElement).value).toBe("ประเสริฐ")
+
+			// Renewal block: read-only stored values + the lock note (never inputs to edit).
+			expect(screen.getByText("ปกติ")).toBeTruthy()
+			expect(screen.getByText(/ข้อมูลการต่ออายุและสถานะจัดการผ่านหน้า "ต่ออายุสมาชิก" เท่านั้น/)).toBeTruthy()
+			expect((screen.getByLabelText("เป็นสมาชิกตั้งแต่") as HTMLInputElement).value).not.toBe("")
+			expect((screen.getByLabelText("ระยะเวลาการเป็นสมาชิก") as HTMLInputElement).value).not.toBe("")
+		})
+
+		it("splits business.location [long, lat] into the two inputs on step 3", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			fireEvent.click(screen.getByText("ข้อมูลธุรกิจ").closest("button") as Element)
+			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+
+			expect((screen.getByPlaceholderText("18.5753") as HTMLInputElement).value).toBe("13.72")
+			expect((screen.getByPlaceholderText("99.0094") as HTMLInputElement).value).toBe("100.55")
+			expect((screen.getByPlaceholderText("ชื่อกิจการ/ร้านค้า") as HTMLInputElement).value).toBe("V Foods")
+		})
+
+		it("stored files render presigned previews and are REPLACE-ONLY (no ลบไฟล์)", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			// Step 1 shows the stored juristic certificate as a remote preview…
+			const certThumb = await screen.findByAltText("")
+			expect(certThumb.getAttribute("data-slot")).toBe("member-existing-thumb")
+			expect(certThumb.getAttribute("src")).toContain("1_cert.jpg")
+			// …with เปลี่ยนไฟล์ but NO ลบไฟล์ (PATCH cannot clear a file path).
+			expect(screen.getByRole("button", { name: "เปลี่ยนไฟล์" })).toBeTruthy()
+			expect(screen.queryByRole("button", { name: "ลบไฟล์" })).toBeNull()
+		})
+
+		it("staging then unstaging a file reverts to the stored preview (dirty returns pristine)", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+			await screen.findByAltText("")
+
+			const certInput = document.querySelector('input[type="file"]') as Element
+			fireEvent.change(certInput, { target: { files: [new File(["new-cert"], "new-cert.png", { type: "image/png" })] } })
+			expect(screen.getByRole("button", { name: "ลบไฟล์" })).toBeTruthy()
+
+			// Unstage: back to the stored preview, remove gone again.
+			fireEvent.click(screen.getByRole("button", { name: "ลบไฟล์" }))
+			expect(screen.getByRole("button", { name: "เปลี่ยนไฟล์" })).toBeTruthy()
+			expect(screen.queryByRole("button", { name: "ลบไฟล์" })).toBeNull()
+		})
+
+		it("review shows stored renewal values and the masked id with คงค่าเดิม; a juristic member with a stored cert needs no restaging", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			fireEvent.click(screen.getByText("ตรวจสอบข้อมูล").closest("button") as Element)
+			expect(await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)).toBeTruthy()
+
+			expect(screen.getByText("632XXXXXX1483 (คงค่าเดิม)")).toBeTruthy()
+			// Stored renewal rows (not the create-mode "ระบบจะ..." strings) + badge.
+			expect(screen.queryByText("ระบบจะคำนวณอัตโนมัติ")).toBeNull()
+			expect(screen.queryByText("ระบบจะระบุอัตโนมัติ")).toBeNull()
+			expect(screen.getAllByText("ปกติ").length).toBeGreaterThanOrEqual(1)
+		})
+
+		it("submits the PATCH with null id_card_no and null unchanged file paths; success dialog บันทึกการแก้ไขเรียบร้อย", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+
+			fireEvent.click(screen.getByText("ตรวจสอบข้อมูล").closest("button") as Element)
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			await armAndSubmit()
+
+			expect(await screen.findByText("บันทึกการแก้ไขเรียบร้อย")).toBeTruthy()
+			expect(screen.getByText("ข้อมูลของ นายประเสริฐ โชคดี ถูกบันทึกลงระบบแล้ว")).toBeTruthy()
+			// No เพิ่มสมาชิกอีกคน in edit mode.
+			expect(screen.queryByRole("button", { name: "เพิ่มสมาชิกอีกคน" })).toBeNull()
+
+			const patchCall = fetchMock.mock.calls.find(([url, init]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH")
+			expect(patchCall).toBeDefined()
+			const body = JSON.parse(String(patchCall?.[1]?.body)) as Record<string, unknown>
+			expect(body["id_card_no"]).toBeNull()
+			expect(body["company_certificate"]).toBeNull()
+			expect(body["id_card_image"]).toBeNull()
+			expect(body["profile_avatar"]).toBeNull()
+			expect(body["business"]).toMatchObject({ logo: null, product: null })
+			// No upload POST — nothing changed.
+			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")).toHaveLength(0)
+			// Draft stays untouched by the edit session.
+			expect(localStorage.getItem("yec-member-form-draft")).toBeNull()
+		})
+
+		it("uploads only a CHANGED file, then attaches its returned path to the PATCH", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+
+			// Step 2: replace the profile avatar.
+			fireEvent.click(screen.getByText("ข้อมูลส่วนตัว").closest("button") as Element)
+			await screen.findByPlaceholderText("ชื่อจริง")
+			const avatarInput = document.querySelector('input[type="file"]') as Element
+			fireEvent.change(avatarInput, { target: { files: [new File(["avatar"], "avatar.png", { type: "image/png" })] } })
+
+			fireEvent.click(screen.getByText("ตรวจสอบข้อมูล").closest("button") as Element)
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			await armAndSubmit()
+			await screen.findByText("บันทึกการแก้ไขเรียบร้อย")
+
+			const uploadCalls = fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")
+			expect(uploadCalls).toHaveLength(1)
+			const patchCall = fetchMock.mock.calls.find(([url, init]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH")
+			const body = JSON.parse(String(patchCall?.[1]?.body)) as Record<string, unknown>
+			expect(body["profile_avatar"]).toBe("members/profile_avatars/profile_avatar_X.png")
+			expect(body["company_certificate"]).toBeNull()
+		})
+
+		it("repro: a rapid second click at the 3→4 transition must not submit in edit mode either", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+
+			// Free rail to step 3, then a rapid double-click on ถัดไป.
+			fireEvent.click(screen.getByText("ข้อมูลธุรกิจ").closest("button") as Element)
+			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+			const nextButton = screen.getByRole("button", { name: "ถัดไป" })
+			fireEvent.click(nextButton)
+			fireEvent.click(nextButton)
+
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			expect(fetchMock.mock.calls.filter(([url, init]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH")).toHaveLength(0)
+			expect(screen.queryByText("บันทึกการแก้ไขเรียบร้อย")).toBeNull()
+
+			// A deliberate submit after the arming window still works.
+			await armAndSubmit()
+			await screen.findByText("บันทึกการแก้ไขเรียบร้อย")
+		})
+
+		it("409 contact conflicts map to the same Thai field errors on step 2", async () => {
+			const { fetchMock } = renderWizard({
+				edit: true,
+				route: (url, init) => {
+					if (String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH") {
+						return jsonResponse(409, { error_message: "A member with this phone number already exists" })
+					}
+					return undefined
+				},
+			})
+			await openEditAndWaitForPrefill()
+
+			fireEvent.click(screen.getByText("ตรวจสอบข้อมูล").closest("button") as Element)
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			await armAndSubmit()
+
+			await waitFor(() =>
+				expect(fetchMock.mock.calls.filter(([url, init]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH")).toHaveLength(1)
+			)
+			expect(await screen.findByText("เบอร์โทรศัพท์นี้ถูกใช้โดยสมาชิกคนอื่นแล้ว")).toBeTruthy()
+			expect(screen.getByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")).toBeTruthy()
+			expect(screen.queryByText("บันทึกการแก้ไขเรียบร้อย")).toBeNull()
+		})
+
+		it("dirty guard: editing then closing shows the two-button edit variant; ออกโดยไม่บันทึก closes without touching the draft", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			// Clean close would not confirm; make it dirty first.
+			fireEvent.click(screen.getByText("ข้อมูลส่วนตัว").closest("button") as Element)
+			await screen.findByPlaceholderText("ชื่อจริง")
+			setInput("ประเสริฐมาก", "ชื่อจริง")
+			fireEvent.keyDown(document.body, { key: "Escape" })
+
+			expect(await screen.findByText("มีข้อมูลที่ยังไม่ได้บันทึก")).toBeTruthy()
+			expect(screen.getByText("การแก้ไขที่ยังไม่ได้บันทึกจะสูญหาย")).toBeTruthy()
+			// Edit variant: no บันทึกฉบับร่าง offer.
+			expect(screen.queryByRole("button", { name: "บันทึกฉบับร่าง" })).toBeNull()
+
+			fireEvent.click(screen.getByRole("button", { name: "ออกโดยไม่บันทึก" }))
+			await waitFor(() => expect(screen.queryByText("มีข้อมูลที่ยังไม่ได้บันทึก")).toBeNull())
+			expect(localStorage.getItem("yec-member-form-draft")).toBeNull()
+		})
+
+		it("an expired presigned preview recovers by refetching the detail (once per field)", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+			const thumb = await screen.findByAltText("")
+
+			// The stored preview fails to load (expired presign)…
+			fireEvent.error(thumb)
+			await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(2))
+			// …and the failure does not loop: a second error refetches nothing.
+			fireEvent.error(thumb)
+			await new Promise((resolve) => setTimeout(resolve, 25))
+			expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(2)
+		})
+
+		it("detail load failure shows an inline retry alert instead of a half-prefilled form", async () => {
+			renderWizard({
+				edit: true,
+				route: (url) => {
+					if (String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`) {
+						return jsonResponse(500, { error_message: "Internal Server Error" })
+					}
+					return undefined
+				},
+			})
+
+			expect(await screen.findByText("โหลดข้อมูลสมาชิกไม่สำเร็จ")).toBeTruthy()
+			expect(screen.getByRole("button", { name: "ลองใหม่" })).toBeTruthy()
 		})
 	})
 })

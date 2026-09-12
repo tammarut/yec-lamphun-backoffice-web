@@ -28,7 +28,14 @@ function wizardFileFields(values: MemberWizardFormValues): readonly { value: Mem
 	]
 }
 
-function buildUploadFormData(values: MemberWizardFormValues): FormData | null {
+/**
+ * Collect every staged File into one multipart body (the upload endpoint
+ * rejects an empty request — "At least one file must be provided" — so this
+ * returns null when nothing was picked, and the caller skips the POST).
+ * Shared with the edit flow (use-update-member): it stages only CHANGED
+ * files, so the same builder naturally uploads just those.
+ */
+export function buildUploadFormData(values: MemberWizardFormValues): FormData | null {
 	const form = new FormData()
 	let hasAnyFile = false
 	for (const { value, multipartName } of wizardFileFields(values)) {
@@ -37,8 +44,6 @@ function buildUploadFormData(values: MemberWizardFormValues): FormData | null {
 			hasAnyFile = true
 		}
 	}
-	// The upload endpoint rejects an empty request ("At least one file must be
-	// provided") — skip it entirely when nothing was picked.
 	return hasAnyFile ? form : null
 }
 

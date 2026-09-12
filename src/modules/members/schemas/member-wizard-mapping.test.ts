@@ -1,8 +1,19 @@
 // @vitest-environment node
 import { describe, expect, test } from "vitest"
 
-import { buildCreatePayload, computeAgeLabel, formatIdCardNo, formatPhoneNumber, type UploadedFilePaths } from "src/modules/members/schemas/member-wizard-mapping"
+import {
+	buildCreatePayload,
+	buildUpdatePayload,
+	computeAgeLabel,
+	fileLabelFromUrl,
+	formatIdCardNo,
+	formatPhoneNumber,
+	memberDetailToFormValues,
+	membershipDurationLabel,
+	type UploadedFilePaths,
+} from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 
 const uploads: UploadedFilePaths = {
 	id_card_image_file_path: "members/documents/id_card_image_01ULID.jpg",
@@ -127,6 +138,174 @@ describe("buildCreatePayload", () => {
 			const payload = buildCreatePayload(values, null)
 			expect(payload.first_name_th).toBe("สมชาย")
 		})
+	})
+})
+
+describe("buildUpdatePayload", () => {
+	describe("Happy cases", () => {
+		test("blank id_card_no submits null — the null-sticky keep", () => {
+			const values = makeFormValues()
+			values.id_card_no = ""
+			const payload = buildUpdatePayload(values, null)
+			expect(payload.id_card_no).toBeNull()
+		})
+
+		test("a re-typed id_card_no submits trimmed digits", () => {
+			const values = makeFormValues()
+			values.id_card_no = "9876543210987"
+			const payload = buildUpdatePayload(values, uploads)
+			expect(payload.id_card_no).toBe("9876543210987")
+		})
+
+		test("an unchanged file rides the PATCH as JSON null (ADR-0012 keep)", () => {
+			const values = makeFormValues()
+			// Edit pre-fill shape: nothing staged, stored URLs in the pairs.
+			values.company_certificate = { file: null, existingUrl: "https://presigned/cert.jpg" }
+			values.id_card_image = { file: null, existingUrl: "https://presigned/id.jpg" }
+			values.profile_avatar = { file: null, existingUrl: "https://public/av.png" }
+			values.business.logo = { file: null, existingUrl: "https://public/logo.png" }
+			values.business.product = { file: null, existingUrl: null }
+			const payload = buildUpdatePayload(values, null)
+			expect(payload.company_certificate).toBeNull()
+			expect(payload.id_card_image).toBeNull()
+			expect(payload.profile_avatar).toBeNull()
+			expect(payload.business.logo).toBeNull()
+			expect(payload.business.product).toBeNull()
+		})
+
+		test("a changed file submits the uploaded path (replace)", () => {
+			const values = makeFormValues()
+			values.company_certificate = { file: null, existingUrl: "https://presigned/cert.jpg" }
+			const payload = buildUpdatePayload(values, uploads)
+			expect(payload.company_certificate).toBe("members/documents/company_cert_02ULID.png")
+		})
+	})
+})
+
+function makeDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetailResponse {
+	return {
+		id: 101,
+		registration_type: "JURISTIC_PERSON",
+		company_certificate: "https://acct.r2.cloudflarestorage.com/yec-lamphun-private/members/documents/1_cert.jpg?X-Amz-Signature=abc",
+		id_card_image: null,
+		profile_avatar: "https://r2-public.example/yec-lamphun-public/members/profile_avatars/2_av.png",
+		title_name_th: "นาย",
+		first_name_th: "ประเสริฐ",
+		last_name_th: "โชคดี",
+		title_name_en: null,
+		first_name_en: "Prasert",
+		last_name_en: null,
+		nickname: "prasert",
+		gender: "MALE",
+		date_of_birth: "1990-05-15",
+		nationality: "ไทย",
+		id_card_no: "632XXXXXX1483",
+		id_card_expiry_date: "2028-12-31",
+		member_since: "2024-01-18T16:00:00.000Z",
+		expires_at: "2025-01-18T23:59:59.000Z",
+		phone_no: "0872492219",
+		email: null,
+		line_id: "prasert.line",
+		shirt_size: null,
+		position: "GENERAL_MEMBER",
+		status: "EXPIRED",
+		created_at: "2024-01-18T16:00:00.000Z",
+		updated_at: "2024-01-18T16:00:00.000Z",
+		business: {
+			id: 14,
+			name: "V Foods",
+			description: "desc",
+			juristic_registration_no: "105557026729",
+			category_id: 73,
+			address: null,
+			// Stored in [long, lat] order; the write contract takes [lat, long].
+			location: [100.55, 13.72],
+			core_business: "canned food",
+			website: null,
+			logo: "https://r2-public.example/yec-lamphun-public/members/business/logo.png",
+			product: null,
+			created_at: "2024-01-18T16:00:00.000Z",
+			updated_at: "2024-01-18T16:00:00.000Z",
+		},
+		...overrides,
+	}
+}
+
+describe("memberDetailToFormValues", () => {
+	describe("Happy cases", () => {
+		test('the Masked ID Card NEVER enters form state — id_card_no maps to ""', () => {
+			const values = memberDetailToFormValues(makeDetail())
+			expect(values.id_card_no).toBe("")
+		})
+
+		test("phone pre-fill normalizes through the idempotent dashed mask", () => {
+			const values = memberDetailToFormValues(makeDetail())
+			expect(values.phone_no).toBe("087-249-2219")
+			// Legacy rows arrive mixed digits/dashes and re-format cleanly.
+			const legacy = memberDetailToFormValues(makeDetail({ phone_no: "087-2492219" }))
+			expect(legacy.phone_no).toBe("087-249-2219")
+		})
+
+		test("business.location [long, lat] splits into the two string inputs (write-back swaps)", () => {
+			const values = memberDetailToFormValues(makeDetail())
+			expect(values.business.latitude).toBe("13.72")
+			expect(values.business.longitude).toBe("100.55")
+		})
+
+		test('null optionals become the "" sentinel and category_id becomes a string', () => {
+			const values = memberDetailToFormValues(makeDetail())
+			expect(values.title_name_en).toBe("")
+			expect(values.last_name_en).toBe("")
+			expect(values.email).toBe("")
+			expect(values.shirt_size).toBe("")
+			expect(values.business.category_id).toBe("73")
+			expect(values.business.address).toBe("")
+			expect(values.business.website).toBe("")
+		})
+
+		test("file fields slot their resolved URLs into { file: null, existingUrl }", () => {
+			const values = memberDetailToFormValues(makeDetail())
+			expect(values.company_certificate).toEqual({ file: null, existingUrl: makeDetail().company_certificate })
+			expect(values.id_card_image).toEqual({ file: null, existingUrl: null })
+			expect(values.profile_avatar).toEqual({ file: null, existingUrl: makeDetail().profile_avatar })
+			expect(values.business.logo).toEqual({ file: null, existingUrl: makeDetail().business.logo })
+		})
+
+		test("a null location maps to empty coordinate strings", () => {
+			const detail = { ...makeDetail(), business: { ...makeDetail().business, location: null } }
+			const values = memberDetailToFormValues(detail)
+			expect(values.business.latitude).toBe("")
+			expect(values.business.longitude).toBe("")
+		})
+
+		test("round-trips: pre-fill → buildUpdatePayload keeps the stored phone dashes and category", () => {
+			const values = memberDetailToFormValues(makeDetail())
+			const payload = buildUpdatePayload(values, null)
+			expect(payload.phone_no).toBe("087-249-2219")
+			expect(payload.business.category_id).toBe(73)
+			expect(payload.business.location).toEqual([13.72, 100.55])
+			expect(payload.id_card_no).toBeNull()
+		})
+	})
+})
+
+describe("fileLabelFromUrl", () => {
+	test("decodes the last path segment of a presigned URL", () => {
+		expect(fileLabelFromUrl("https://acct.r2.cloudflarestorage.com/bucket/members/documents/1_cert.jpg?X-Amz-Signature=abc")).toBe("1_cert.jpg")
+	})
+
+	test("falls back to ไฟล์เดิม for unparseable URLs", () => {
+		expect(fileLabelFromUrl("not-a-url")).toBe("ไฟล์เดิม")
+	})
+})
+
+describe("membershipDurationLabel", () => {
+	test("computes from member_since", () => {
+		expect(membershipDurationLabel("2024-01-18T16:00:00.000Z", new Date("2026-03-05T00:00:00"))).toBe("2 ปี 1 เดือน")
+	})
+
+	test("returns - for an unparseable value", () => {
+		expect(membershipDurationLabel("not-a-date")).toBe("-")
 	})
 })
 

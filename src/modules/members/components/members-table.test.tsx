@@ -12,6 +12,7 @@ function renderTable(overrides: Partial<Parameters<typeof MembersTable>[0]> = {}
 		onToggleOne: vi.fn(),
 		onToggleAll: vi.fn(),
 		onDeleteClick: vi.fn(),
+		onEditClick: vi.fn(),
 		...overrides,
 	}
 	render(<MembersTable {...props} />)
