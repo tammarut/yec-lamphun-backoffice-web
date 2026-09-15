@@ -59,8 +59,9 @@ type RenewalStatsProps = {
  * count (`total_expired_members`) is the ADR-0017 superset — the authoritative
  * number the PR 2 worklist deliberately does not badge. The counts are NOT a
  * partition (CONTEXT.md) and are display-only; while pending they render as a
- * skeleton and on error as "–", and the cards stay clickable either way (the
- * area below filters regardless).
+ * skeleton placeholder, and the cards stay clickable (the area below filters
+ * regardless). A stat fetch failure swaps this row for a retry Alert — the
+ * rest of the page keeps working.
  */
 export function RenewalStats({ filter, onSelect }: RenewalStatsProps) {
 	const stat = useRenewalStat()
