@@ -3310,6 +3310,16 @@
 					"member_since": {
 						"type": "string",
 						"format": "date-time"
+					},
+					"rejection_reason": {
+						"type": ["string", "null"],
+						"description": "The rejection reason of the member's latest renewal; null unless that renewal is REJECTED (incl. never-filed).",
+						"examples": ["ชำระค่าบำรุงสมาคมไม่ครบถ้วน"]
+					},
+					"rejected_at": {
+						"type": ["string", "null"],
+						"format": "date-time",
+						"description": "The reviewed_at of the member's latest REJECTED renewal; null under the same rule as rejection_reason."
 					}
 				},
 				"required": [
@@ -3323,7 +3333,9 @@
 					"position",
 					"status",
 					"member_since",
-					"latest_renewal_status"
+					"latest_renewal_status",
+					"rejection_reason",
+					"rejected_at"
 				]
 			},
 			"RenewalResponseListItem": {
@@ -3441,9 +3453,19 @@
 								"type": "string",
 								"format": "uri",
 								"examples": ["https://payment-slip.githubusercontent.com/u/21668556"]
+							},
+							"rejection_reason": {
+								"type": ["string", "null"],
+								"description": "The rejection reason of the member's latest renewal; null unless that renewal is REJECTED.",
+								"examples": ["ชำระค่าบำรุงสมาคมไม่ครบถ้วน"]
+							},
+							"rejected_at": {
+								"type": ["string", "null"],
+								"format": "date-time",
+								"description": "The reviewed_at of the member's latest REJECTED renewal; null under the same rule as rejection_reason."
 							}
 						},
-						"required": ["payment_date_at", "payment_slip", "id"]
+						"required": ["payment_date_at", "payment_slip", "id", "rejection_reason", "rejected_at"]
 					}
 				},
 				"required": ["id", "profile_avatar", "title_name_th", "first_name_th", "last_name_th", "nickname", "phone_no", "position", "business", "renewal"]
