@@ -70,17 +70,24 @@ None expected beyond card 03's set (table, tabs/checkbox, dialog, switch, alert,
 
 **PR split (2026-09-13, user decision): THREE PRs, each reviewed separately.** PR 1 = the backend unit alone (tiny, fastest review, lands the Apidog sync earliest). PR 2 = the read-side UI — the page ships as a live read-only review board (gate, toggle, stats, worklist, tables, slip viewer) with NO write affordances yet. PR 3 = the write flows (form dialog, review dialog, manual renewal) — this PR closes #49. Each PR runs /scrutinize before opening; each branches off main after the previous one merges.
 
+**Split amendment (2026-09-15, user decision):** PR 2 narrowed further — it ships ONLY the sectioned ยังไม่ได้ต่ออายุ worklist (expired endpoint, panel + หมดอายุ table, search, cursor load-more, PR 1's rejection fields). The remaining read-side items — gate + admin เปิด/ปิด toggle, stat cards, the รอตรวจสอบ/ปกติ table, and the slip viewer — move to **PR 2b** (`feature/ui-04d-renewal-read-2b`), which lands before PR 3. Rationale: keep each PR reviewable at PR 1's size; the regular-table/slip-viewer UI pairs naturally with PR 3's dialogs anyway.
+
 ### PR 1 — backend read-model extension (`feature/ui-04a-rejection-fields`, Refs #49)
 
 - Expired list + GET `{member_id}` responses gain `rejection_reason` + `rejected_at` (sqlc read model + service mapping + route tests + service tests).
 - OpenAPI JSON edit + Apidog sync markdown deliverable (user pastes + re-exports per the standing workflow).
 
-### PR 2 — read-side UI (`feature/ui-04b-renewal-read`, Refs #49)
+### PR 2 — read-side UI, expired worklist (`feature/ui-04b-renewal-read`, Refs #49) — scope per the 2026-09-15 amendment
 
-- Gate (closed member state / admin red banner) + admin เปิด/ปิด toggle (PATCH /system-settings, optimistic update) — the only write here, and it's settings, not renewals.
-- Hooks: stat; per-filter lists (regular list keyed by `status` for รอตรวจสอบ/ปกติ, `expired` endpoint for ยังไม่ได้ต่ออายุ) with debounced `search` + cursor (keyset handling copied from card 03, resetQueries on stale-cursor 400); latest-renewal detail.
-- Stat cards; sectioned ยังไม่ได้ต่ออายุ worklist (client-split by `latest_renewal_status`: REJECTED panel incl. the admin เหตุผล line from PR 1's fields + หมดอายุ section with the member_since column + +10 paging); รอตรวจสอบ/ปกติ table; slip viewer (eye action, presigned URL). NO write affordances — ตรวจสอบ/อนุมัติ and ต่ออายุ (Manual) arrive in PR 3.
-- States (skeletons / ไม่พบข้อมูล / error+retry) + responsive (375px stacked cards, horizontally scrollable tables, 768px breakpoint) + tests (worklist split, admin gating, green all-clear, PR 1's fields consumed).
+- Hooks: the `expired` endpoint list with debounced `search` + cursor (useInfiniteQuery pattern copied from card 03's `use-members`; search lives in the query key so pages reset on term change).
+- Sectioned ยังไม่ได้ต่ออายุ worklist (client-split by `latest_renewal_status`: REJECTED panel incl. the admin เหตุผล line from PR 1's fields + หมดอายุ section with the member_since column + +10 reveal paging, hidden while searching); Renewal Status pill (audience-aware REJECTED wording); cursor load-more button; states (skeleton / ไม่พบข้อมูล / error+retry) + responsive (stacked rows under 768px, horizontally scrollable table) + tests (worklist split, admin gating, green all-clear, PR 1's fields consumed).
+- NOT in this PR (→ PR 2b): gate + toggle, stat cards, รอตรวจสอบ/ปกติ table, slip viewer; NOT in this PR (→ PR 3): all row action buttons.
+
+### PR 2b — read-side remainder (`feature/ui-04d-renewal-read-2b`, Refs #49)
+
+- Gate (closed member state / admin red banner) + admin เปิด/ปิด toggle (PATCH /system-settings, optimistic update) — the only write there, and it's settings, not renewals.
+- Hooks: stat; per-filter regular list keyed by `status` (รอตรวจสอบ/ปกติ) with debounced search + cursor; latest-renewal detail.
+- Stat cards; รอตรวจสอบ/ปกติ table; slip viewer (eye action, presigned URL). Still NO renewal write affordances — those are PR 3.
 
 ### PR 3 — write flows (`feature/ui-04c-renewal-write`, closes #49)
 
