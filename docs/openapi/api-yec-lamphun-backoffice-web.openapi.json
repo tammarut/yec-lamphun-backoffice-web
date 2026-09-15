@@ -563,7 +563,7 @@
 			"get": {
 				"summary": "Get list of members (/api/v1/members)",
 				"deprecated": false,
-				"description": "# Get list of members (UI table with infinite scroll)\n\n- Filtering\n- Pagination\n- Sorting by field\n- Search by field\n- Sorting order\n\n(Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar (if not null)\n\n## Pseudocode\n\n1. Structural validation (Valibot)\nparse query params → 400 on type/enum/range violation\n  - limit: integer 1..50 (default 10)\n  - cursor: positive-integer-as-string | absent (default null)\n  - status: raw CSV string\n  - search: raw string\n  - sort_by: created_at | first_name_th | expires_at (default created_at)\n  - sort_order: asc | desc (default desc)\n\n2. Semantic post-processing\nstatus CSV → split, trim, drop-empty tokens\n  - all-empty / absent   → statuses = null (no filter)\n  - any unknown token    → 400 \"Invalid status filter: `<token>`\"\nsearch → trim; empty → null\n\n3. Repository query (Bun SQL native, keyset pagination)\n```\nif cursor is not null:                       # page 2+\n    anchor = SELECT <sort_field> FROM members WHERE id = cursor AND deleted_at IS NULL\n    if anchor not found → 400 \"Invalid cursor\"   # deleted between pages\n```\nbuild dynamic fragments (all values bound, identifiers from closed enum):\n```\n    status  : AND m.status IN (...)\n    search  : AND (first_name_th | phone_no | position_code) ILIKE '<escaped>%' ESCAPE '\\'\n    keyset  : AND (<sort_field>, m.id) < | > (<anchor_sort>, <cursor_id>)\n    order by: <sort_field> <dir> NULLS LAST|FIRST, m.id <dir>\n```\n\n```\nrows = SELECT m.*, b.name, b.description\n       FROM members m\n       INNER JOIN member_business b ON b.member_id = m.id AND b.deleted_at IS NULL\n       WHERE m.deleted_at IS NULL\n         + status + search + keyset fragments\n       ORDER BY ... LIMIT (limit + 1)        # n+1 trick\n\nhas_more      = rows.length > limit\nnext_cursor   = has_more ? id of (limit)th row : null\nrows          = first `limit` rows only\n```\n\n4. Map to response (service layer)\n```\nfor each row:\n    profile_avatar = public URL concat (null stays null)\nreturn { data: rows, has_more, next_cursor: String(next_cursor) }\n```\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members<br/>(limit, cursor, status, search, sort_by, sort_order)\n\n    Note over nextjsapi: No auth check (public endpoint)\n\n    nextjsapi->>nextjsapi: Validate query params (Valibot)\n    break invalid query params\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi->>nextjsapi: Parse status CSV + per-token enum check<br/>Trim search → null if empty\n    break unknown status token\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid status filter: <token>\" }\n    end\n\n    opt cursor provided (page 2+)\n        nextjsapi->>+database: Anchor lookup<br/>SELECT sort_field FROM members WHERE id = cursor AND deleted_at IS NULL\n        database-->>-nextjsapi: anchor row (or none)\n        break anchor row not found (deleted)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n    end\n\n    nextjsapi->>+database: Main query (Bun SQL native)<br/>members INNER JOIN member_business<br/>WHERE deleted_at IS NULL + status/search/keyset<br/>ORDER BY (sort_field, id) LIMIT n+1\n    database-->>-nextjsapi: up to (limit + 1) rows\n\n    nextjsapi->>nextjsapi: Compute has_more, next_cursor<br/>(drop the (n+1)th row)\n    nextjsapi->>nextjsapi: Build public URLs for profile_avatar<br/>(concat R2_PUBLIC_BASE_URL + file path, per row)\n\n    nextjsapi-->>browser: 200 OK<br/>{ data: [...], has_more, next_cursor }\n ```\n \n ## Notes\n\n- **Empty result is NOT an error.** A filter/search that matches nothing returns `200 { data: [], has_more: false, next_cursor: null }`. No `404` is ever returned by this endpoint.\n- **Cursor format.** `next_cursor` is a bare member `id` rendered as a string (e.g. `\"11\"`). Send it back unchanged as the `cursor` query param to fetch the next page.\n- **`status` is CSV.** `?status=ACTIVE,EXPIRED` → `status IN ('ACTIVE','EXPIRED')`. Empty/all-empty tokens mean \"no filter\".\n- **Search is prefix-only and case-insensitive** (`ILIKE 'q%'`), matched against `first_name_th`, `phone_no`, `position_code`. LIKE wildcards (`%`, `_`) in the input are escaped literally.\n- **Corrupted members** (live member with no live business row) are silently excluded by the `INNER JOIN` — they simply do not appear in the list.\n- **Pagination is keyset, not offset.** Stable across inserts/deletes; `(sort_field, id)` tuple is the total order, `id` is the deterministic tiebreaker. NULL `expires_at` sorts `NULLS LAST` in desc, `NULLS FIRST` in asc.",
+				"description": "# Get list of members (UI table with infinite scroll)\n\n- Filtering\n- Pagination\n- Sorting by field\n- Search by field\n- Sorting order\n\n(Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar (if not null)\n\n## ✍️Pseudocode\n\n1. Structural validation (Valibot)\nparse query params → 400 on type/enum/range violation\n  - limit: integer 1..50 (default 10)\n  - cursor: positive-integer-as-string | absent (default null)\n  - status: raw CSV string\n  - search: raw string\n  - sort_by: created_at | first_name_th | expires_at (default created_at)\n  - sort_order: asc | desc (default desc)\n\n2. Semantic post-processing\nstatus CSV → split, trim, drop-empty tokens\n  - all-empty / absent   → statuses = null (no filter)\n  - any unknown token    → 400 \"Invalid status filter: `<token>`\"\nsearch → trim; empty → null\n\n3. Repository query (Bun SQL native, keyset pagination)\n```\nif cursor is not null:                       # page 2+\n    anchor = SELECT <sort_field> FROM members WHERE id = cursor AND deleted_at IS NULL\n    if anchor not found → 400 \"Invalid cursor\"   # deleted between pages\n```\nbuild dynamic fragments (all values bound, identifiers from closed enum):\n```\n    status  : AND m.status IN (...)\n    search  : AND (first_name_th | phone_no | position_code) ILIKE '<escaped>%' ESCAPE '\\'\n    keyset  : AND (<sort_field>, m.id) < | > (<anchor_sort>, <cursor_id>)\n    order by: <sort_field> <dir> NULLS LAST|FIRST, m.id <dir>\n```\n\n```\nrows = SELECT m.*, b.name, b.description\n       FROM members m\n       INNER JOIN member_business b ON b.member_id = m.id AND b.deleted_at IS NULL\n       WHERE m.deleted_at IS NULL\n         + status + search + keyset fragments\n       ORDER BY ... LIMIT (limit + 1)        # n+1 trick\n\nhas_more      = rows.length > limit\nnext_cursor   = has_more ? id of (limit)th row : null\nrows          = first `limit` rows only\n```\n\n4. Map to response (service layer)\n```\nfor each row:\n    profile_avatar = public URL concat (null stays null)\nreturn { data: rows, has_more, next_cursor: String(next_cursor) }\n```\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members<br/>(limit, cursor, status, search, sort_by, sort_order)\n\n    Note over nextjsapi: No auth check (public endpoint)\n\n    nextjsapi->>nextjsapi: Validate query params (Valibot)\n    break invalid query params\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi->>nextjsapi: Parse status CSV + per-token enum check<br/>Trim search → null if empty\n    break unknown status token\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid status filter: <token>\" }\n    end\n\n    opt cursor provided (page 2+)\n        nextjsapi->>+database: Anchor lookup<br/>SELECT sort_field FROM members WHERE id = cursor AND deleted_at IS NULL\n        database-->>-nextjsapi: anchor row (or none)\n        break anchor row not found (deleted)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n    end\n\n    nextjsapi->>+database: Main query (Bun SQL native)<br/>members INNER JOIN member_business<br/>WHERE deleted_at IS NULL + status/search/keyset<br/>ORDER BY (sort_field, id) LIMIT n+1\n    database-->>-nextjsapi: up to (limit + 1) rows\n\n    nextjsapi->>nextjsapi: Compute has_more, next_cursor<br/>(drop the (n+1)th row)\n    nextjsapi->>nextjsapi: Build public URLs for profile_avatar<br/>(concat R2_PUBLIC_BASE_URL + file path, per row)\n\n    nextjsapi-->>browser: 200 OK<br/>{ data: [...], has_more, next_cursor }\n ```\n \n ## Notes\n\n- **Empty result is NOT an error.** A filter/search that matches nothing returns `200 { data: [], has_more: false, next_cursor: null }`. No `404` is ever returned by this endpoint.\n- **Cursor format.** `next_cursor` is a bare member `id` rendered as a string (e.g. `\"11\"`). Send it back unchanged as the `cursor` query param to fetch the next page.\n- **`status` is CSV.** `?status=ACTIVE,EXPIRED` → `status IN ('ACTIVE','EXPIRED')`. Empty/all-empty tokens mean \"no filter\".\n- **Search is prefix-only and case-insensitive** (`ILIKE 'q%'`), matched against `first_name_th`, `phone_no`, `position_code`. LIKE wildcards (`%`, `_`) in the input are escaped literally.\n- **Corrupted members** (live member with no live business row) are silently excluded by the `INNER JOIN` — they simply do not appear in the list.\n- **Pagination is keyset, not offset.** Stable across inserts/deletes; `(sort_field, id)` tuple is the total order, `id` is the deterministic tiebreaker. NULL `expires_at` sorts `NULLS LAST` in desc, `NULLS FIRST` in asc.",
 				"tags": ["module_member"],
 				"parameters": [
 					{
@@ -1079,7 +1079,7 @@
 			"get": {
 				"summary": "Get list expired membership (/api/v1/membership/renewals/expired)",
 				"deprecated": false,
-				"description": "## Get list of membership expired (pagination supports) for UI tables with infinite scroll\n\n1. Query records sort by\n    - Group `status=EXPIRED` but his `latest_renewal_status=REJECTED`, this group should be on top *(if exists)*\n    - Group `status=EXPIRED`\n\n> Each group sort by `id ASC`\n\n2. (Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar *(if not null)*\n\n### Notes (as implemented)\n\n- **Public endpoint** — no session cookie required (`security: []`).\n- **`position`** returns the **raw position code** (e.g. `GENERAL_MEMBER`, `PRESIDENT`); the frontend maps it to a display name.\n- **`status`** is always `\"EXPIRED\"`.\n- **`latest_renewal_status`** marks which members' most recent renewal was REJECTED — badge those rows in the UI (`=== \"REJECTED\"`). It is `\"PENDING_REVIEW\" | \"APPROVED\" | \"REJECTED\"`, or `null` when the member never filed a renewal. Ordering still floats the REJECTED rows to the top; the field is what identifies them per row.\n- **NULL-safe pagination** — the keyset predicate uses `IS DISTINCT FROM 'REJECTED'` (not `!=`), so expired members who never filed a renewal (`latest_renewal_status IS NULL`) are never dropped from cursor pages.\n\n## ✍️Pseudocode\n\n1. Extract query params:\n    -> limit = parseInt(query.limit) || 10\n    -> cursor = query.cursor (string or null)\n    -> search = query.search (string or null)\n\n2. Structural validation (Valibot):\n    break limit non-integer, < 1, or > 100:\n        -> Return 400 Bad Request { error_message: \"limit must be at least 1\" | \"limit must be at most 100\" }\n    break cursor present and (non-numeric, < 1, or fractional):\n        -> Return 400 Bad Request { error_message: \"cursor must be a positive integer\" }\n\n3. Normalize search:\n    -> search = search.trim(); empty string -> null\n   \n4. If cursor is provided, anchor lookup:\n    -> `SELECT latest_renewal_status FROM members WHERE id = $cursor AND deleted_at IS NULL AND status = 'EXPIRED';`\n   -> break if anchor not found (deleted, or no longer expired — e.g. renewed between pages):\n        -> Return 400 Bad Request { error_message: \"Invalid cursor\" }\n\n5. Build base WHERE clause:\n```typescript\nwhere_conditions = [\n        \"deleted_at IS NULL\",\n        \"status = 'EXPIRED'\"\n]\n```\n\n6. If search is provided (LIKE wildcards `\\`, `%`, `_` escaped; bound parameter):\n   -> `(first_name_th ILIKE '%${search}%' ESCAPE '\\' OR phone_no ILIKE '%${search}%' ESCAPE '\\')`\n\n7. Build pagination WHERE clause:\n   If cursor is null (first page):\n      -> No additional filter\n   Else if cursor_group === 0 (anchor was in REJECTED group):\n      -> `(latest_renewal_status = 'REJECTED' AND id > $cursor)\n          OR (latest_renewal_status IS DISTINCT FROM 'REJECTED')`\n   Else (cursor_group === 1, anchor was in other group):\n      -> `latest_renewal_status IS DISTINCT FROM 'REJECTED' AND id > $cursor`\n\n8. Execute main query:\n   ```sql\n   SELECT\n     id, profile_avatar, title_name_th, first_name_th, last_name_th,\n     nickname, phone_no, position_code, status, latest_renewal_status, member_since\n   FROM members\n   WHERE {where_conditions joined by AND}\n   ORDER BY\n     CASE WHEN latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END,\n     id ASC\n   LIMIT {limit + 1};\n   ```\n\n9. break if query fails:\n    -> Log error\n    -> Return 500 Internal Server Error { error_message: \"Internal Server Error\" }\n\n10. Determine has_more and prepare data:\n    -> has_more = result.length > limit\n    -> data = has_more ? result.slice(0, limit) : result\n\n11. Transform response data:\n```typescript\ntransformed_data = data.map(row => ({\n    id: row.id,\n    profile_avatar: row.profile_avatar ? `${R2_PUBLIC_BASE_URL}/${row.profile_avatar}`: null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    phone_no: row.phone_no,\n    position: row.position_code,               // raw code — frontend maps to display name\n    status: row.status,                        // always \"EXPIRED\"\n    latest_renewal_status: row.latest_renewal_status,  // \"REJECTED\" | \"APPROVED\" | \"PENDING_REVIEW\" | null\n    member_since: row.member_since.toISOString(),\n}))\n```\n\n12. Determine next_cursor:\n    -> next_cursor = has_more ? String(data[data.length - 1].id) : null\n\n13. Return 200 OK\n```json\n{\n    \"has_more\": has_more,\n    \"next_cursor\": next_cursor,\n    \"data\": transformed_data\n}\n```\n\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/expired<br/>?limit=10&cursor=25&search=สมชาย\n\n    nextjsapi -->> nextjsapi: Extract query parameters<br/>limit=10, cursor=\"25\", search=\"สมชาย\"\n\n    break limit non-integer, < 1 or > 100<br/>(or cursor non-numeric / < 1)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"limit must be...\" }\n    end\n\n    nextjsapi -->> nextjsapi: Normalize search<br/>trim, empty → null\n\n    opt cursor is provided\n        nextjsapi->>+database: SELECT latest_renewal_status<br/>FROM members WHERE id = 25<br/>AND deleted_at IS NULL<br/>AND status = 'EXPIRED'\n        database-->>-nextjsapi: { latest_renewal_status: 'REJECTED' }\n\n        break anchor row not found or not expired<br/>(deleted / renewed between pages)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n\n        nextjsapi -->> nextjsapi: Determine cursor_group<br/>(0 if REJECTED, 1 otherwise incl. NULL)\n    end\n\n    nextjsapi -->> nextjsapi: Build WHERE clause:<br/>1. Base: deleted_at IS NULL AND status = 'EXPIRED'<br/>2. Search: contains-ILIKE on first_name_th / phone_no<br/>(wildcards escaped, ESCAPE '\\')<br/>3. Group-aware keyset — NULL-safe via<br/>IS DISTINCT FROM 'REJECTED'\n\n    nextjsapi->>+database: SELECT id, profile_avatar, title_name_th,<br/>first_name_th, last_name_th, nickname, phone_no,<br/>position_code, status, latest_renewal_status, member_since<br/>FROM members<br/>WHERE {conditions}<br/>ORDER BY CASE WHEN latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END,<br/>id ASC<br/>LIMIT 11\n    database-->>-nextjsapi: rows (up to 11 records)\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error<br/>{ error_message: \"Internal Server Error\" }\n    end\n\n    nextjsapi -->> nextjsapi: Determine has_more:<br/>has_more = rows.length > 10<br/>data = rows.slice(0, 10) if has_more\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. profile_avatar → public URL concat (null → null)<br/>2. position → raw code (frontend maps)<br/>3. latest_renewal_status → passthrough (badge signal)<br/>4. member_since → ISO string\n\n    nextjsapi -->> nextjsapi: Determine next_cursor:<br/>next_cursor = has_more ? String(data[last].id) : null\n\n    nextjsapi-->>browser: 200 OK {<br/>  has_more: true,<br/>  next_cursor: \"22\",<br/>  data: [...]<br/>}\n```",
+				"description": "## Get list of membership expired (pagination supports) for UI tables with infinite scroll\n\n1. Query records sort by\n    - Group `status=EXPIRED` but his `latest_renewal_status=REJECTED`, this group should be on top *(if exists)*\n    - Group `status=EXPIRED`\n\n> Each group sort by `id ASC`\n\n2. (Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar *(if not null)*\n\n### Notes (as implemented)\n\n- **Public endpoint** — no session cookie required (`security: []`).\n- **`position`** returns the **raw position code** (e.g. `GENERAL_MEMBER`, `PRESIDENT`); the frontend maps it to a display name.\n- **`status`** is always `\"EXPIRED\"`.\n- **`latest_renewal_status`** marks which members' most recent renewal was REJECTED — badge those rows in the UI (`=== \"REJECTED\"`). It is `\"PENDING_REVIEW\" | \"APPROVED\" | \"REJECTED\"`, or `null` when the member never filed a renewal. Ordering still floats the REJECTED rows to the top; the field is what identifies them per row.\n- **`rejection_reason` / `rejected_at`** *(NEW — UI-04)*: the reason + the `reviewed_at` of the member's **latest** renewal (LEFT JOIN LATERAL, `deleted_at IS NULL`, `id DESC LIMIT 1`) — **both `null` unless that renewal is `REJECTED`** (incl. never-filed). `reviewed_at` is also stamped on approve, so it is deliberately NOT exposed raw; only a rejected latest renewal surfaces it as `rejected_at`.\n- **NULL-safe pagination** — the keyset predicate uses `IS DISTINCT FROM 'REJECTED'` (not `!=`), so expired members who never filed a renewal (`latest_renewal_status IS NULL`) are never dropped from cursor pages.\n\n## ✍️Pseudocode\n\n1. Extract query params:\n    -> limit = parseInt(query.limit) || 10\n    -> cursor = query.cursor (string or null)\n    -> search = query.search (string or null)\n\n2. Structural validation (Valibot):\n    break limit non-integer, < 1, or > 100:\n        -> Return 400 Bad Request { error_message: \"limit must be at least 1\" | \"limit must be at most 100\" }\n    break cursor present and (non-numeric, < 1, or fractional):\n        -> Return 400 Bad Request { error_message: \"cursor must be a positive integer\" }\n\n3. Normalize search:\n    -> search = search.trim(); empty string -> null\n\n4. If cursor is provided, anchor lookup:\n    -> `SELECT latest_renewal_status FROM members WHERE id = $cursor AND deleted_at IS NULL AND status = 'EXPIRED';`\n   -> break if anchor not found (deleted, or no longer expired — e.g. renewed between pages):\n        -> Return 400 Bad Request { error_message: \"Invalid cursor\" }\n\n5. Build base WHERE clause:\n```typescript\nwhere_conditions = [\n        \"deleted_at IS NULL\",\n        \"status = 'EXPIRED'\"\n]\n```\n\n6. If search is provided (LIKE wildcards `\\`, `%`, `_` escaped; bound parameter):\n   -> `(first_name_th ILIKE '%${search}%' ESCAPE '\\' OR phone_no ILIKE '%${search}%' ESCAPE '\\')`\n\n7. Build pagination WHERE clause:\n   If cursor is null (first page):\n      -> No additional filter\n   Else if cursor_group === 0 (anchor was in REJECTED group):\n      -> `(latest_renewal_status = 'REJECTED' AND id > $cursor)\n          OR (latest_renewal_status IS DISTINCT FROM 'REJECTED')`\n   Else (cursor_group === 1, anchor was in other group):\n      -> `latest_renewal_status IS DISTINCT FROM 'REJECTED' AND id > $cursor`\n\n8. Execute main query:\n   ```sql\n   SELECT\n     m.id, m.profile_avatar, m.title_name_th, m.first_name_th, m.last_name_th,\n     m.nickname, m.phone_no, m.position_code, m.status,\n     m.latest_renewal_status, m.member_since,\n     CASE WHEN mr.status = 'REJECTED' THEN mr.rejection_reason END AS rejection_reason,\n     CASE WHEN mr.status = 'REJECTED' THEN mr.reviewed_at END AS rejected_at\n   FROM members m\n   LEFT JOIN LATERAL (\n     SELECT status, rejection_reason, reviewed_at\n     FROM membership_renewals\n     WHERE member_id = m.id AND deleted_at IS NULL\n     ORDER BY id DESC\n     LIMIT 1\n   ) mr ON true\n   WHERE {where_conditions joined by AND}\n   ORDER BY\n     CASE WHEN m.latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END,\n     m.id ASC\n   LIMIT {limit + 1};\n   ```\n\n9. break if query fails:\n    -> Log error\n    -> Return 500 Internal Server Error { error_message: \"Internal Server Error\" }\n\n10. Determine has_more and prepare data:\n    -> has_more = result.length > limit\n    -> data = has_more ? result.slice(0, limit) : result\n\n11. Transform response data:\n```typescript\ntransformed_data = data.map(row => ({\n    id: row.id,\n    profile_avatar: row.profile_avatar ? `${R2_PUBLIC_BASE_URL}/${row.profile_avatar}`: null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    phone_no: row.phone_no,\n    position: row.position_code,               // raw code — frontend maps to display name\n    status: row.status,                        // always \"EXPIRED\"\n    latest_renewal_status: row.latest_renewal_status,  // \"REJECTED\" | \"APPROVED\" | \"PENDING_REVIEW\" | null\n    member_since: row.member_since.toISOString(),\n    rejection_reason: row.rejection_reason,    // NEW: null unless the latest renewal is REJECTED\n    rejected_at: row.rejected_at?.toISOString() ?? null,  // NEW: the rejected renewal's reviewed_at, ISO\n}))\n```\n\n12. Determine next_cursor:\n    -> next_cursor = has_more ? String(data[data.length - 1].id) : null\n\n13. Return 200 OK\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/expired<br/>?limit=10&cursor=25&search=สมชาย\n\n    nextjsapi -->> nextjsapi: Extract query parameters<br/>limit=10, cursor=\"25\", search=\"สมชาย\"\n\n    break limit non-integer, < 1 or > 100<br/>(or cursor non-numeric / < 1)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"limit must be...\" }\n    end\n\n    nextjsapi -->> nextjsapi: Normalize search<br/>trim, empty → null\n\n    opt cursor is provided\n        nextjsapi->>+database: SELECT latest_renewal_status<br/>FROM members WHERE id = 25<br/>AND deleted_at IS NULL<br/>AND status = 'EXPIRED'\n        database-->>-nextjsapi: { latest_renewal_status: 'REJECTED' }\n\n        break anchor row not found or not expired<br/>(deleted / renewed between pages)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n\n        nextjsapi -->> nextjsapi: Determine cursor_group<br/>(0 if REJECTED, 1 otherwise incl. NULL)\n    end\n\n    nextjsapi -->> nextjsapi: Build WHERE clause:<br/>1. Base: deleted_at IS NULL AND status = 'EXPIRED'<br/>2. Search: contains-ILIKE on first_name_th / phone_no<br/>(wildcards escaped, ESCAPE '\\')<br/>3. Group-aware keyset — NULL-safe via<br/>IS DISTINCT FROM 'REJECTED'\n\n    nextjsapi->>+database: SELECT m.id, ..., m.latest_renewal_status, m.member_since,<br/>CASE WHEN mr.status = 'REJECTED' THEN mr.rejection_reason END AS rejection_reason,<br/>CASE WHEN mr.status = 'REJECTED' THEN mr.reviewed_at END AS rejected_at<br/>FROM members m<br/>LEFT JOIN LATERAL (<br/>SELECT status, rejection_reason, reviewed_at<br/>FROM membership_renewals<br/>WHERE member_id = m.id AND deleted_at IS NULL<br/>ORDER BY id DESC LIMIT 1<br/>) mr ON true<br/>WHERE {conditions}<br/>ORDER BY CASE WHEN m.latest_renewal_status = 'REJECTED' THEN 0 ELSE 1 END,<br/>m.id ASC<br/>LIMIT 11\n    database-->>-nextjsapi: rows (up to 11 records)\n\n    break Query error\n        nextjsapi-->>browser: 500 Internal Server Error<br/>{ error_message: \"Internal Server Error\" }\n    end\n\n    nextjsapi -->> nextjsapi: Determine has_more:<br/>has_more = rows.length > 10<br/>data = rows.slice(0, 10) if has_more\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. profile_avatar → public URL concat (null → null)<br/>2. position → raw code (frontend maps)<br/>3. latest_renewal_status → passthrough (badge signal)<br/>4. member_since → ISO string<br/>5. rejection_reason / rejected_at → passthrough<br/>(null unless the latest renewal is REJECTED)\n\n    nextjsapi -->> nextjsapi: Determine next_cursor:<br/>next_cursor = has_more ? String(data[last].id) : null\n\n    nextjsapi-->>browser: 200 OK {<br/>  has_more: true,<br/>  next_cursor: \"22\",<br/>  data: [...]<br/>}\n```",
 				"tags": [],
 				"parameters": [
 					{
@@ -1156,8 +1156,10 @@
 													"phone_no": "0811223344",
 													"position": "GENERAL_MEMBER",
 													"status": "EXPIRED",
+													"member_since": "2020-12-20T16:45:39.000Z",
 													"latest_renewal_status": "APPROVED",
-													"member_since": "2020-12-20T16:45:39.000Z"
+													"rejection_reason": null,
+													"rejected_at": null
 												},
 												{
 													"id": 25,
@@ -1169,82 +1171,49 @@
 													"phone_no": "0511223344",
 													"position": "PRESIDENT",
 													"status": "EXPIRED",
+													"member_since": "2021-03-15T09:30:00.000Z",
 													"latest_renewal_status": null,
-													"member_since": "2021-03-15T09:30:00.000Z"
+													"rejection_reason": null,
+													"rejected_at": null
 												}
 											]
 										}
 									},
 									"2": {
-										"summary": "Combined: ids 3 and 7 carry \"REJECTED\"",
+										"summary": "REJECTED on top and EXPIRED",
 										"value": {
-											"has_more": true,
-											"next_cursor": "41",
+											"has_more": false,
+											"next_cursor": null,
 											"data": [
 												{
-													"id": 3,
-													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZQ9H4K6M2P7RSTVWXYZA8C.jpg",
-													"title_name_th": "นาย",
-													"first_name_th": "ช่วยเลขา",
-													"last_name_th": "ว่องไว",
-													"nickname": "ไว",
-													"phone_no": "0911223345",
-													"position": "GENERAL_MEMBER",
-													"status": "EXPIRED",
-													"latest_renewal_status": "REJECTED",
-													"member_since": "2019-12-20T16:45:39.000Z"
-												},
-												{
-													"id": 7,
-													"profile_avatar": null,
-													"title_name_th": "นาง",
-													"first_name_th": "มาลี",
-													"last_name_th": "รักสุข",
-													"nickname": "malee",
-													"phone_no": "0897778888",
-													"position": "GENERAL_MEMBER",
-													"status": "EXPIRED",
-													"latest_renewal_status": "REJECTED",
-													"member_since": "2020-05-01T10:00:00.000Z"
-												},
-												{
-													"id": 12,
-													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZR2T6W8N4Q9UVWXYZABCD3E.jpg",
+													"id": 2,
+													"profile_avatar": "https://public.example/members/profile_avatars/a.png",
 													"title_name_th": "นาย",
 													"first_name_th": "สมชาย",
 													"last_name_th": "ใจดี",
 													"nickname": "cham",
-													"phone_no": "0811223344",
+													"phone_no": "0812345678",
 													"position": "GENERAL_MEMBER",
 													"status": "EXPIRED",
-													"latest_renewal_status": "APPROVED",
-													"member_since": "2020-12-20T16:45:39.000Z"
+													"member_since": "2019-12-20T16:45:39.000Z",
+													"latest_renewal_status": "REJECTED",
+													"rejection_reason": "ชำระค่าบำรุงสมาคมไม่ครบถ้วน",
+													"rejected_at": "2026-08-30T04:05:06.000Z"
 												},
 												{
-													"id": 25,
+													"id": 1,
 													"profile_avatar": null,
 													"title_name_th": "นางสาว",
 													"first_name_th": "วิภาดา",
 													"last_name_th": "รักงาน",
 													"nickname": "วิ",
 													"phone_no": "0511223344",
-													"position": "PRESIDENT",
+													"position": "COMMITTEE_MEMBER",
 													"status": "EXPIRED",
+													"member_since": "2020-12-20T16:45:39.000Z",
 													"latest_renewal_status": null,
-													"member_since": "2021-03-15T09:30:00.000Z"
-												},
-												{
-													"id": 41,
-													"profile_avatar": "https://file.domain.xyz/members/profile_avatar_01J8ZS4Y8A0P6R2WXYZABCDEF5G.jpg",
-													"title_name_th": "นาย",
-													"first_name_th": "ประเสริฐ",
-													"last_name_th": "มั่นคง",
-													"nickname": "เสริฐ",
-													"phone_no": "0625554444",
-													"position": "GENERAL_MEMBER",
-													"status": "EXPIRED",
-													"latest_renewal_status": null,
-													"member_since": "2022-08-09T14:20:11.000Z"
+													"rejection_reason": null,
+													"rejected_at": null
 												}
 											]
 										}
@@ -1651,7 +1620,7 @@
 			"get": {
 				"summary": "Get a latest renewal by member_id (/api/v1/membership/renewals/{member_id})",
 				"deprecated": false,
-				"description": "# Get a latest membership renewal for single UI view\n\nStaff-only read (withAuth — `session_id` cookie required). One round-trip query returns a non-deleted member + its 1:1 business + the single newest renewal:\n\n1. Query the latest `membership_renewals` record by `member_id`\n   - Sort by `id DESC`, `LIMIT 1` (LEFT JOIN LATERAL)\n2. Resolve file URLs (ADR-0007 bucket policy):\n   - `profile_avatar` → public bucket URL (base-URL concat), or null\n   - `payment_slip` → PRIVATE bucket **presigned** time-limited URL (not a public URL)\n3. `position` ships the RAW position code (e.g. `GENERAL_MEMBER`) — the frontend maps it to a Thai display name\n4. `payment_date_at` is a full ISO datetime (e.g. `2025-08-23T10:30:00.000Z`)\n\n## ✍️ Pseudocode\n\n1. Session check (withAuth middleware):\n   - Extract `session_id` cookie from the request, validate the session\n   - break if cookie is missing or invalid:\n         -> Return HTTP 401 Unauthorized\n\n2. Extract `member_id` from path parameters:\n       -> member_id = Number(params.member_id)\n\n3. Validate member_id (Valibot: string → Number → integer → minValue(1)):\n   - break if member_id is NaN, not an integer, or < 1:\n         -> Return HTTP 400 Bad Request\n\n4. Resolve GetLatestRenewalByMemberIdService from the DI container,\n   then execute one round-trip (static sqlc) query:\n   ```sql\n   SELECT\n     m.id,\n     m.profile_avatar,\n     m.title_name_th,\n     m.first_name_th,\n     m.last_name_th,\n     m.nickname,\n     m.phone_no,\n     m.position_code,\n     mb.name AS business_name,\n     mr.id AS renewal_id,\n     mr.payment_date_at AS renewal_payment_date_at,\n     mr.payment_slip_file_path AS renewal_payment_slip_file_path\n   FROM members m\n   JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL\n   LEFT JOIN LATERAL (\n     SELECT id, payment_date_at, payment_slip_file_path\n     FROM membership_renewals\n     WHERE member_id = m.id AND deleted_at IS NULL\n     ORDER BY id DESC\n     LIMIT 1\n   ) mr ON true\n   WHERE m.id = $1\n     AND m.deleted_at IS NULL;\n   ```\n\n5. break Query error (DatabaseError):\n    -> Log the error\n    -> Return HTTP 500 Internal Server Error\n\n6. Check if record exists:\n   break if result.rows.length === 0:\n       -> Return HTTP 404 Not Found\n\n7. Extract the single row:\n     -> row = result.rows[0]\n\n8. break if row.renewal_id = null (member exists but has no renewal records):\n    -> Return HTTP 404 Not Found\n\n9. Resolve file URLs (MemberFileUrlService, ADR-0007):\n   - profile_avatar (public bucket) → publicUrl(path) = R2_PUBLIC_BASE_URL + path\n     - null if the member has no avatar (absence is not failure)\n   - payment_slip_file_path (PRIVATE bucket) → presign(path) = time-limited signed URL\n   - break presign failure (StorageError — R2 unreachable / bad creds):\n       -> Log the error\n       -> Return HTTP 500 Internal Server Error\n\n10. Transform response data (top-level `id` is the MEMBER id):\n```typescript\n{\n    id: row.id,\n    profile_avatar: publicUrl || null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    phone_no: row.phone_no,\n    position: row.position_code,\n    business: {\n        name: row.business_name\n    },\n    renewal: {\n        id: row.renewal_id,\n        payment_date_at: row.renewal_payment_date_at.toISOString(),\n        payment_slip: presignedUrl\n    }\n}\n```\n\n11. Return HTTP 200 OK\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin staff)\n    participant nextjsapi as Next.js /api (withAuth)\n    participant database as PostgreSQL\n    participant r2 as R2 Storage (presign)\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/38\n\n    nextjsapi -->> nextjsapi: withAuth: read session_id cookie<br/>+ validateSession()\n\n    break session cookie missing / invalid\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Extract member_id from path<br/>member_id = Number(\"38\")\n\n    break invalid member_id (NaN / not integer / < 1)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"member_id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: SELECT m.id, m.profile_avatar, ..., mb.name AS business_name,<br/>mr.id AS renewal_id, mr.payment_date_at, mr.payment_slip_file_path<br/>FROM members m<br/>JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL<br/>LEFT JOIN LATERAL (<br/>SELECT id, payment_date_at, payment_slip_file_path<br/>FROM membership_renewals<br/>WHERE member_id = m.id AND deleted_at IS NULL<br/>ORDER BY id DESC LIMIT 1<br/>) mr ON true<br/>WHERE m.id = 38 AND m.deleted_at IS NULL\n    database-->>-nextjsapi: Return rows (0 or 1 record)\n\n    break Query error (DatabaseError)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    break if rows.length === 0\n        nextjsapi-->>browser: 404 Not Found { error_message: \"Member or renewal not found\" }\n    end\n\n    nextjsapi -->> nextjsapi: Extract row = rows[0]\n\n    break if row.renewal_id = null (member exists, no renewal)\n        nextjsapi-->>browser: 404 Not Found { error_message: \"No renewal records found\" }\n    end\n\n    nextjsapi -->> nextjsapi: Resolve profile_avatar<br/>(public bucket → base-URL concat, null passes through)\n\n    nextjsapi->>+r2: presign(payment_slip_file_path)<br/>(private bucket → time-limited signed URL)\n    r2-->>-nextjsapi: Presigned URL\n\n    break presign failure (StorageError — R2 unreachable / bad creds)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. position ships the RAW code (frontend maps to Thai display name)<br/>2. payment_date_at → full ISO datetime<br/>3. payment_slip → presigned URL\n\n    nextjsapi-->>browser: 200 OK (SingleRenewalResponse)\n```",
+				"description": "## Get a latest membership renewal for single UI view\n\nStaff-only read (withAuth — `session_id` cookie required). One round-trip query returns a non-deleted member + its 1:1 business + the single newest renewal:\n\n1. Query the latest `membership_renewals` record by `member_id`\n   - Sort by `id DESC`, `LIMIT 1` (LEFT JOIN LATERAL)\n2. Resolve file URLs (ADR-0007 bucket policy):\n   - `profile_avatar` → public bucket URL (base-URL concat), or null\n   - `payment_slip` → PRIVATE bucket **presigned** time-limited URL (not a public URL)\n3. `position` ships the RAW position code (e.g. `GENERAL_MEMBER`) — the frontend maps it to a Thai display name\n4. `payment_date_at` is a full ISO datetime (e.g. `2025-08-23T10:30:00.000Z`)\n5. `renewal.rejection_reason` / `renewal.rejected_at` *(NEW — UI-04)*: the reason + `reviewed_at` of the member's **latest** renewal — **both `null` unless that renewal is `REJECTED`** (an APPROVED/PENDING latest renewal yields nulls; `reviewed_at` is stamped on approve too, so it is deliberately not exposed raw)\n\n## ✍️ Pseudocode\n\n1. Session check (withAuth middleware):\n   - Extract `session_id` cookie from the request, validate the session\n   - break if cookie is missing or invalid:\n         -> Return HTTP 401 Unauthorized\n\n2. Extract `member_id` from path parameters:\n       -> member_id = Number(params.member_id)\n\n3. Validate member_id (Valibot: string → Number → integer → minValue(1)):\n   - break if member_id is NaN, not an integer, or < 1:\n         -> Return HTTP 400 Bad Request\n\n4. Resolve GetLatestRenewalByMemberIdService from the DI container,\n   then execute one round-trip (static sqlc) query:\n   ```sql\n   SELECT\n     m.id,\n     m.profile_avatar,\n     m.title_name_th,\n     m.first_name_th,\n     m.last_name_th,\n     m.nickname,\n     m.phone_no,\n     m.position_code,\n     mb.name AS business_name,\n     mr.id AS renewal_id,\n     mr.payment_date_at AS renewal_payment_date_at,\n     mr.payment_slip_file_path AS renewal_payment_slip_file_path,\n     mr.rejection_reason AS renewal_rejection_reason,\n     mr.reviewed_at AS renewal_reviewed_at\n   FROM members m\n   JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL\n   LEFT JOIN LATERAL (\n     SELECT id, payment_date_at, payment_slip_file_path,\n            CASE WHEN status = 'REJECTED' THEN rejection_reason END AS rejection_reason,\n            CASE WHEN status = 'REJECTED' THEN reviewed_at END AS reviewed_at\n     FROM membership_renewals\n     WHERE member_id = m.id AND deleted_at IS NULL\n     ORDER BY id DESC\n     LIMIT 1\n   ) mr ON true\n   WHERE m.id = $1\n     AND m.deleted_at IS NULL;\n   ```\n\n5. break Query error (DatabaseError):\n    -> Log the error\n    -> Return HTTP 500 Internal Server Error\n\n6. Check if record exists:\n   break if result.rows.length === 0:\n       -> Return HTTP 404 Not Found\n\n7. Extract the single row:\n     -> row = result.rows[0]\n\n8. break if row.renewal_id = null (member exists but has no renewal records):\n    -> Return HTTP 404 Not Found\n\n9. Resolve file URLs (MemberFileUrlService, ADR-0007):\n   - profile_avatar (public bucket) → publicUrl(path) = R2_PUBLIC_BASE_URL + path\n     - null if the member has no avatar (absence is not failure)\n   - payment_slip_file_path (PRIVATE bucket) → presign(path) = time-limited signed URL\n   - break presign failure (StorageError — R2 unreachable / bad creds):\n       -> Log the error\n       -> Return HTTP 500 Internal Server Error\n\n10. Transform response data (top-level `id` is the MEMBER id):\n```typescript\n{\n    id: row.id,\n    profile_avatar: publicUrl || null,\n    title_name_th: row.title_name_th,\n    first_name_th: row.first_name_th,\n    last_name_th: row.last_name_th,\n    nickname: row.nickname,\n    phone_no: row.phone_no,\n    position: row.position_code,\n    business: {\n        name: row.business_name\n    },\n    renewal: {\n        id: row.renewal_id,\n        payment_date_at: row.renewal_payment_date_at.toISOString(),\n        payment_slip: presignedUrl,\n        rejection_reason: row.renewal_rejection_reason,   // NEW: null unless the latest renewal is REJECTED\n        rejected_at: row.renewal_reviewed_at?.toISOString() ?? null  // NEW: reviewed_at of the rejected renewal, ISO\n    }\n}\n```\n\n11. Return HTTP 200 OK\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin staff)\n    participant nextjsapi as Next.js /api (withAuth)\n    participant database as PostgreSQL\n    participant r2 as R2 Storage (presign)\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/membership/renewals/38\n\n    nextjsapi -->> nextjsapi: withAuth: read session_id cookie<br/>+ validateSession()\n\n    break session cookie missing / invalid\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Extract member_id from path<br/>member_id = Number(\"38\")\n\n    break invalid member_id (NaN / not integer / < 1)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"member_id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: SELECT m.id, m.profile_avatar, ..., mb.name AS business_name,<br/>mr.id AS renewal_id, mr.payment_date_at, mr.payment_slip_file_path,<br/>mr.rejection_reason AS renewal_rejection_reason,<br/>mr.reviewed_at AS renewal_reviewed_at<br/>FROM members m<br/>JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL<br/>LEFT JOIN LATERAL (<br/>SELECT id, payment_date_at, payment_slip_file_path,<br/>CASE WHEN status = 'REJECTED' THEN rejection_reason END AS rejection_reason,<br/>CASE WHEN status = 'REJECTED' THEN reviewed_at END AS reviewed_at<br/>FROM membership_renewals<br/>WHERE member_id = m.id AND deleted_at IS NULL<br/>ORDER BY id DESC LIMIT 1<br/>) mr ON true<br/>WHERE m.id = 38 AND m.deleted_at IS NULL\n    database-->>-nextjsapi: Return rows (0 or 1 record)\n\n    break Query error (DatabaseError)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    break if rows.length === 0\n        nextjsapi-->>browser: 404 Not Found { error_message: \"Member or renewal not found\" }\n    end\n\n    nextjsapi -->> nextjsapi: Extract row = rows[0]\n\n    break if row.renewal_id = null (member exists, no renewal)\n        nextjsapi-->>browser: 404 Not Found { error_message: \"No renewal records found\" }\n    end\n\n    nextjsapi -->> nextjsapi: Resolve profile_avatar<br/>(public bucket → base-URL concat, null passes through)\n\n    nextjsapi->>+r2: presign(payment_slip_file_path)<br/>(private bucket → time-limited signed URL)\n    r2-->>-nextjsapi: Presigned URL\n\n    break presign failure (StorageError — R2 unreachable / bad creds)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi -->> nextjsapi: Transform data:<br/>1. position ships the RAW code (frontend maps to Thai display name)<br/>2. payment_date_at → full ISO datetime<br/>3. payment_slip → presigned URL<br/>4. rejection_reason / rejected_at → passthrough<br/>(null unless the latest renewal is REJECTED)\n\n    nextjsapi-->>browser: 200 OK (SingleRenewalResponse)\n```",
 				"tags": [],
 				"parameters": [
 					{
@@ -1683,22 +1652,52 @@
 								"schema": {
 									"$ref": "#/components/schemas/SingleRenewalResponse"
 								},
-								"example": {
-									"id": 38,
-									"profile_avatar": "https://file.domain.xyz/members/profile_avatars/profile_avatar_01J….jpg",
-									"title_name_th": "นาย",
-									"first_name_th": "ก้องภพ",
-									"last_name_th": "จบไว",
-									"nickname": "ก้อง",
-									"phone_no": "0982738293",
-									"position": "GENERAL_MEMBER",
-									"business": {
-										"name": "บริษัท วี ฟู้ดส์"
+								"examples": {
+									"1": {
+										"summary": "Latest renewal is REJECTED",
+										"value": {
+											"id": 38,
+											"profile_avatar": "https://file.domain.xyz/members/profile_avatars/profile_avatar_01J….jpg",
+											"title_name_th": "นาย",
+											"first_name_th": "ก้องภพ",
+											"last_name_th": "จบไว",
+											"nickname": "ก้อง",
+											"phone_no": "0982738293",
+											"position": "GENERAL_MEMBER",
+											"business": {
+												"name": "บริษัท วี ฟู้ดส์"
+											},
+											"renewal": {
+												"id": 59,
+												"payment_date_at": "2025-08-23T10:30:00.000Z",
+												"payment_slip": "https://<r2-endpoint>/members/documents/payment_slip_01J….jpg?X-Amz-Signature=…",
+												"rejection_reason": "ชำระค่าบำรุงสมาคมไม่ครบถ้วน",
+												"rejected_at": "2026-08-30T04:05:06.000Z"
+											}
+										}
 									},
-									"renewal": {
-										"id": 59,
-										"payment_date_at": "2025-08-23T10:30:00.000Z",
-										"payment_slip": "https://<r2-endpoint>/members/documents/payment_slip_01J….jpg?X-Amz-Signature=…"
+									"2": {
+										"summary": "Latest renewal is NOT rejected — e.g. pending",
+										"value": {
+											"id": 38,
+											"profile_avatar": "https://file.domain.xyz/members/profile_avatars/profile_avatar_01J….jpg",
+											"title_name_th": "นาย",
+											"first_name_th": "ก้องภพ",
+											"last_name_th": "จบไว",
+											"nickname": "ก้อง",
+											"phone_no": "0982738293",
+											"position": "GENERAL_MEMBER",
+											"business": {
+												"name": "บริษัท วี ฟู้ดส์"
+											},
+											"renewal": {
+												"id": 60,
+												"payment_date_at": "2026-09-01T09:00:00.000Z",
+												"payment_slip": "https://<r2-endpoint>/members/documents/payment_slip_01J….jpg?X-Amz-Signature=…",
+												"rejection_reason": null,
+												"rejected_at": null
+											}
+										}
 									}
 								}
 							}
@@ -1755,13 +1754,13 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"examples": {
-									"5": {
+									"6": {
 										"summary": "Database query failure",
 										"value": {
 											"error_message": "Internal Server Error"
 										}
 									},
-									"6": {
+									"7": {
 										"summary": "StorageError Presign failure",
 										"value": {
 											"error_message": "Internal Server Error"
@@ -3303,23 +3302,20 @@
 						"type": "string",
 						"enum": ["EXPIRED"]
 					},
-					"latest_renewal_status": {
-						"type": ["string", "null"],
-						"enum": ["PENDING_REVIEW", "APPROVED", "REJECTED"]
-					},
 					"member_since": {
 						"type": "string",
 						"format": "date-time"
 					},
-					"rejection_reason": {
+					"latest_renewal_status": {
 						"type": ["string", "null"],
-						"description": "The rejection reason of the member's latest renewal; null unless that renewal is REJECTED (incl. never-filed).",
-						"examples": ["ชำระค่าบำรุงสมาคมไม่ครบถ้วน"]
+						"enum": ["PENDING_REVIEW", "APPROVED", "REJECTED"]
+					},
+					"rejection_reason": {
+						"type": ["string", "null"]
 					},
 					"rejected_at": {
 						"type": ["string", "null"],
-						"format": "date-time",
-						"description": "The reviewed_at of the member's latest REJECTED renewal; null under the same rule as rejection_reason."
+						"format": "date-time"
 					}
 				},
 				"required": [
@@ -3455,14 +3451,11 @@
 								"examples": ["https://payment-slip.githubusercontent.com/u/21668556"]
 							},
 							"rejection_reason": {
-								"type": ["string", "null"],
-								"description": "The rejection reason of the member's latest renewal; null unless that renewal is REJECTED.",
-								"examples": ["ชำระค่าบำรุงสมาคมไม่ครบถ้วน"]
+								"type": ["string", "null"]
 							},
 							"rejected_at": {
 								"type": ["string", "null"],
-								"format": "date-time",
-								"description": "The reviewed_at of the member's latest REJECTED renewal; null under the same rule as rejection_reason."
+								"format": "date-time"
 							}
 						},
 						"required": ["payment_date_at", "payment_slip", "id", "rejection_reason", "rejected_at"]
