@@ -224,8 +224,13 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	 * so sqlc is the wrong tool; the handle below is the native Bun `SQL`, not
 	 * the postgres.js cast the sqlc call sites use).
 	 *
-	 * Reads ONLY the members table: the rejected-first grouping keys off the
-	 * `latest_renewal_status` Renewal Cache Column. Pagination is a group-aware
+	 * Reads identity + pagination from the members table: the rejected-first
+	 * grouping keys off the `latest_renewal_status` Renewal Cache Column. A
+	 * LEFT JOIN LATERAL to the member's latest live renewal (same "latest"
+	 * definition as GetLatestRenewalByMemberId — `deleted_at IS NULL`, id DESC)
+	 * surfaces the rejection fields (UI-04 PR 1): both CASE columns are NULL
+	 * unless that latest renewal is REJECTED, so an APPROVED renewal's
+	 * `reviewed_at` never leaks as `rejected_at`. Pagination is a group-aware
 	 * keyset variant of ADR-0011 — the cursor is a bare member id, so page N+1
 	 * first looks up the anchor's `latest_renewal_status` to learn which
 	 * ordering group it resumes from:
@@ -292,8 +297,17 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 			dbConnection`
 				SELECT m.id, m.profile_avatar, m.title_name_th, m.first_name_th, m.last_name_th,
 				       m.nickname, m.phone_no, m.position_code, m.status,
-				       m.latest_renewal_status, m.member_since
+				       m.latest_renewal_status, m.member_since,
+				       CASE WHEN mr.status = 'REJECTED' THEN mr.rejection_reason END AS rejection_reason,
+				       CASE WHEN mr.status = 'REJECTED' THEN mr.reviewed_at END AS rejected_at
 				FROM members m
+				LEFT JOIN LATERAL (
+					SELECT status, rejection_reason, reviewed_at
+					FROM membership_renewals
+					WHERE member_id = m.id AND deleted_at IS NULL
+					ORDER BY id DESC
+					LIMIT 1
+				) mr ON true
 				WHERE m.deleted_at IS NULL
 					AND m.status = 'EXPIRED'
 					${searchFragment}
@@ -694,6 +708,11 @@ function rowToExpiredMembershipRow(row: Record<string, unknown>): ExpiredMembers
 		// the member never filed a renewal.
 		latestRenewalStatus: (row["latest_renewal_status"] as RenewalStatus | null) ?? null,
 		memberSince: row["member_since"] as Date,
+		// From the latest live renewal via LEFT JOIN LATERAL (see the query):
+		// both are NULL unless that renewal is REJECTED — the CASE keeps an
+		// APPROVED renewal's reviewed_at from leaking as rejected_at.
+		rejectionReason: (row["rejection_reason"] as string | null) ?? null,
+		rejectedAt: (row["rejected_at"] as Date | null) ?? null,
 	}
 }
 

@@ -7,13 +7,15 @@
  *   3. The repository's raw row + page shapes (`ExpiredMembershipListRow`,
  *      `ExpiredMembershipListPage`).
  *
- * The listing reads ONLY the members table: the rejected-first grouping keys off
- * the denormalized `latest_renewal_status` Renewal Cache Column, not the
- * membership_renewals table. `status` is the literal "EXPIRED" — the query
- * filters `status = 'EXPIRED'`, so no other value is reachable. Each row also
- * carries `latest_renewal_status` so the UI can badge rejected-renewal members;
- * ordering alone cannot mark where that group ends (originally rejected as
- * "order-only" in grilling Q3, reversed when the UI needed the label).
+ * The listing reads the members table for identity + pagination (the
+ * rejected-first grouping keys off the denormalized `latest_renewal_status`
+ * Renewal Cache Column), plus a LEFT JOIN LATERAL to the member's latest live
+ * renewal for the rejection fields (UI-04 PR 1). `status` is the literal
+ * "EXPIRED" — the query filters `status = 'EXPIRED'`, so no other value is
+ * reachable. Each row also carries `latest_renewal_status` so the UI can badge
+ * rejected-renewal members; ordering alone cannot mark where that group ends
+ * (originally rejected as "order-only" in grilling Q3, reversed when the UI
+ * needed the label).
  */
 
 import type { RenewalStatus } from "../../domain/membership-renewal"
@@ -56,6 +58,14 @@ export type ExpiredMembershipListRow = {
 	 */
 	readonly latestRenewalStatus: RenewalStatus | null
 	readonly memberSince: Date
+	/**
+	 * The latest live renewal's rejection_reason, null unless that renewal is
+	 * REJECTED (CASE-computed in SQL — see the repository query). Null also
+	 * covers never-filed and non-rejected latest renewals.
+	 */
+	readonly rejectionReason: string | null
+	/** The rejected renewal's reviewed_at as a Date; null under the same rule. */
+	readonly rejectedAt: Date | null
 }
 
 /**
@@ -91,6 +101,14 @@ export type ExpiredMembershipResponse = {
 	 */
 	readonly latest_renewal_status: RenewalStatus | null
 	readonly member_since: string
+	/**
+	 * The latest REJECTED renewal's mandatory reason, surfaced for the v3
+	 * ไม่อนุมัติ panel (UI-04 PR 1); null when the member's latest renewal is
+	 * not rejected (incl. never-filed). Serialized from the repo's Date.
+	 */
+	readonly rejection_reason: string | null
+	/** The rejected renewal's reviewed_at as an ISO string; null ditto. */
+	readonly rejected_at: string | null
 }
 
 export type ListExpiredMembershipPageResponse = {

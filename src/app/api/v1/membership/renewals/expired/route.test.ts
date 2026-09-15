@@ -43,6 +43,8 @@ const samplePage: ListExpiredMembershipPageResponse = {
 			status: "EXPIRED",
 			latest_renewal_status: "REJECTED",
 			member_since: "2019-12-20T16:45:39.000Z",
+			rejection_reason: "ชำระค่าบำรุงสมาคมไม่ครบถ้วน",
+			rejected_at: "2026-08-30T04:05:06.000Z",
 		},
 	],
 	has_more: true,
@@ -71,6 +73,29 @@ describe("GET /api/v1/membership/renewals/expired", () => {
 			expect(response).toBeInstanceOf(NextResponse)
 			expect(response.status).toBe(200)
 			expect(await response.json()).toEqual(samplePage)
+		})
+
+		it("passes rejection fields through verbatim — nulls on a non-rejected latest renewal (UI-04 PR 1)", async () => {
+			const nonRejectedPage: ListExpiredMembershipPageResponse = {
+				data: [
+					{
+						...samplePage.data[0]!,
+						latest_renewal_status: "APPROVED",
+						rejection_reason: null,
+						rejected_at: null,
+					},
+				],
+				has_more: false,
+				next_cursor: null,
+			}
+			mockService.execute.mockResolvedValue(ok(nonRejectedPage))
+
+			const response = await GET(makeGetRequest(""))
+
+			expect(response.status).toBe(200)
+			const json = (await response.json()) as ListExpiredMembershipPageResponse
+			expect(json.data[0]?.rejection_reason).toBeNull()
+			expect(json.data[0]?.rejected_at).toBeNull()
 		})
 
 		it("returns 200 with an empty page when the result is empty (no 404)", async () => {

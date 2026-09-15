@@ -16,8 +16,9 @@ const baseFilter: ListExpiredMembershipFilter = {
 	search: null,
 }
 
-// Two representative rows. Row A has an avatar key (URL gets resolved); row B
-// has a null avatar (passes through as null without touching the resolver).
+// Two representative rows. Row A has an avatar key (URL gets resolved) and a
+// REJECTED latest renewal (rejection fields populated); row B has a null
+// avatar and never filed a renewal (both rejection fields stay null).
 const rowA: ExpiredMembershipListRow = {
 	id: 2,
 	profileAvatar: "members/profile_avatars/a.png",
@@ -30,6 +31,8 @@ const rowA: ExpiredMembershipListRow = {
 	status: "EXPIRED",
 	latestRenewalStatus: "REJECTED",
 	memberSince: new Date("2019-12-20T16:45:39.000Z"),
+	rejectionReason: "ชำระค่าบำรุงสมาคมไม่ครบถ้วน",
+	rejectedAt: new Date("2026-08-30T04:05:06.000Z"),
 }
 const rowB: ExpiredMembershipListRow = {
 	id: 1,
@@ -43,6 +46,8 @@ const rowB: ExpiredMembershipListRow = {
 	status: "EXPIRED",
 	latestRenewalStatus: null,
 	memberSince: new Date("2020-12-20T16:45:39.000Z"),
+	rejectionReason: null,
+	rejectedAt: null,
 }
 
 describe("GetListExpiredMembershipService", () => {
@@ -87,15 +92,40 @@ describe("GetListExpiredMembershipService", () => {
 					status: "EXPIRED",
 					latest_renewal_status: "REJECTED", // badge signal, passed through
 					member_since: "2019-12-20T16:45:39.000Z", // ISO string
+					rejection_reason: "ชำระค่าบำรุงสมาคมไม่ครบถ้วน", // UI-04 PR 1
+					rejected_at: "2026-08-30T04:05:06.000Z", // reviewed_at, ISO string
 				})
 				// Row B: null avatar passes through as null (no resolver call); the
 				// never-filed-a-renewal member's latest_renewal_status stays null.
 				expect(value.data[1]?.profile_avatar).toBeNull()
 				expect(value.data[1]?.latest_renewal_status).toBeNull()
 				expect(value.data[1]?.member_since).toBe("2020-12-20T16:45:39.000Z")
+				// Never filed → no rejection fields either (UI-04 PR 1).
+				expect(value.data[1]?.rejection_reason).toBeNull()
+				expect(value.data[1]?.rejected_at).toBeNull()
 				// publicUrl called once per non-null avatar only.
 				expect(mockUrlResolver.publicUrl).toHaveBeenCalledTimes(1)
 				expect(mockUrlResolver.publicUrl).toHaveBeenCalledWith("members/profile_avatars/a.png")
+			})
+
+			test("a non-REJECTED latest renewal carries null rejection fields", async () => {
+				// UI-04 PR 1: only a REJECTED latest renewal exposes the reason +
+				// date; a member whose latest renewal is e.g. APPROVED (or whose
+				// rejection columns are simply unset) yields nulls on the wire.
+				const rowApproved: ExpiredMembershipListRow = {
+					...rowA,
+					id: 3,
+					latestRenewalStatus: "APPROVED",
+					rejectionReason: null,
+					rejectedAt: null,
+				}
+				mockRepo.getListExpiredMembership.mockResolvedValue(ok({ rows: [rowApproved], hasMore: false, nextCursor: null }))
+
+				const result = await service.execute(baseFilter)
+
+				const row = result._unsafeUnwrap().data[0]
+				expect(row?.rejection_reason).toBeNull()
+				expect(row?.rejected_at).toBeNull()
 			})
 
 			test("empty page — data: [], has_more: false, next_cursor: null", async () => {
