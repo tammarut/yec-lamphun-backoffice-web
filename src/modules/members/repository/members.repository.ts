@@ -355,6 +355,12 @@ export class MembersRepository implements IMemberRepository {
 			renewalId: renewalIdRaw === null ? null : Number(renewalIdRaw),
 			renewalPaymentDateAt: row.renewalPaymentDateAt as Date | null,
 			renewalPaymentSlipFilePath: paymentSlipFilePath,
+			// UI-04 PR 1: the query CASEs both to NULL unless the latest renewal
+			// is REJECTED. reviewed_at is CASE-wrapped, so the generator lost the
+			// timestamptz annotation (typed string) — the driver still returns a
+			// Date; cast back to the honest runtime type.
+			renewalRejectionReason: row.renewalRejectionReason,
+			renewalRejectedAt: row.renewalReviewedAt as Date | null,
 		}
 		return ok(readModel)
 	}

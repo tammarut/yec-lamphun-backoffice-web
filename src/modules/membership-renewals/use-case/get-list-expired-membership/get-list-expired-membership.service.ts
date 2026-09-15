@@ -72,6 +72,10 @@ export class GetListExpiredMembershipService {
 			// filed) — powers the UI's rejected-renewal badge.
 			latest_renewal_status: row.latestRenewalStatus,
 			member_since: row.memberSince.toISOString(),
+			// Rejection fields of the member's latest renewal (UI-04 PR 1): both
+			// null unless that renewal is REJECTED (repo computed the CASE).
+			rejection_reason: row.rejectionReason,
+			rejected_at: row.rejectedAt === null ? null : row.rejectedAt.toISOString(),
 		}
 	}
 }

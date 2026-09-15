@@ -19,6 +19,14 @@ export interface LatestRenewalRenewalResponse {
 	readonly payment_date_at: string
 	/** Private-bucket presigned URL. */
 	readonly payment_slip: string
+	/**
+	 * UI-04 PR 1: the latest renewal's mandatory rejection reason; null unless
+	 * that renewal is REJECTED (never-filed is a 404 upstream, so null here
+	 * means the latest renewal was approved or is pending).
+	 */
+	readonly rejection_reason: string | null
+	/** The rejected renewal's reviewed_at as an ISO datetime; null ditto. */
+	readonly rejected_at: string | null
 }
 
 export interface LatestRenewalResponse {

@@ -134,4 +134,14 @@ export interface MemberLatestRenewalReadModel {
 	readonly renewalId: number | null
 	readonly renewalPaymentDateAt: Date | null
 	readonly renewalPaymentSlipFilePath: string | null
+	/**
+	 * UI-04 PR 1: the latest renewal's rejection fields. The query CASEs both
+	 * to NULL unless that renewal is REJECTED (so an APPROVED renewal's
+	 * reviewed_at never surfaces as renewalRejectedAt); null also when the
+	 * member has no live renewal (LEFT LATERAL yields NULLs together with the
+	 * other renewal_* columns).
+	 */
+	readonly renewalRejectionReason: string | null
+	/** The rejected renewal's reviewed_at; null under the same rule. */
+	readonly renewalRejectedAt: Date | null
 }

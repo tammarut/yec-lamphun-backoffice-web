@@ -49,6 +49,9 @@ const renewalResponse: LatestRenewalResponse = {
 		id: 59,
 		payment_date_at: "2025-08-23T10:30:00.000Z",
 		payment_slip: "https://presigned/slip.png",
+		// UI-04 PR 1: rejection fields of the latest renewal (REJECTED here).
+		rejection_reason: "ชำระค่าบำรุงสมาคมไม่ครบถ้วน",
+		rejected_at: "2026-08-30T04:05:06.000Z",
 	},
 }
 
@@ -85,6 +88,22 @@ describe("GET /api/v1/membership/renewals/:member_id", () => {
 			expect(await response.json()).toEqual(renewalResponse)
 			// The service receives the parsed integer id.
 			expect(mockService.execute).toHaveBeenCalledWith(38)
+		})
+
+		it("passes rejection fields through verbatim — nulls on a non-rejected latest renewal (UI-04 PR 1)", async () => {
+			const nonRejected: LatestRenewalResponse = {
+				...renewalResponse,
+				renewal: { ...renewalResponse.renewal, rejection_reason: null, rejected_at: null },
+			}
+			mockService.execute.mockResolvedValue(ok(nonRejected))
+			const { req, ctx } = makeRequest("38")
+
+			const response = await GET(req, ctx)
+
+			expect(response.status).toBe(200)
+			const json = (await response.json()) as LatestRenewalResponse
+			expect(json.renewal.rejection_reason).toBeNull()
+			expect(json.renewal.rejected_at).toBeNull()
 		})
 	})
 

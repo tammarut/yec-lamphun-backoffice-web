@@ -83,6 +83,11 @@ export class GetLatestRenewalByMemberIdService {
 				id: m.renewalId!,
 				payment_date_at: m.renewalPaymentDateAt!.toISOString(),
 				payment_slip: paymentSlip!,
+				// UI-04 PR 1: null unless the latest renewal is REJECTED — the
+				// repo's query already CASEd the raw columns, so this is a pure
+				// passthrough (reviewed_at serialized to an ISO datetime).
+				rejection_reason: m.renewalRejectionReason,
+				rejected_at: m.renewalRejectedAt === null ? null : m.renewalRejectedAt.toISOString(),
 			},
 		}
 	}

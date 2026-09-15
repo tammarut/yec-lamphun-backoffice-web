@@ -24,6 +24,9 @@ function makeReadModel(overrides: Partial<MemberLatestRenewalReadModel> = {}): M
 		renewalId: 59,
 		renewalPaymentDateAt: new Date("2025-08-23T10:30:00.000Z"),
 		renewalPaymentSlipFilePath: "members/documents/payment_slip.png",
+		// Default: the latest renewal is REJECTED (both rejection fields set).
+		renewalRejectionReason: "ชำระค่าบำรุงสมาคมไม่ครบถ้วน",
+		renewalRejectedAt: new Date("2026-08-30T04:05:06.000Z"),
 		...overrides,
 	}
 }
@@ -57,7 +60,23 @@ describe("GetLatestRenewalByMemberIdService", () => {
 			// TIMESTAMPTZ → full ISO datetime (Q6), not date-only.
 			expect(res.renewal.payment_date_at).toBe("2025-08-23T10:30:00.000Z")
 			expect(res.renewal.payment_slip).toBe("https://presigned/slip.png")
+			// UI-04 PR 1: a REJECTED latest renewal exposes its reason + reviewed
+			// date (reviewed_at serialized to an ISO datetime).
+			expect(res.renewal.rejection_reason).toBe("ชำระค่าบำรุงสมาคมไม่ครบถ้วน")
+			expect(res.renewal.rejected_at).toBe("2026-08-30T04:05:06.000Z")
 			expect(mockRepo.getLatestRenewalByMemberId).toHaveBeenCalledWith(38)
+		})
+
+		test("a non-REJECTED latest renewal yields null rejection fields (UI-04 PR 1)", async () => {
+			// The query CASEs both columns to NULL unless the latest renewal is
+			// REJECTED; the service passes them through untouched.
+			mockRepo.getLatestRenewalByMemberId.mockResolvedValue(ok(makeReadModel({ renewalRejectionReason: null, renewalRejectedAt: null })))
+
+			const result = await service.execute(38)
+
+			const res = result._unsafeUnwrap()
+			expect(res.renewal.rejection_reason).toBeNull()
+			expect(res.renewal.rejected_at).toBeNull()
 		})
 
 		test("routes the avatar to the public resolver and the slip to the presign resolver", async () => {
@@ -86,7 +105,9 @@ describe("GetLatestRenewalByMemberIdService", () => {
 
 		test("returns RenewalNotFoundError when the member exists but has no renewal", async () => {
 			// The LEFT LATERAL yields NULL renewal columns together.
-			mockRepo.getLatestRenewalByMemberId.mockResolvedValue(ok(makeReadModel({ renewalId: null, renewalPaymentDateAt: null, renewalPaymentSlipFilePath: null })))
+			mockRepo.getLatestRenewalByMemberId.mockResolvedValue(
+				ok(makeReadModel({ renewalId: null, renewalPaymentDateAt: null, renewalPaymentSlipFilePath: null, renewalRejectionReason: null, renewalRejectedAt: null }))
+			)
 			const result = await service.execute(38)
 			expect(result.isErr()).toBe(true)
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(RenewalNotFoundError)
