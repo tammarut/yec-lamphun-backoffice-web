@@ -247,11 +247,18 @@ SELECT
   mb.name AS business_name,
   mr.id AS renewal_id,
   mr.payment_date_at AS renewal_payment_date_at,
-  mr.payment_slip_file_path AS renewal_payment_slip_file_path
+  mr.payment_slip_file_path AS renewal_payment_slip_file_path,
+  mr.rejection_reason AS renewal_rejection_reason,
+  mr.reviewed_at AS renewal_reviewed_at
 FROM members m
 JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL
 LEFT JOIN LATERAL (
-  SELECT id, payment_date_at, payment_slip_file_path
+  SELECT id, payment_date_at, payment_slip_file_path,
+         -- UI-04 PR 1: expose the rejection fields of the LATEST renewal only
+         -- when it is REJECTED (null otherwise) — reviewed_at is also stamped
+         -- on approve, so a bare passthrough would leak it as rejected_at.
+         CASE WHEN status = 'REJECTED' THEN rejection_reason END AS rejection_reason,
+         CASE WHEN status = 'REJECTED' THEN reviewed_at END AS reviewed_at
   FROM membership_renewals
   WHERE member_id = m.id AND deleted_at IS NULL
   ORDER BY id DESC
