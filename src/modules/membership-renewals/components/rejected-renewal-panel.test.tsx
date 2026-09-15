@@ -1,0 +1,75 @@
+import { afterEach, describe, expect, test, vi } from "vitest"
+import { cleanup, render, screen } from "@testing-library/react"
+
+import { RejectedRenewalPanel } from "src/modules/membership-renewals/components/rejected-renewal-panel"
+import { makeExpiredMembership } from "src/modules/membership-renewals/components/make-expired-membership.fixture"
+
+function rejectedRow(overrides: Partial<Parameters<typeof makeExpiredMembership>[0]> = {}) {
+	return makeExpiredMembership({
+		latest_renewal_status: "REJECTED",
+		rejection_reason: "สลิปไม่ชัดเจน กรุณาส่งใหม่",
+		rejected_at: "2026-08-12T00:00:00.000Z",
+		...overrides,
+	})
+}
+
+afterEach(() => {
+	cleanup()
+})
+
+describe("RejectedRenewalPanel", () => {
+	describe("Happy cases", () => {
+		test("admin: red header with tracking copy, count badge, and reason lines on rows", () => {
+			render(
+				<RejectedRenewalPanel
+					rejectedRows={[rejectedRow({ id: 101, nickname: "ชาย" }), rejectedRow({ id: 102, first_name_th: "สมหญิง", nickname: "หญิง" })]}
+					isAdmin={true}
+					expanded={true}
+					onToggleExpanded={() => {}}
+				/>
+			)
+			expect(screen.getByText("ไม่อนุมัติ — ต้องติดตาม")).toBeTruthy()
+			expect(screen.getByText("คำขอต่ออายุที่ถูกไม่อนุมัติ ต้องติดต่อสมาชิกเพื่อดำเนินการใหม่")).toBeTruthy()
+			expect(screen.getByText("2 ราย")).toBeTruthy()
+			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
+			expect(screen.getByText("(ชาย)")).toBeTruthy()
+			expect(screen.getAllByText("12 ส.ค. 2569")).toHaveLength(2)
+			expect(screen.getAllByText("สลิปไม่ชัดเจน กรุณาส่งใหม่")).toHaveLength(2)
+		})
+
+		test("member: contact-staff pill wording and no เหตุผล line", () => {
+			render(<RejectedRenewalPanel rejectedRows={[rejectedRow()]} isAdmin={false} expanded={true} onToggleExpanded={() => {}} />)
+			expect(screen.getByText("ไม่อนุมัติ — กรุณาติดต่อเจ้าหน้าที่")).toBeTruthy()
+			expect(screen.getByText("กรุณาติดต่อเจ้าหน้าที่")).toBeTruthy()
+			expect(screen.queryByText(/เหตุผล:/)).toBeNull()
+		})
+
+		test("zero rows: green all-clear header with the audience subtitle and no rows", () => {
+			render(<RejectedRenewalPanel rejectedRows={[]} isAdmin={true} expanded={false} onToggleExpanded={() => {}} />)
+			expect(screen.getByText("จัดการคำขอทั้งหมดแล้ว")).toBeTruthy()
+			expect(screen.getByText("0 ราย")).toBeTruthy()
+			expect(screen.queryByTestId("rejected-renewal-rows")).toBeNull()
+		})
+
+		test("header click asks the parent to toggle when there are rows", () => {
+			const onToggleExpanded = vi.fn()
+			render(<RejectedRenewalPanel rejectedRows={[rejectedRow()]} isAdmin={true} expanded={true} onToggleExpanded={onToggleExpanded} />)
+			screen.getByRole("button", { name: /ไม่อนุมัติ — ต้องติดตาม/ }).click()
+			expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+		})
+
+		test("header click is a no-op on the green all-clear board (not collapsible)", () => {
+			const onToggleExpanded = vi.fn()
+			render(<RejectedRenewalPanel rejectedRows={[]} isAdmin={true} expanded={false} onToggleExpanded={onToggleExpanded} />)
+			screen.getByRole("button", { name: /ไม่อนุมัติ — ต้องติดตาม/ }).click()
+			expect(onToggleExpanded).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		test("null rejected_at and null reason render as dashes instead of crashing", () => {
+			render(<RejectedRenewalPanel rejectedRows={[rejectedRow({ rejected_at: null, rejection_reason: null })]} isAdmin={true} expanded={true} onToggleExpanded={() => {}} />)
+			expect(screen.getAllByText("-").length).toBeGreaterThan(0)
+		})
+	})
+})
