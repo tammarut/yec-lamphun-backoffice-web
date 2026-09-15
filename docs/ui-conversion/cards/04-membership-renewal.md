@@ -68,35 +68,26 @@ None expected beyond card 03's set (table, tabs/checkbox, dialog, switch, alert,
 
 ## Task breakdown
 
-### 1. Backend read-model extension (unit 1 — user decision)
+**PR split (2026-09-13, user decision): THREE PRs, each reviewed separately.** PR 1 = the backend unit alone (tiny, fastest review, lands the Apidog sync earliest). PR 2 = the read-side UI — the page ships as a live read-only review board (gate, toggle, stats, worklist, tables, slip viewer) with NO write affordances yet. PR 3 = the write flows (form dialog, review dialog, manual renewal) — this PR closes #49. Each PR runs /scrutinize before opening; each branches off main after the previous one merges.
+
+### PR 1 — backend read-model extension (`feature/ui-04a-rejection-fields`, Refs #49)
 
 - Expired list + GET `{member_id}` responses gain `rejection_reason` + `rejected_at` (sqlc read model + service mapping + route tests + service tests).
-- OpenAPI JSON edit + Apidog sync markdown deliverable.
+- OpenAPI JSON edit + Apidog sync markdown deliverable (user pastes + re-exports per the standing workflow).
 
-### 2. Structure & data hooks
+### PR 2 — read-side UI (`feature/ui-04b-renewal-read`, Refs #49)
 
-- Closed-gate branch renders instead of the page content. Open: fee banner → stat cards → filter area. Dialogs layered on top.
-- Hooks: stat query; per-filter list queries (regular list keyed by `status` for รอตรวจสอบ/ปกติ, `expired` endpoint for ยังไม่ได้ต่ออายุ) with debounced `search` + cursor; `useSystemSettings()` + admin toggle mutation with optimistic update; latest-renewal detail for the review/slip dialogs. Keyset handling copied from card 03 (stale-cursor 400 → resetQueries).
+- Gate (closed member state / admin red banner) + admin เปิด/ปิด toggle (PATCH /system-settings, optimistic update) — the only write here, and it's settings, not renewals.
+- Hooks: stat; per-filter lists (regular list keyed by `status` for รอตรวจสอบ/ปกติ, `expired` endpoint for ยังไม่ได้ต่ออายุ) with debounced `search` + cursor (keyset handling copied from card 03, resetQueries on stale-cursor 400); latest-renewal detail.
+- Stat cards; sectioned ยังไม่ได้ต่ออายุ worklist (client-split by `latest_renewal_status`: REJECTED panel incl. the admin เหตุผล line from PR 1's fields + หมดอายุ section with the member_since column + +10 paging); รอตรวจสอบ/ปกติ table; slip viewer (eye action, presigned URL). NO write affordances — ตรวจสอบ/อนุมัติ and ต่ออายุ (Manual) arrive in PR 3.
+- States (skeletons / ไม่พบข้อมูล / error+retry) + responsive (375px stacked cards, horizontally scrollable tables, 768px breakpoint) + tests (worklist split, admin gating, green all-clear, PR 1's fields consumed).
 
-### 3. Worklist + table
+### PR 3 — write flows (`feature/ui-04c-renewal-write`, closes #49)
 
-- Sectioned ยังไม่ได้ต่ออายุ view (client-splits the expired rows into REJECTED panel vs หมดอายุ by `latest_renewal_status`; +10 client paging on the หมดอายุ section).
-- รอตรวจสอบ/ปกติ table with admin-only columns/actions.
-
-### 4. Form dialog
-
-- Autocomplete → slip upload (uploads-first: POST `/file/upload` once, then `POST /renewals` or `/manual` with the returned `payment_slip_file_path`) → consent → success screen; invalidate stat + active list queries.
-- 409 pending-exists / 403 resigned / 404 unknown member surface inline from `{ error_message }` (409 pre-checks already exist server-side; excluding resigned/pending members from the picker is a nice-to-have filter — the server remains the guard).
-
-### 5. Review dialog + slip viewer
-
-- `PATCH /renewals/review/{renewal_id}` approve / reject-with-reason; 409 already-reviewed → inline message + list refetch; slip from `GET /renewals/{member_id}` (1-hour presigned URL; expired preview recovers by refetching).
-
-### 6. States, responsive, tests
-
-- Gate closed (member vs admin variants). Loading skeletons for stats + lists. Empty: ไม่พบข้อมูล. Error: alert + retry.
-- 375px: stat cards stack, tables scroll horizontally, dialogs near-fullscreen. 768px+: normal grid.
-- Tests: unit-1 service/route tests; form tests (consent required, slip required, member required, uploads-then-POST ordering, 409/403/404 mapping); worklist split + admin gating; review approve/reject incl. already-reviewed; expired panel green all-clear state.
+- Renewal form dialog: ① member autocomplete from `/members?search=` (debounced prefix search; selected state = member card with avatar · business · status; readonly in manual mode); ③ slip upload (uploads-first: POST `/file/upload` once, then `POST /renewals` or `/manual` with the returned `payment_slip_file_path`); ④ PDPA consent gating submit; display-only fee rail; missing-field summary list; in-dialog success screen; 409 pending-exists / 403 resigned / 404 surfaced inline from `{ error_message }`. (② สมาชิกเพิ่มเติม stays deferred to #50.)
+- Review dialog: per-state title variants (ตรวจสอบการชำระเงิน / หลักฐานการโอนเงิน / คำขอต่ออายุที่ไม่อนุมัติ); rejected rows show เหตุผลที่ไม่อนุมัติ (เมื่อ {rejected_at}); approve / reject-with-reason; 409 already-reviewed → inline message + list refetch; slip from `GET /renewals/{member_id}` (1-hour presigned URL; expired preview recovers by refetching).
+- Row actions wired into the PR 2 tables: ตรวจสอบ/อนุมัติ (pending), ต่ออายุ (Manual) (pending/rejected rows); invalidate stat + active list on every successful write.
+- Form + review + wiring tests; the card-level acceptance-criteria walk below completes in this PR.
 
 ## Out of scope
 
@@ -125,28 +116,30 @@ this whole card; ADRs 0015–0018; the mockup MembershipRenewal component
 (ui-mockup/YEC-Lamphun.html, v3); the live backend under
 src/app/api/v1/membership/renewals/** + system-settings.
 
-Unit 1 (backend, land first — user decision 2026-09-13): extend the expired
-list + GET /renewals/{member_id} responses with rejection_reason +
-rejected_at (sqlc + service + tests + OpenAPI JSON edit + Apidog sync
-markdown deliverable). Everything else is frontend in
-src/modules/membership-renewals/{components,hooks}/ + the /renewal page.
+SHIPPED AS THREE PRs (user decision 2026-09-13 — one fresh session each,
+each branches off main after the previous PR merges):
 
-Then per the card's Task breakdown: gate + toggle, stat cards, sectioned
-ยังไม่ได้ต่ออายุ worklist (ไม่อนุมัติ panel + หมดอายุ section), รอตรวจสอบ/
-ปกติ table, renewal form (member picker / slip / PDPA / display-only fee
-rail / in-dialog success), review dialog + slip viewer, states + responsive
-+ tests. The สมาชิกเพิ่มเติม (②) block is DEFERRED (its own issue) — ship
-main-member-only.
+- PR 1 feature/ui-04a-rejection-fields (Refs #49): the backend read-model
+  unit — expired list + GET /renewals/{member_id} responses gain
+  rejection_reason + rejected_at (sqlc + service + tests + OpenAPI JSON
+  edit + Apidog sync markdown deliverable).
+- PR 2 feature/ui-04b-renewal-read (Refs #49): read-side UI — gate +
+  admin toggle (settings write only), stat cards, sectioned ยังไม่ได้ต่ออายุ
+  worklist, รอตรวจสอบ/ปกติ table, slip viewer; NO write affordances.
+- PR 3 feature/ui-04c-renewal-write (closes #49): write flows — renewal
+  form (member picker / slip / PDPA / display-only fee rail / in-dialog
+  success), review dialog, manual renewal wiring, cache invalidations;
+  the acceptance-criteria walk completes here. The สมาชิกเพิ่มเติม (②)
+  block stays DEFERRED (#50) — main-member-only.
 
 Constraints: TanStack Query + fetchJson ({ error_message }); never write
 Member Status directly — only via the renewal endpoints; semantic OKLCH
 tokens; cn(); data-slot; tabs; src/ imports; RHF + valibot (ADR-0021);
 Thai copy from the mockup; fee/PDPA copy static.
 
-Workflow: branch feature/ui-04-renewal off main; commit per unit; /scrutinize
-before the PR; push and open the PR — its body closes #49; never merge.
-Definition of done: the card's acceptance criteria walked one by one, plus
-bun run lint + bun run test green.
+Each PR: /scrutinize before opening; never merge. Definition of done per
+PR: its Task-breakdown section + bun run lint + bun run test green; the
+card's acceptance criteria are walked one by one in PR 3.
 ```
 
 ## References
