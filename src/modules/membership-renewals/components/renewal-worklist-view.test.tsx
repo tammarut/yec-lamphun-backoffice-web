@@ -81,7 +81,10 @@ describe("RenewalWorklistView", () => {
 			expect(screen.getByText("หมดอายุ — ยังไม่แจ้งต่ออายุ")).toBeTruthy()
 			const expiredSection = container.querySelector('[data-slot="expired-members-section"]')
 			expect(expiredSection).toBeTruthy()
-			expect(within(expiredSection as HTMLElement).getByText("1 ราย")).toBeTruthy()
+			// The หมดอายุ badge was removed (Antigravity Nit 1): a client-accumulated
+			// count reads as a total, which keyset pagination cannot promise. The
+			// PR 2b stat card owns the authoritative number.
+			expect(within(expiredSection as HTMLElement).queryByText(/ราย/)).toBeNull()
 			expect(screen.getByText("นายสมหญิง ใจดี")).toBeTruthy()
 			expect(screen.getByText("1 มิ.ย. 2567")).toBeTruthy()
 		})
@@ -115,7 +118,9 @@ describe("RenewalWorklistView", () => {
 				expiredResponse: () => jsonResponse(200, expiredPage(expired)),
 			})
 
-			expect(await screen.findByText("12 ราย")).toBeTruthy()
+			await waitFor(() => {
+				expect(screen.getAllByText(/ใจดี$/)).toHaveLength(10)
+			})
 			const visibleNames = () => screen.getAllByText(/ใจดี$/).length
 			expect(visibleNames()).toBe(10)
 			expect(screen.getByText("แสดงเพิ่มเติม (เหลืออีก 2 ราย)")).toBeTruthy()
@@ -156,7 +161,9 @@ describe("RenewalWorklistView", () => {
 				},
 			})
 
-			expect(await screen.findByText("12 ราย")).toBeTruthy()
+			await waitFor(() => {
+				expect(screen.getAllByText(/ใจดี$/).length).toBeGreaterThan(0)
+			})
 
 			// Collapse the panel first — searching must re-expand it.
 			fireEvent.click(screen.getByRole("button", { name: /ไม่อนุมัติ — ต้องติดตาม/ }))

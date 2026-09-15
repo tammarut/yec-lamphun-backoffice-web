@@ -139,7 +139,6 @@ export function RenewalWorklistView() {
 								<span className="block font-semibold">หมดอายุ — ยังไม่แจ้งต่ออายุ</span>
 								<span className="text-muted-foreground block text-sm">สมาชิกที่หมดอายุแล้วและยังไม่ได้แจ้งชำระเงิน (เรียงตามรหัสสมาชิก)</span>
 							</span>
-							<span className="border-warning/30 bg-warning/10 text-warning rounded-full border px-2.5 py-0.5 text-xs font-medium">{expiredRows.length} ราย</span>
 						</div>
 						<div className="border-t p-4">
 							<ExpiredMembersTable members={visibleExpiredRows} />

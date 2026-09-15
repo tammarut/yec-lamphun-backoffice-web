@@ -13,6 +13,11 @@ function rejectedRow(overrides: Partial<Parameters<typeof makeExpiredMembership>
 	})
 }
 
+/** The panel renders rows inside a data-slot container — RTL's ByTestId queries would look for data-testid and never find it. */
+function queryRowsContainer(container: HTMLElement): Element | null {
+	return container.querySelector('[data-slot="rejected-renewal-rows"]')
+}
+
 afterEach(() => {
 	cleanup()
 })
@@ -20,7 +25,7 @@ afterEach(() => {
 describe("RejectedRenewalPanel", () => {
 	describe("Happy cases", () => {
 		test("admin: red header with tracking copy, count badge, and reason lines on rows", () => {
-			render(
+			const { container } = render(
 				<RejectedRenewalPanel
 					rejectedRows={[rejectedRow({ id: 101, nickname: "ชาย" }), rejectedRow({ id: 102, first_name_th: "สมหญิง", nickname: "หญิง" })]}
 					isAdmin={true}
@@ -31,6 +36,7 @@ describe("RejectedRenewalPanel", () => {
 			expect(screen.getByText("ไม่อนุมัติ — ต้องติดตาม")).toBeTruthy()
 			expect(screen.getByText("คำขอต่ออายุที่ถูกไม่อนุมัติ ต้องติดต่อสมาชิกเพื่อดำเนินการใหม่")).toBeTruthy()
 			expect(screen.getByText("2 ราย")).toBeTruthy()
+			expect(queryRowsContainer(container)).toBeTruthy()
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
 			expect(screen.getByText("(ชาย)")).toBeTruthy()
 			expect(screen.getAllByText("12 ส.ค. 2569")).toHaveLength(2)
@@ -45,10 +51,10 @@ describe("RejectedRenewalPanel", () => {
 		})
 
 		test("zero rows: green all-clear header with the audience subtitle and no rows", () => {
-			render(<RejectedRenewalPanel rejectedRows={[]} isAdmin={true} expanded={false} onToggleExpanded={() => {}} />)
+			const { container } = render(<RejectedRenewalPanel rejectedRows={[]} isAdmin={true} expanded={false} onToggleExpanded={() => {}} />)
 			expect(screen.getByText("จัดการคำขอทั้งหมดแล้ว")).toBeTruthy()
 			expect(screen.getByText("0 ราย")).toBeTruthy()
-			expect(screen.queryByTestId("rejected-renewal-rows")).toBeNull()
+			expect(queryRowsContainer(container)).toBeNull()
 		})
 
 		test("header click asks the parent to toggle when there are rows", () => {
