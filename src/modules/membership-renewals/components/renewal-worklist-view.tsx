@@ -132,7 +132,7 @@ export function RenewalWorklistView() {
 
 					<section data-slot="expired-members-section" className="bg-card overflow-hidden rounded-2xl border">
 						<div className="flex items-center gap-3 p-4">
-							<span className="bg-warning/10 text-warning flex size-10 shrink-0 items-center justify-center rounded-full">
+							<span className="bg-destructive/10 text-destructive flex size-10 shrink-0 items-center justify-center rounded-full">
 								<HugeiconsIcon icon={Clock01Icon} className="size-5" />
 							</span>
 							<span className="min-w-0 flex-1">
@@ -147,7 +147,7 @@ export function RenewalWorklistView() {
 									type="button"
 									data-slot="expired-show-more"
 									onClick={showMoreExpired}
-									className="text-warning hover:bg-warning/5 mt-3 flex w-full items-center justify-center gap-1 rounded-lg border-t pt-3 text-sm font-medium"
+									className="text-destructive hover:bg-destructive/5 mt-3 flex w-full items-center justify-center gap-1 rounded-lg border-t pt-3 text-sm font-medium"
 								>
 									แสดงเพิ่มเติม (เหลืออีก {remainingExpiredRows} ราย)
 									<HugeiconsIcon icon={ArrowDown01Icon} className="size-4" />
