@@ -103,16 +103,20 @@ describe("RenewalTable", () => {
 			expect(container.querySelector('[data-slot="renewal-table"]')).toBeTruthy()
 		})
 
-		it("admin pending tab: dash placeholder instead of the review button (PR 3 wires it)", async () => {
+		it("admin pending tab: the ตรวจสอบ/อนุมัติ review action opens the review dialog", async () => {
 			renderTable({
 				sessionOk: true,
 				status: "PENDING_REVIEW",
 				listResponse: () => jsonResponse(200, renewalPage([makeMembershipRenewal()])),
+				detailResponse: () => jsonResponse(200, DETAIL_BODY),
 			})
 
 			expect(await screen.findByText("รอตรวจสอบ")).toBeTruthy()
-			expect(screen.queryByRole("button", { name: /ดูสลิป/ })).toBeNull()
 			expect(screen.queryByText("เรียบร้อย")).toBeNull()
+
+			fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบ\/อนุมัติการต่ออายุของ นายสมชาย ใจดี/ }))
+			expect(await screen.findByText("ตรวจสอบการชำระเงิน")).toBeTruthy()
+			expect(await screen.findByText("ข้อมูลสมาชิก")).toBeTruthy()
 		})
 
 		it("member: transaction-date and action columns are hidden entirely", async () => {

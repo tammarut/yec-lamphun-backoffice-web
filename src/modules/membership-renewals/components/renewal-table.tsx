@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
 import { fullNameTh, positionLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import { RenewalStatusBadge } from "src/modules/membership-renewals/components/renewal-status-badge"
+import { ReviewDialog, type ReviewDialogTarget } from "src/modules/membership-renewals/components/review-dialog"
 import { SlipViewerDialog, type SlipViewerMember } from "src/modules/membership-renewals/components/slip-viewer-dialog"
 import { MEMBERSHIP_RENEWALS_LIST_QUERY_KEY, useMembershipRenewals } from "src/modules/membership-renewals/hooks/use-membership-renewals"
 import type { ListableRenewalStatus, MembershipRenewalResponse } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.types"
@@ -37,8 +38,8 @@ function rowDisplayName(row: MembershipRenewalResponse): string {
  * รอตรวจสอบ/ปกติ single table (mockup v3) behind the stat cards: server-side
  * debounced search + cursor load-more copied from the PR 2 worklist hook, the
  * admin-only วันที่ทำรายการ + ดำเนินการ columns gated by session. The approved
- * row's eye action opens the slip viewer; the ตรวจสอบ/อนุมัติ review button is
- * PR 3 — pending rows show a placeholder dash.
+ * row's eye action opens the slip viewer; the pending row's ตรวจสอบ/อนุมัติ
+ * opens the review dialog (approve / reject-with-reason).
  */
 export function RenewalTable({ status }: RenewalTableProps) {
 	const { isAdmin } = useSession()
@@ -47,6 +48,7 @@ export function RenewalTable({ status }: RenewalTableProps) {
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 
 	const [activeSlipMember, setActiveSlipMember] = useState<SlipViewerMember | null>(null)
+	const [activeReview, setActiveReview] = useState<ReviewDialogTarget | null>(null)
 
 	const queryClient = useQueryClient()
 	const query = useMembershipRenewals(status, debouncedSearch)
@@ -166,8 +168,21 @@ export function RenewalTable({ status }: RenewalTableProps) {
 														</Button>
 													</div>
 												) : (
-													// Placeholder until PR 3 wires the ตรวจสอบ/อนุมัติ review action.
-													<span className="text-muted-foreground text-xs">-</span>
+													<Button
+														size="sm"
+														data-slot="review-open"
+														aria-label={`ตรวจสอบ/อนุมัติการต่ออายุของ ${rowDisplayName(row)}`}
+														onClick={() =>
+															setActiveReview({
+																memberId: row.id,
+																renewalId: row.renewal_id,
+																name: rowDisplayName(row),
+																state: "PENDING_REVIEW",
+															})
+														}
+													>
+														ตรวจสอบ/อนุมัติ
+													</Button>
 												)}
 											</TableCell>
 										)}
@@ -195,6 +210,7 @@ export function RenewalTable({ status }: RenewalTableProps) {
 			)}
 
 			<SlipViewerDialog member={activeSlipMember} onClose={() => setActiveSlipMember(null)} />
+			<ReviewDialog target={activeReview} onClose={() => setActiveReview(null)} />
 		</section>
 	)
 }

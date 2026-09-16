@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import { RejectedRenewalPanel } from "src/modules/membership-renewals/components/rejected-renewal-panel"
 import { makeExpiredMembership } from "src/modules/membership-renewals/components/make-expired-membership.fixture"
@@ -43,6 +43,29 @@ describe("RejectedRenewalPanel", () => {
 			expect(screen.getAllByText("สลิปไม่ชัดเจน กรุณาส่งใหม่")).toHaveLength(2)
 		})
 
+		test("admin: row actions ดูสลิป/เหตุผล + ต่ออายุ (Manual) fire their callbacks with the row", () => {
+			const onViewReview = vi.fn()
+			const onManualRenew = vi.fn()
+			render(
+				<RejectedRenewalPanel
+					rejectedRows={[rejectedRow({ id: 101, nickname: "ชาย" })]}
+					isAdmin={true}
+					expanded={true}
+					onToggleExpanded={() => {}}
+					onViewReview={onViewReview}
+					onManualRenew={onManualRenew}
+				/>
+			)
+
+			fireEvent.click(screen.getByRole("button", { name: /ดูสลิป\/เหตุผลของ นายสมชาย ใจดี/ }))
+			expect(onViewReview).toHaveBeenCalledTimes(1)
+			expect(onViewReview.mock.calls[0]?.[0]?.id).toBe(101)
+
+			fireEvent.click(screen.getByRole("button", { name: /ต่ออายุแบบผู้ดูแลระบบให้ นายสมชาย ใจดี/ }))
+			expect(onManualRenew).toHaveBeenCalledTimes(1)
+			expect(onManualRenew.mock.calls[0]?.[0]?.id).toBe(101)
+		})
+
 		test("member: contact-staff pill wording and no เหตุผล line", () => {
 			render(<RejectedRenewalPanel rejectedRows={[rejectedRow()]} isAdmin={false} expanded={true} onToggleExpanded={() => {}} />)
 			expect(screen.getByText("ไม่อนุมัติ — กรุณาติดต่อเจ้าหน้าที่")).toBeTruthy()
@@ -76,6 +99,14 @@ describe("RejectedRenewalPanel", () => {
 		test("null rejected_at and null reason render as dashes instead of crashing", () => {
 			render(<RejectedRenewalPanel rejectedRows={[rejectedRow({ rejected_at: null, rejection_reason: null })]} isAdmin={true} expanded={true} onToggleExpanded={() => {}} />)
 			expect(screen.getAllByText("-").length).toBeGreaterThan(0)
+		})
+
+		test("member view: no row actions even when callbacks are provided", () => {
+			render(
+				<RejectedRenewalPanel rejectedRows={[rejectedRow()]} isAdmin={false} expanded={true} onToggleExpanded={() => {}} onViewReview={() => {}} onManualRenew={() => {}} />
+			)
+			expect(screen.queryByRole("button", { name: /ดูสลิป\/เหตุผล/ })).toBeNull()
+			expect(screen.queryByRole("button", { name: /ต่ออายุ \(Manual\)/ })).toBeNull()
 		})
 	})
 })
