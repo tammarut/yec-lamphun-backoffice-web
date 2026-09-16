@@ -26,9 +26,10 @@ const EXPIRED_SHOWN_STEP = 10
  * the accumulated pages on `latest_renewal_status` into the pinned ไม่อนุมัติ
  * panel and the หมดอายุ table (member_since column, +10 reveal paging).
  *
- * PR 2 scope note: stat cards, the เปิด/ปิด gate+toggle, the รอตรวจสอบ/ปกติ
- * table and the slip viewer are a follow-up PR; row actions arrive with PR 3's
- * write flows.
+ * PR 2b composed this view under the renewal page's shared header (the page
+ * h1 + admin toggle live in renewal-page-view.tsx now) alongside the stat
+ * cards and the รอตรวจสอบ/ปกติ table; row actions arrive with PR 3's write
+ * flows.
  */
 export function RenewalWorklistView() {
 	const { isAdmin } = useSession()
@@ -71,8 +72,7 @@ export function RenewalWorklistView() {
 
 	return (
 		<div data-slot="renewal-worklist-view" className="space-y-6">
-			<div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-				<h1 className="text-2xl font-bold">ระบบต่ออายุสมาชิก</h1>
+			<div className="flex flex-col justify-between gap-4 md:flex-row md:items-center md:justify-end">
 				<div className="relative w-full md:w-64">
 					<HugeiconsIcon icon={Search01Icon} className="text-muted-foreground pointer-events-none absolute top-2.5 left-3 size-4" />
 					<Input

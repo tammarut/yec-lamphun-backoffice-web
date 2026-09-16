@@ -4,13 +4,14 @@ import { Badge } from "src/shared/components/ui/badge"
 import { cn } from "src/shared/lib/utils/utils"
 
 /**
- * Tone styling for the Renewal Status pill (mockup v3): ปกติ = success,
- * รอตรวจสอบ = warning, ไม่อนุมัติ = destructive. Uses the theme's semantic
+ * Tone styling for the Renewal Status pill: ปกติ = success, รอตรวจสอบ =
+ * pending (soft yellow), ไม่อนุมัติ = destructive. Uses the theme's semantic
  * tokens (with dark-mode values in globals.css).
  */
 const TONE_CLASSES: Record<RenewalStatusBadgeTone, string> = {
 	success: "border-transparent bg-success/15 text-success",
 	warning: "border-transparent bg-warning/15 text-warning",
+	pending: "border-transparent bg-pending/15 text-pending",
 	destructive: "border-destructive/30 bg-destructive/10 text-destructive",
 }
 
