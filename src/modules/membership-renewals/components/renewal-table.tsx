@@ -92,7 +92,11 @@ export function RenewalTable({ status }: RenewalTableProps) {
 						<AlertTitle>โหลดรายการต่ออายุไม่สำเร็จ</AlertTitle>
 						<AlertDescription className="flex items-center gap-3">
 							<span>{query.error.message}</span>
-							<Button variant="outline" size="sm" onClick={() => queryClient.resetQueries({ queryKey: MEMBERSHIP_RENEWALS_LIST_QUERY_KEY })}>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => queryClient.resetQueries({ queryKey: [...MEMBERSHIP_RENEWALS_LIST_QUERY_KEY, status, debouncedSearch] })}
+							>
 								<HugeiconsIcon icon={Refresh01Icon} className="size-4" />
 								ลองใหม่
 							</Button>

@@ -8,6 +8,7 @@ import { RENEWAL_STAT_QUERY_KEY, useRenewalStat } from "src/modules/membership-r
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Button } from "src/shared/components/ui/button"
 import { Skeleton } from "src/shared/components/ui/skeleton"
+import { cn } from "src/shared/lib/utils/utils"
 
 /** Which area of the page the stat cards filter. `NOT_RENEWED` renders the PR 2 worklist. */
 export const RENEWAL_FILTERS = ["NOT_RENEWED", "PENDING_REVIEW", "APPROVED"] as const
@@ -95,16 +96,17 @@ export function RenewalStats({ filter, onSelect }: RenewalStatsProps) {
 						data-slot="renewal-stat-card"
 						data-status={card.filter}
 						onClick={() => onSelect(card.filter)}
-						className={`flex min-w-[180px] flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+						className={cn(
+							"flex min-w-[180px] flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition",
 							active ? card.activeClass : "text-muted-foreground hover:bg-muted hover:text-foreground"
-						}`}
+						)}
 					>
-						<span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${card.dotClass}`} />
+						<span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", card.dotClass)} />
 						<span className="truncate">{card.label}</span>
 						{stat.isPending ? (
 							<Skeleton className="h-5 w-8 rounded-full" />
 						) : (
-							<span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${active ? card.activeClass : "bg-muted text-muted-foreground"}`}>
+							<span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-bold", active ? card.activeClass : "bg-muted text-muted-foreground")}>
 								{count ?? "–"}
 							</span>
 						)}

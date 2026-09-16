@@ -17,6 +17,10 @@ export const RENEWAL_STAT_QUERY_KEY = ["membership-renewals", "stat"] as const
 export function useRenewalStat() {
 	return useQuery<RenewalStatResponse, ApiError>({
 		queryKey: RENEWAL_STAT_QUERY_KEY,
+		// The counts only change on renewal writes (PR 3), which invalidate this
+		// key explicitly — skip the refetch every observer remount would trigger
+		// at staleTime 0 (mirrors the settings/session probes).
+		staleTime: 30_000,
 		queryFn: async () => {
 			const result = await fetchJson<RenewalStatResponse>("/api/v1/membership/renewals/stat")
 			if (result.isErr()) {

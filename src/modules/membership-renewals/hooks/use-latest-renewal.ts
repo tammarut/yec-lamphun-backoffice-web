@@ -3,6 +3,12 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
+// Deliberate cross-module TYPE-ONLY import (AGENTS.md §1 allows type-only
+// exceptions): the wire shape is owned by the members module, where the
+// read-model use-case lives, even though the route path is under
+// /api/v1/membership/renewals. PR 3 note: if this response ever gains
+// renewal-specific fields, re-home or mirror the type then — not before
+// (duplicating a wire DTO now would create a second source of truth).
 import type { LatestRenewalResponse } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.types"
 
 export const LATEST_RENEWAL_QUERY_KEY = ["membership-renewals", "detail"] as const
