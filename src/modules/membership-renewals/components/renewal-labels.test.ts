@@ -38,7 +38,7 @@ describe("renewal-labels", () => {
 		test("maps each status to its semantic tone", () => {
 			expect(renewalStatusTone("REJECTED")).toBe("destructive")
 			expect(renewalStatusTone("APPROVED")).toBe("success")
-			expect(renewalStatusTone("PENDING_REVIEW")).toBe("warning")
+			expect(renewalStatusTone("PENDING_REVIEW")).toBe("pending")
 		})
 	})
 })

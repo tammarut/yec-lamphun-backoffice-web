@@ -19,8 +19,10 @@ type StatCardSpec = {
 	label: string
 	countKey: "total_expired_members" | "total_pending_review_members" | "total_approved_members"
 	/**
-	 * Active-state tint, in the page's semantic status vocabulary (the mockup's
-	 * orange-vs-yellow pair collapses to `warning` — no separate orange token).
+	 * Active-state tint, per the user's color mapping (2026-09-16, superseding
+	 * the one-day red experiment): ยังไม่ได้ต่ออายุ = warning brownish-orange,
+	 * รอตรวจสอบการโอน = the softer `pending` yellow (its own token — it used to
+	 * share warning), ปกติ = success green. ไม่อนุมัติ stays destructive red.
 	 */
 	activeClass: string
 	dotClass: string
@@ -38,8 +40,8 @@ const STAT_CARDS: readonly StatCardSpec[] = [
 		filter: "PENDING_REVIEW",
 		label: "รอตรวจสอบการโอน",
 		countKey: "total_pending_review_members",
-		activeClass: "bg-warning/15 text-warning",
-		dotClass: "bg-warning",
+		activeClass: "bg-pending/15 text-pending",
+		dotClass: "bg-pending",
 	},
 	{
 		filter: "APPROVED",

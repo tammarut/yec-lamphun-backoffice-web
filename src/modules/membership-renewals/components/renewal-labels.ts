@@ -50,11 +50,12 @@ export function fullNameTh(member: Pick<ExpiredMembershipNameFields, "title_name
 }
 
 /** Badge tone per Renewal Status — drives semantic token classes in views. */
-export type RenewalStatusBadgeTone = "success" | "warning" | "destructive"
+export type RenewalStatusBadgeTone = "success" | "warning" | "pending" | "destructive"
 
 /**
- * Renewal Status pill per the mockup v3 vocabulary: รอตรวจสอบ (PENDING_REVIEW,
- * yellow), ปกติ (APPROVED, green), ไม่อนุมัติ (REJECTED, red). The REJECTED
+ * Renewal Status pill per the mockup v3 vocabulary, with the user's color
+ * mapping (2026-09-16): รอตรวจสอบ (PENDING_REVIEW, soft yellow = pending
+ * action), ปกติ (APPROVED, green), ไม่อนุมัติ (REJECTED, red). The REJECTED
  * label is audience-aware — admins see ไม่อนุมัติ, members see the
  * กรุณาติดต่อเจ้าหน้าที่ contact-staff wording.
  */
@@ -76,5 +77,5 @@ export function renewalStatusTone(status: RenewalStatus): RenewalStatusBadgeTone
 	if (status === "APPROVED") {
 		return "success"
 	}
-	return "warning"
+	return "pending"
 }
