@@ -193,6 +193,56 @@ describe("RenewalFormDialog", () => {
 			expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (1 คน)")).toBeTruthy()
 			expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
 		})
+
+		it("reopening resets the form: no stale success screen, and the preselected card still locks", async () => {
+			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input)
+				if (url === "/api/v1/members/file/upload") {
+					return jsonResponse(200, UPLOAD_BODY)
+				}
+				if (url === "/api/v1/membership/renewals/manual") {
+					return jsonResponse(201, { id: 5001 })
+				}
+				return jsonResponse(404)
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const preselected = expiredMembershipToFormMember({
+				id: 202,
+				profile_avatar: null,
+				title_name_th: "นางสาว",
+				first_name_th: "สมหญิง",
+				last_name_th: "ใจงาม",
+				nickname: "หญิง",
+				phone_no: "089-888-8888",
+				position: "TREASURER",
+				status: "EXPIRED",
+				latest_renewal_status: null,
+				member_since: "2024-06-01T00:00:00.000Z",
+				rejection_reason: null,
+				rejected_at: null,
+			})
+			const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+			const ui = (open: boolean) => (
+				<QueryClientProvider client={queryClient}>
+					<RenewalFormDialog mode="manual" preselectedMember={preselected} open={open} onClose={vi.fn()} />
+				</QueryClientProvider>
+			)
+			const view = render(ui(true))
+
+			pickSlipFile(pngFile())
+			fireEvent.click(screen.getByRole("checkbox"))
+			fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
+			expect(await screen.findByText("ต่ออายุสำเร็จ")).toBeTruthy()
+
+			// Close, then reopen for the SAME member — must be a fresh form.
+			view.rerender(ui(false))
+			view.rerender(ui(true))
+
+			expect(screen.queryByText("ต่ออายุสำเร็จ")).toBeNull()
+			expect(screen.getByText("นางสาวสมหญิง ใจงาม")).toBeTruthy()
+			expect(screen.getByRole("button", { name: /อนุมัติ/ })).toBeTruthy()
+		})
 	})
 
 	describe("Unhappy cases", () => {

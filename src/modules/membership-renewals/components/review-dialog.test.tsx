@@ -62,6 +62,8 @@ function patchCalls(fetchMock: ReturnType<typeof vi.fn>) {
 	return fetchMock.mock.calls.filter(([url, init]) => String(url).includes("/review/") && init?.method === "PATCH")
 }
 
+const OTHER_PENDING_TARGET: ReviewDialogTarget = { memberId: 202, renewalId: 9002, name: "นางสาวสมหญิง ใจงาม (หญิง)", state: "PENDING_REVIEW" }
+
 afterEach(() => {
 	cleanup()
 	vi.unstubAllGlobals()
@@ -141,6 +143,50 @@ describe("ReviewDialog", () => {
 				const detailGets = fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/renewals/101") && init?.method === undefined).length
 				expect(detailGets).toBeGreaterThan(detailGetsBefore)
 			})
+		})
+		it("switching members resets the review state: no leaked reject draft from the previous target", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: RequestInfo | URL) => {
+					const url = String(input)
+					if (/^\/api\/v1\/membership\/renewals\/\d+$/.test(url)) {
+						const memberId = Number(url.split("/").pop())
+						return jsonResponse(
+							200,
+							memberId === 202
+								? {
+										...DETAIL_BODY,
+										id: 202,
+										title_name_th: "นางสาว",
+										first_name_th: "สมหญิง",
+										last_name_th: "ใจงาม",
+										nickname: "หญิง",
+										renewal: { ...DETAIL_BODY.renewal, id: 9002 },
+									}
+								: DETAIL_BODY
+						)
+					}
+					return jsonResponse(404)
+				})
+			)
+			const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+			const ui = (target: ReviewDialogTarget | null) => (
+				<QueryClientProvider client={queryClient}>
+					<ReviewDialog target={target} onClose={vi.fn()} />
+				</QueryClientProvider>
+			)
+			const view = render(ui(PENDING_TARGET))
+
+			// Open member A, start a reject, type a reason, then close.
+			fireEvent.click(await screen.findByRole("button", { name: "ไม่อนุมัติ" }))
+			fireEvent.change(await screen.findByPlaceholderText("เช่น สลิปไม่ชัดเจน, ยอดเงินไม่ถูกต้อง..."), { target: { value: "สลิปไม่ชัดเจน" } })
+			view.rerender(ui(null))
+			view.rerender(ui(OTHER_PENDING_TARGET))
+
+			// Member B must see the approve/reject actions, not A's draft state.
+			expect(await screen.findByRole("button", { name: "อนุมัติ" })).toBeTruthy()
+			expect(screen.queryByPlaceholderText("เช่น สลิปไม่ชัดเจน, ยอดเงินไม่ถูกต้อง...")).toBeNull()
+			expect(await screen.findByText("นางสาวสมหญิง ใจงาม")).toBeTruthy()
 		})
 	})
 

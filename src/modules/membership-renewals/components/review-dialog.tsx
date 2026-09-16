@@ -38,10 +38,19 @@ type ReviewDialogProps = {
  * SlipViewerDialog. Member grid + slip come from GET /renewals/{member_id};
  * the presigned URL recovers from expiry the same way (ลองใหม่ → resetQueries).
  * A 409 (someone decided it first) surfaces inline while the settle-time
- * invalidation refetches the lists.
+ * invalidation refetches the lists. Rendered ONLY for a target: every open
+ * mounts a fresh body, so a half-typed reject draft never leaks to the next
+ * member.
  */
-export function ReviewDialog({ target, onClose }: ReviewDialogProps) {
-	const memberId = target?.memberId ?? null
+export function ReviewDialog(props: ReviewDialogProps) {
+	if (props.target === null) {
+		return null
+	}
+	return <ReviewDialogBody target={props.target} onClose={props.onClose} />
+}
+
+function ReviewDialogBody({ target, onClose }: { target: ReviewDialogTarget; onClose: () => void }) {
+	const memberId = target.memberId
 	const query = useLatestRenewal(memberId)
 	const queryClient = useQueryClient()
 	const review = useReviewRenewal()
@@ -49,13 +58,11 @@ export function ReviewDialog({ target, onClose }: ReviewDialogProps) {
 	const [isRejecting, setIsRejecting] = useState(false)
 	const [rejectReason, setRejectReason] = useState("")
 	const [brokenMemberId, setBrokenMemberId] = useState<number | null>(null)
-	const slipBroken = memberId !== null && brokenMemberId === memberId
+	const slipBroken = brokenMemberId === memberId
 
 	const handleRetry = () => {
 		setBrokenMemberId(null)
-		if (memberId !== null) {
-			void queryClient.resetQueries({ queryKey: [...LATEST_RENEWAL_QUERY_KEY, memberId] })
-		}
+		void queryClient.resetQueries({ queryKey: [...LATEST_RENEWAL_QUERY_KEY, memberId] })
 	}
 
 	const handleApprove = () => {

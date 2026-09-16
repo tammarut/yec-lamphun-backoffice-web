@@ -119,10 +119,17 @@ type RenewalFormDialogProps = {
  * สมาชิกเพิ่มเติม stays deferred to #50). Submit is uploads-first: the slip
  * goes to POST /members/file/upload once, then the create endpoint receives
  * the returned `payment_slip_file_path` — the API takes only the opaque path.
- * All state lives inside the dialog content, so closing it (Radix unmount)
- * resets the form for the next open.
+ * Rendered ONLY while open: every open mounts a fresh body, so form state
+ * (selection, slip, consent, success screen) never leaks across opens.
  */
-export function RenewalFormDialog({ mode, preselectedMember = null, open, onClose }: RenewalFormDialogProps) {
+export function RenewalFormDialog(props: RenewalFormDialogProps) {
+	if (!props.open) {
+		return null
+	}
+	return <RenewalFormDialogBody {...props} />
+}
+
+function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }: RenewalFormDialogProps) {
 	const isManual = mode === "manual"
 	const createRenewal = useCreateRenewal()
 
