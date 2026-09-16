@@ -31,11 +31,8 @@ const STAT_CARDS: readonly StatCardSpec[] = [
 		filter: "NOT_RENEWED",
 		label: "ยังไม่ได้ต่ออายุ",
 		countKey: "total_expired_members",
-		// Red tones per the user's 2026-09-16 call: expired/not-renewed reads as
-		// the alarm state (the mockup's orange felt brown); รอตรวจสอบ stays amber
-		// (waiting) and ปกติ green (fine) — red-alarm / amber-waiting / green-ok.
-		activeClass: "bg-destructive/15 text-destructive",
-		dotClass: "bg-destructive",
+		activeClass: "bg-warning/15 text-warning",
+		dotClass: "bg-warning",
 	},
 	{
 		filter: "PENDING_REVIEW",
