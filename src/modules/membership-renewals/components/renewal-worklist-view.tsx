@@ -7,7 +7,11 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import { ExpiredMembersTable } from "src/modules/membership-renewals/components/expired-members-table"
 import { RejectedRenewalPanel } from "src/modules/membership-renewals/components/rejected-renewal-panel"
+import { ReviewDialog, type ReviewDialogTarget } from "src/modules/membership-renewals/components/review-dialog"
+import { RenewalFormDialog, expiredMembershipToFormMember, type RenewalFormMember } from "src/modules/membership-renewals/components/renewal-form-dialog"
+import { fullNameTh } from "src/modules/membership-renewals/components/renewal-labels"
 import { EXPIRED_MEMBERSHIPS_QUERY_KEY, useExpiredMemberships } from "src/modules/membership-renewals/hooks/use-expired-memberships"
+import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Button } from "src/shared/components/ui/button"
 import { Input } from "src/shared/components/ui/input"
@@ -25,11 +29,9 @@ const EXPIRED_SHOWN_STEP = 10
  * endpoint already orders rejected-renewal members first; the client splits
  * the accumulated pages on `latest_renewal_status` into the pinned ไม่อนุมัติ
  * panel and the หมดอายุ table (member_since column, +10 reveal paging).
- *
- * PR 2b composed this view under the renewal page's shared header (the page
- * h1 + admin toggle live in renewal-page-view.tsx now) alongside the stat
- * cards and the รอตรวจสอบ/ปกติ table; row actions arrive with PR 3's write
- * flows.
+ * Admin row actions (PR 3): the panel's ดูสลิป/เหตุผล + ต่ออายุ (Manual) and
+ * the expired table's ต่ออายุ (Manual) — the review + manual-form dialogs
+ * live here.
  */
 export function RenewalWorklistView() {
 	const { isAdmin } = useSession()
@@ -37,6 +39,17 @@ export function RenewalWorklistView() {
 	const [searchTerm, setSearchTerm] = useState("")
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 	const searching = debouncedSearch !== ""
+
+	const [reviewTarget, setReviewTarget] = useState<ReviewDialogTarget | null>(null)
+	const [manualMember, setManualMember] = useState<RenewalFormMember | null>(null)
+
+	const handleViewReview = (member: ExpiredMembershipResponse) => {
+		const nicknameSuffix = member.nickname !== "" ? ` (${member.nickname})` : ""
+		setReviewTarget({ memberId: member.id, name: `${fullNameTh(member)}${nicknameSuffix}`, state: "REJECTED" })
+	}
+	const handleManualRenew = (member: ExpiredMembershipResponse) => {
+		setManualMember(expiredMembershipToFormMember(member))
+	}
 
 	// The panel is DERIVED like the members view's mode: the user's collapse
 	// wins, but a search re-expands so matches stay visible without a click.
@@ -128,6 +141,8 @@ export function RenewalWorklistView() {
 						isAdmin={isAdmin}
 						expanded={panelExpanded}
 						onToggleExpanded={() => setUserExpanded((previous) => !previous)}
+						onViewReview={isAdmin ? handleViewReview : undefined}
+						onManualRenew={isAdmin ? handleManualRenew : undefined}
 					/>
 
 					<section data-slot="expired-members-section" className="bg-card overflow-hidden rounded-2xl border">
@@ -141,7 +156,7 @@ export function RenewalWorklistView() {
 							</span>
 						</div>
 						<div className="border-t p-4">
-							<ExpiredMembersTable members={visibleExpiredRows} />
+							<ExpiredMembersTable members={visibleExpiredRows} isAdmin={isAdmin} onManualRenew={isAdmin ? handleManualRenew : undefined} />
 							{!searching && remainingExpiredRows > 0 && (
 								<button
 									type="button"
@@ -165,6 +180,9 @@ export function RenewalWorklistView() {
 					)}
 				</>
 			)}
+
+			<RenewalFormDialog mode="manual" preselectedMember={manualMember} open={manualMember !== null} onClose={() => setManualMember(null)} />
+			<ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
 		</div>
 	)
 }

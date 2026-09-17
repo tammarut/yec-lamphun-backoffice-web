@@ -79,3 +79,16 @@ export function renewalStatusTone(status: RenewalStatus): RenewalStatusBadgeTone
 	}
 	return "pending"
 }
+
+/** Thai display for the Member Status on the renewal form's selected-member card (raw code fallback, same convention as POSITION_LABELS). */
+export const MEMBER_STATUS_LABELS: Readonly<Record<string, string>> = {
+	ACTIVE: "ปกติ",
+	EXPIRED: "หมดอายุ",
+	PENDING_RENEWAL: "รอต่ออายุ",
+	RESIGNED: "ลาออก",
+}
+
+/** Thai label for a Member Status code; unknown codes fall back to the raw code. */
+export function memberStatusLabel(status: string): string {
+	return MEMBER_STATUS_LABELS[status] ?? status
+}

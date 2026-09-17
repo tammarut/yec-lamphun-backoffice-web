@@ -2,10 +2,11 @@
 
 import { useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Alert02Icon, Refresh01Icon } from "@hugeicons/core-free-icons"
+import { Alert02Icon, SentIcon, Refresh01Icon } from "@hugeicons/core-free-icons"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { RenewalFeeBanner } from "src/modules/membership-renewals/components/renewal-fee-banner"
+import { RenewalFormDialog } from "src/modules/membership-renewals/components/renewal-form-dialog"
 import { RenewalGate } from "src/modules/membership-renewals/components/renewal-gate"
 import { RenewalStats, type RenewalFilter } from "src/modules/membership-renewals/components/renewal-stats"
 import { RenewalTable } from "src/modules/membership-renewals/components/renewal-table"
@@ -18,11 +19,12 @@ import { Skeleton } from "src/shared/components/ui/skeleton"
 import { useSession } from "src/shared/lib/api/session"
 
 /**
- * Membership Renewal page (mockup v3), composed per the card's PR 2b split:
- * settings gate → closed state (member) or red banner (admin); header with the
- * admin เปิด/ปิด toggle; static fee banner; the three clickable stat cards
- * filtering the area below (ยังไม่ได้ต่ออายุ = the PR 2 worklist, otherwise the
- * รอตรวจสอบ/ปกติ table). All renewal WRITES stay in PR 3.
+ * Membership Renewal page (mockup v3): settings gate → closed state (member)
+ * or red banner (admin); header with the admin เปิด/ปิด toggle and the
+ * แจ้งชำระเงิน / ต่ออายุ button (member mode — a staff cookie forks the
+ * submission to instant APPROVED per ADR-0015, deliberate); static fee banner;
+ * the three clickable stat cards filtering the area below (ยังไม่ได้ต่ออายุ =
+ * the PR 2 worklist, otherwise the รอตรวจสอบ/ปกติ table).
  */
 export function RenewalPageView() {
 	const { isAdmin, isCheckingSession } = useSession()
@@ -74,14 +76,20 @@ type RenewalPageBodyProps = {
 
 function RenewalPageBody({ isAdmin, isOpen }: RenewalPageBodyProps) {
 	const [filter, setFilter] = useState<RenewalFilter>(isAdmin ? "PENDING_REVIEW" : "NOT_RENEWED")
+	const [formOpen, setFormOpen] = useState(false)
 
 	return (
-		<div data-slot="renewal-page-view" className="space-y-6">
+		// pb-24 keeps the mobile FAB from covering the last rows / load-more.
+		<div data-slot="renewal-page-view" className="space-y-6 pb-24 md:pb-0">
 			<div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
 				<div className="flex items-center gap-4">
 					<h1 className="text-2xl font-bold">ระบบต่ออายุสมาชิก</h1>
 					{isAdmin && <RenewalToggle />}
 				</div>
+				<Button onClick={() => setFormOpen(true)} className="hidden md:inline-flex" data-slot="renewal-open-form">
+					<HugeiconsIcon icon={SentIcon} className="size-4" />
+					แจ้งชำระเงิน / ต่ออายุ
+				</Button>
 			</div>
 
 			{!isOpen && isAdmin && (
@@ -95,6 +103,19 @@ function RenewalPageBody({ isAdmin, isOpen }: RenewalPageBodyProps) {
 			<RenewalStats filter={filter} onSelect={setFilter} />
 
 			{filter === "NOT_RENEWED" ? <RenewalWorklistView /> : <RenewalTable status={filter} />}
+
+			{/* Mobile FAB (mockup v3 has no mobile layout — the primary action stays reachable while scrolling). */}
+			<Button
+				onClick={() => setFormOpen(true)}
+				className="fixed right-6 bottom-6 z-40 h-12 rounded-full px-5 text-sm shadow-lg md:hidden"
+				aria-label="แจ้งชำระเงิน / ต่ออายุ"
+				data-slot="renewal-fab"
+			>
+				<HugeiconsIcon icon={SentIcon} className="size-4" />
+				ต่ออายุ
+			</Button>
+
+			<RenewalFormDialog mode="member" open={formOpen} onClose={() => setFormOpen(false)} />
 		</div>
 	)
 }

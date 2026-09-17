@@ -1,13 +1,14 @@
 "use client"
 
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, Calendar01Icon, CheckmarkCircle01Icon } from "@hugeicons/core-free-icons"
+import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, Calendar01Icon, CheckmarkCircle01Icon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 
 import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
 import { fullNameTh } from "src/modules/membership-renewals/components/renewal-labels"
 import { RenewalStatusBadge } from "src/modules/membership-renewals/components/renewal-status-badge"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
+import { Button } from "src/shared/components/ui/button"
 import { cn } from "src/shared/lib/utils/utils"
 
 type RejectedRenewalPanelProps = {
@@ -17,6 +18,10 @@ type RejectedRenewalPanelProps = {
 	/** Rows are rendered only while expanded — the green all-clear state has nothing to collapse. */
 	expanded: boolean
 	onToggleExpanded: () => void
+	/** Admin-only: open the review dialog's คำขอต่ออายุที่ไม่อนุมัติ variant for this row. */
+	onViewReview?: (member: ExpiredMembershipResponse) => void
+	/** Admin-only: open the manual renewal form preselected with this member. */
+	onManualRenew?: (member: ExpiredMembershipResponse) => void
 }
 
 /**
@@ -25,7 +30,7 @@ type RejectedRenewalPanelProps = {
  * เหตุผล line is admin-only (PR 1's rejection_reason/rejected_at fields);
  * the audience switches the header copy and the row pill wording.
  */
-export function RejectedRenewalPanel({ rejectedRows, isAdmin, expanded, onToggleExpanded }: RejectedRenewalPanelProps) {
+export function RejectedRenewalPanel({ rejectedRows, isAdmin, expanded, onToggleExpanded, onViewReview, onManualRenew }: RejectedRenewalPanelProps) {
 	const count = rejectedRows.length
 	const hasRejected = count > 0
 
@@ -103,6 +108,28 @@ export function RejectedRenewalPanel({ rejectedRows, isAdmin, expanded, onToggle
 									</div>
 								)}
 							</div>
+							{isAdmin && (onViewReview !== undefined || onManualRenew !== undefined) && (
+								<div className="flex gap-2 md:shrink-0" data-slot="rejected-row-actions">
+									{onViewReview !== undefined && (
+										<Button variant="outline" size="sm" aria-label={`ดูสลิป/เหตุผลของ ${fullNameTh(member)}`} onClick={() => onViewReview(member)}>
+											<HugeiconsIcon icon={Search01Icon} className="size-3.5" />
+											ดูสลิป/เหตุผล
+										</Button>
+									)}
+									{onManualRenew !== undefined && (
+										<Button
+											size="sm"
+											// Same action as the expired table's green button — red read as a danger action (Antigravity F3).
+											className="bg-success hover:bg-success/90 text-white"
+											aria-label={`ต่ออายุแบบผู้ดูแลระบบให้ ${fullNameTh(member)}`}
+											onClick={() => onManualRenew(member)}
+										>
+											<HugeiconsIcon icon={Refresh01Icon} className="size-3.5" />
+											ต่ออายุ (Manual)
+										</Button>
+									)}
+								</div>
+							)}
 						</div>
 					))}
 				</div>
