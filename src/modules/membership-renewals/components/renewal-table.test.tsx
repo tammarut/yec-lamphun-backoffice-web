@@ -40,7 +40,7 @@ const DETAIL_BODY = {
 /**
  * Render the table against a stubbed fetch. `sessionOk` toggles the admin
  * probe (204 = staff, 401 = public); `listResponse` produces the renewal-list
- * GET and `detailResponse` the slip-viewer detail GET. Debounced search uses a
+ * GET and `detailResponse` the review-dialog detail GET. Debounced search uses a
  * real 300ms timer — `settleDebounce` before asserting search-driven fetches.
  */
 function renderTable(options: {
@@ -132,7 +132,7 @@ describe("RenewalTable", () => {
 			expect(screen.queryByRole("button", { name: /ดูสลิป/ })).toBeNull()
 		})
 
-		it("eye action opens the slip viewer with the presigned image", async () => {
+		it("eye action opens the read-only review dialog with the member grid and the presigned image", async () => {
 			renderTable({
 				sessionOk: true,
 				status: "APPROVED",
@@ -141,9 +141,14 @@ describe("RenewalTable", () => {
 			})
 
 			fireEvent.click(await screen.findByRole("button", { name: /ดูสลิปการโอนเงินของ นายสมชาย ใจดี/ }))
+			expect(await screen.findByText("หลักฐานการโอนเงิน")).toBeTruthy()
+			expect(await screen.findByText("ข้อมูลสมาชิก")).toBeTruthy()
+			// The phone shows twice: the table row + the dialog's member grid.
+			expect(screen.getAllByText("081-234-5678").length).toBe(2)
 			const image = await screen.findByRole("img", { name: /สลิปการโอนเงินของ นายสมชาย ใจดี/ })
 			expect(image.getAttribute("src")).toBe("https://presigned.example/slip-a.png")
-			expect(screen.getByText("หลักฐานการโอนเงิน")).toBeTruthy()
+			expect(screen.queryByRole("button", { name: "อนุมัติ" })).toBeNull()
+			expect(screen.getByRole("button", { name: "ปิดหน้าต่าง" })).toBeTruthy()
 		})
 
 		it("cursor load-more accumulates the next page", async () => {

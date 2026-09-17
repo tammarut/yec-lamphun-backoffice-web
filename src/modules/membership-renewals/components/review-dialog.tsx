@@ -22,7 +22,7 @@ export type ReviewDialogTarget = {
 	renewalId?: number
 	/** Display name from the clicked row for the header description. */
 	name: string
-	state: "PENDING_REVIEW" | "REJECTED"
+	state: "PENDING_REVIEW" | "APPROVED" | "REJECTED"
 }
 
 type ReviewDialogProps = {
@@ -32,10 +32,10 @@ type ReviewDialogProps = {
 }
 
 /**
- * The admin review dialog (mockup v3): per-state title — ตรวจสอบการชำระเงิน
- * (pending, approve / reject-with-reason) or คำขอต่ออายุที่ไม่อนุมัติ
- * (rejected rows, read-only ปิดหน้าต่าง). The approved variant is the shipped
- * SlipViewerDialog. Member grid + slip come from GET /renewals/{member_id};
+ * The admin review dialog (mockup v3): ONE dialog, three row states —
+ * ตรวจสอบการชำระเงิน (pending: approve / reject-with-reason), หลักฐานการโอนเงิน
+ * (approved: read-only) and คำขอต่ออายุที่ไม่อนุมัติ (rejected: read-only +
+ * the reason line). Member grid + slip come from GET /renewals/{member_id};
  * the presigned URL recovers from expiry the same way (ลองใหม่ → resetQueries).
  * A 409 (someone decided it first) surfaces inline while the settle-time
  * invalidation refetches the lists. Rendered ONLY for a target: every open
@@ -80,7 +80,7 @@ function ReviewDialogBody({ target, onClose }: { target: ReviewDialogTarget; onC
 		review.mutate({ renewalId: target.renewalId, decision: "REJECTED", reason }, { onSuccess: onClose })
 	}
 
-	const title = target?.state === "REJECTED" ? "คำขอต่ออายุที่ไม่อนุมัติ" : "ตรวจสอบการชำระเงิน"
+	const title = target?.state === "REJECTED" ? "คำขอต่ออายุที่ไม่อนุมัติ" : target?.state === "APPROVED" ? "หลักฐานการโอนเงิน" : "ตรวจสอบการชำระเงิน"
 
 	return (
 		<Dialog
@@ -91,7 +91,7 @@ function ReviewDialogBody({ target, onClose }: { target: ReviewDialogTarget; onC
 				}
 			}}
 		>
-			<DialogContent data-slot="review-dialog" className="max-w-lg">
+			<DialogContent data-slot="review-dialog" className="sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{target?.name ?? ""}</DialogDescription>
@@ -246,10 +246,12 @@ function ReviewDialogBody({ target, onClose }: { target: ReviewDialogTarget; onC
 								</div>
 							)
 						) : (
-							<div className="flex flex-col items-center gap-3" data-slot="review-dialog-rejected-footer">
-								<p className="text-muted-foreground text-center text-xs">
-									คำขอนี้ถูกไม่อนุมัติแล้ว — เมื่อสมาชิกชำระเงินใหม่ ใช้ปุ่ม &quot;ต่ออายุ (Manual)&quot; ในรายการ หรือรอสมาชิกแจ้งชำระใหม่
-								</p>
+							<div className="flex flex-col items-center gap-3" data-slot="review-dialog-readonly-footer">
+								{target.state === "REJECTED" && (
+									<p className="text-muted-foreground text-center text-xs">
+										คำขอนี้ถูกไม่อนุมัติแล้ว — เมื่อสมาชิกชำระเงินใหม่ ใช้ปุ่ม &quot;ต่ออายุ (Manual)&quot; ในรายการ หรือรอสมาชิกแจ้งชำระใหม่
+									</p>
+								)}
 								<Button variant="outline" onClick={onClose} data-slot="review-dialog-close">
 									ปิดหน้าต่าง
 								</Button>

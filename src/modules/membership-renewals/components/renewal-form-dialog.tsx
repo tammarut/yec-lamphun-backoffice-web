@@ -240,7 +240,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 				}
 			}}
 		>
-			<DialogContent data-slot="renewal-form-dialog" className="max-w-4xl">
+			<DialogContent data-slot="renewal-form-dialog" className="sm:max-w-4xl">
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>กรอกข้อมูลและแนบหลักฐานการชำระเงิน</DialogDescription>

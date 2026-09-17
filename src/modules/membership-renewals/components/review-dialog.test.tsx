@@ -31,6 +31,7 @@ const DETAIL_BODY = {
 }
 
 const PENDING_TARGET: ReviewDialogTarget = { memberId: 101, renewalId: 9001, name: "นายสมชาย ใจดี (ชาย)", state: "PENDING_REVIEW" }
+const APPROVED_TARGET: ReviewDialogTarget = { memberId: 101, name: "นายสมชาย ใจดี (ชาย)", state: "APPROVED" }
 const REJECTED_TARGET: ReviewDialogTarget = { memberId: 101, name: "นายสมชาย ใจดี (ชาย)", state: "REJECTED" }
 
 function renderDialog(options: { target: ReviewDialogTarget | null; detailResponse?: (url: string) => Response; reviewResponse?: (url: string) => Response }) {
@@ -130,20 +131,58 @@ describe("ReviewDialog", () => {
 			expect(onClose).toHaveBeenCalled()
 		})
 
-		it("expired slip preview recovers by refetching the detail", async () => {
-			const { fetchMock } = renderDialog({ target: PENDING_TARGET })
+		it("approved state: read-only หลักฐานการโอนเงิน with the member grid and no approve action", async () => {
+			const { onClose } = renderDialog({ target: APPROVED_TARGET })
+
+			expect(await screen.findByText("หลักฐานการโอนเงิน")).toBeTruthy()
+			expect(await screen.findByText("นายสมชาย ใจดี")).toBeTruthy()
+			expect(screen.getByText("ข้อมูลสมาชิก")).toBeTruthy()
+			expect(screen.getByText("081-234-5678")).toBeTruthy()
+			expect(screen.getByRole("img", { name: /สลิปการโอนเงินของ นายสมชาย ใจดี/ })).toBeTruthy()
+			expect(screen.queryByRole("button", { name: "อนุมัติ" })).toBeNull()
+			expect(screen.queryByRole("button", { name: "ไม่อนุมัติ" })).toBeNull()
+
+			fireEvent.click(screen.getByRole("button", { name: "ปิดหน้าต่าง" }))
+			expect(onClose).toHaveBeenCalled()
+		})
+
+		it("expired slip preview recovers by refetching and renders the fresh URL", async () => {
+			let slipUrl = "https://presigned.example/slip-a.png"
+			const { fetchMock } = renderDialog({
+				target: PENDING_TARGET,
+				detailResponse: () => jsonResponse(200, { ...DETAIL_BODY, renewal: { ...DETAIL_BODY.renewal, payment_slip: slipUrl } }),
+			})
 
 			const image = await screen.findByRole("img", { name: /สลิปการโอนเงินของ นายสมชาย ใจดี/ })
 			const detailGetsBefore = fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/renewals/101") && init?.method === undefined).length
 			fireEvent.error(image)
 
 			expect(await screen.findByText("รูปสลิปหมดอายุ")).toBeTruthy()
+			slipUrl = "https://presigned.example/slip-b.png"
 			fireEvent.click(screen.getByRole("button", { name: /ลองใหม่/ }))
 			await waitFor(() => {
+				const refreshed = screen.getByRole("img", { name: /สลิปการโอนเงินของ นายสมชาย ใจดี/ })
+				expect(refreshed.getAttribute("src")).toBe("https://presigned.example/slip-b.png")
 				const detailGets = fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/renewals/101") && init?.method === undefined).length
 				expect(detailGets).toBeGreaterThan(detailGetsBefore)
 			})
 		})
+
+		it("closed dialog (target null) renders nothing and issues no fetch", async () => {
+			const fetchMock = vi.fn()
+			vi.stubGlobal("fetch", fetchMock)
+
+			render(
+				<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+					<ReviewDialog target={null} onClose={vi.fn()} />
+				</QueryClientProvider>
+			)
+
+			expect(screen.queryByRole("dialog")).toBeNull()
+			await new Promise((resolve) => setTimeout(resolve, 10))
+			expect(fetchMock).not.toHaveBeenCalled()
+		})
+
 		it("switching members resets the review state: no leaked reject draft from the previous target", async () => {
 			vi.stubGlobal(
 				"fetch",
