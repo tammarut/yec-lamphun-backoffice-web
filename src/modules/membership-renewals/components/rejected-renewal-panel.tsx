@@ -119,7 +119,8 @@ export function RejectedRenewalPanel({ rejectedRows, isAdmin, expanded, onToggle
 									{onManualRenew !== undefined && (
 										<Button
 											size="sm"
-											className="bg-destructive hover:bg-destructive/90 text-white"
+											// Same action as the expired table's green button — red read as a danger action (Antigravity F3).
+											className="bg-success hover:bg-success/90 text-white"
 											aria-label={`ต่ออายุแบบผู้ดูแลระบบให้ ${fullNameTh(member)}`}
 											onClick={() => onManualRenew(member)}
 										>

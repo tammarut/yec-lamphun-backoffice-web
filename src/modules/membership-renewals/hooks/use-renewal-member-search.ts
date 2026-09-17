@@ -38,5 +38,8 @@ export function useRenewalMemberSearch(search: string) {
 		queryKey: [...RENEWAL_MEMBER_SEARCH_QUERY_KEY, search],
 		queryFn: () => searchRenewableMembers(search),
 		enabled: search !== "",
+		// Same 30s freshness window as the PR 2b settings/stat hooks — the search
+		// is inside a dialog, so focus jitters shouldn't refetch mid-pick.
+		staleTime: 30_000,
 	})
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
 
@@ -159,6 +159,17 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 
 	const isSubmitting = isUploading || createRenewal.isPending
 
+	// Sole owner of the object-URL lifecycle: the cleanup revokes the previous
+	// preview on every slip change and on unmount (dialog close), so staging a
+	// new file or closing with a file staged can never leak a blob URL.
+	useEffect(() => {
+		return () => {
+			if (slip !== null) {
+				URL.revokeObjectURL(slip.previewUrl)
+			}
+		}
+	}, [slip])
+
 	const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0]
 		event.target.value = ""
@@ -171,16 +182,10 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 			return
 		}
 		setSlipError(null)
-		if (slip !== null) {
-			URL.revokeObjectURL(slip.previewUrl)
-		}
 		setSlip({ file, previewUrl: URL.createObjectURL(file) })
 	}
 
 	const clearSlip = () => {
-		if (slip !== null) {
-			URL.revokeObjectURL(slip.previewUrl)
-		}
 		setSlip(null)
 	}
 

@@ -290,6 +290,57 @@ describe("RenewalFormDialog", () => {
 			expect(screen.queryByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeNull()
 		})
 
+		it("403 resigned surfaces the server error_message inline (status changed between pick and submit)", async () => {
+			const { settleDebounce } = renderDialog({
+				renewalsResponse: () => jsonResponse(403, { error_message: "This member has resigned" }),
+			})
+
+			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+			await settleDebounce()
+			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
+			pickSlipFile(pngFile())
+			fireEvent.click(screen.getByRole("checkbox"))
+			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+
+			expect(await screen.findByText("ส่งข้อมูลไม่สำเร็จ")).toBeTruthy()
+			expect(screen.getByText(/This member has resigned/)).toBeTruthy()
+			expect(screen.queryByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeNull()
+		})
+
+		it("404 member-not-found surfaces the server error_message inline", async () => {
+			const { settleDebounce } = renderDialog({
+				renewalsResponse: () => jsonResponse(404, { error_message: "Member not found" }),
+			})
+
+			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+			await settleDebounce()
+			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
+			pickSlipFile(pngFile())
+			fireEvent.click(screen.getByRole("checkbox"))
+			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+
+			expect(await screen.findByText("ส่งข้อมูลไม่สำเร็จ")).toBeTruthy()
+			expect(screen.getByText(/Member not found/)).toBeTruthy()
+		})
+
+		it("revokes the slip's object URL when the dialog unmounts", async () => {
+			const revokeSpy = vi.spyOn(URL, "revokeObjectURL")
+			const { settleDebounce, unmount } = renderDialog({})
+
+			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+			await settleDebounce()
+			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
+			pickSlipFile(pngFile())
+			const stagedUrl = screen.getByRole("img", { name: /ตัวอย่างสลิป/ }).getAttribute("src")
+
+			expect(stagedUrl).toBeTruthy()
+			expect(revokeSpy).not.toHaveBeenCalledWith(stagedUrl)
+			unmount()
+			expect(revokeSpy).toHaveBeenCalledWith(stagedUrl)
+
+			revokeSpy.mockRestore()
+		})
+
 		it("non-image slip is rejected with the extension message", async () => {
 			const { settleDebounce } = renderDialog({})
 
