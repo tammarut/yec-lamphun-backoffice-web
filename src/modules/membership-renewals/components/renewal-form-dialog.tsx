@@ -278,7 +278,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 							</div>
 						)}
 
-						<div className="grid max-h-[60vh] grid-cols-1 items-start gap-6 overflow-y-auto p-1 pr-2 md:grid-cols-[1fr,280px]" data-slot="renewal-form-body">
+						<div className="grid max-h-[60vh] grid-cols-1 items-start gap-6 overflow-y-auto p-1 pr-2 md:grid-cols-[1fr_280px]" data-slot="renewal-form-body">
 							<div className="space-y-5">
 								{/* ① สมาชิกที่ต่ออายุ */}
 								<div>
