@@ -108,13 +108,15 @@ afterEach(() => {
 
 describe("RenewalFormDialog", () => {
 	describe("Happy cases", () => {
-		it("member mode: autocomplete picks a member and the selected card replaces the search", async () => {
-			const { settleDebounce } = renderDialog({})
+		it("member mode: autocomplete searches EXPIRED members only and the selected card replaces the search", async () => {
+			const { fetchMock, settleDebounce } = renderDialog({})
 
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 
+			const memberUrls = fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith("/api/v1/members?"))
+			expect(memberUrls.at(-1)).toBe("/api/v1/members?limit=8&status=EXPIRED&search=%E0%B8%AA%E0%B8%A1")
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
 			expect(screen.getByText(/\(ชาย\)/)).toBeTruthy()
 			expect(screen.getByText(/ร้านสมชายการค้า/)).toBeTruthy()

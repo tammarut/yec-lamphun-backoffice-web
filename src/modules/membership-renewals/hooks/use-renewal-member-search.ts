@@ -12,8 +12,15 @@ export const RENEWAL_MEMBER_SEARCH_QUERY_KEY = ["membership-renewals", "member-s
 /** Candidate cap for the renewal form's ① autocomplete (mockup dropdown size). */
 const MEMBER_SEARCH_LIMIT = 8
 
-/** Resigned members cannot renew (POST /renewals refuses them with 403), so the autocomplete never offers them. */
-const RENEWABLE_MEMBER_STATUSES = "ACTIVE,EXPIRED,PENDING_RENEWAL"
+/**
+ * The form is แจ้งต่ออายุสมาชิก — it files a renewal for an EXPIRED member
+ * (grill decision 2026-09-17). ACTIVE members have nothing to renew yet and
+ * PENDING_RENEWAL members already have a live renewal (a pick would only earn
+ * the 409), so the picker offers EXPIRED members only; RESIGNED members are
+ * refused by the server outright. The server stays permissive — this is a
+ * picker policy, not an API contract change.
+ */
+const RENEWABLE_MEMBER_STATUSES = "EXPIRED"
 
 async function searchRenewableMembers(search: string): Promise<ListMembersPageResponse> {
 	const params = new URLSearchParams({ limit: String(MEMBER_SEARCH_LIMIT), status: RENEWABLE_MEMBER_STATUSES })
