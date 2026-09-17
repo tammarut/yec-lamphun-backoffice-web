@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
+import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
 
 import { fullNameTh, memberStatusLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import { RenewalMemberCombobox } from "src/modules/membership-renewals/components/renewal-member-combobox"
@@ -15,6 +15,7 @@ import { Button } from "src/shared/components/ui/button"
 import { Checkbox } from "src/shared/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "src/shared/components/ui/dialog"
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
+import { cn } from "src/shared/lib/utils/utils"
 
 /** Per-file size limit (7MB) and image extensions — mirrors the upload API's server rules (same client copy convention as card 03). */
 const MAX_SLIP_FILE_SIZE_BYTES = 7 * 1024 * 1024
@@ -27,6 +28,9 @@ const WORKING_TEAM_DISCOUNT_PER_MEMBER = 500
 
 /** General-member position code — the only position without the working-team discount. */
 const GENERAL_MEMBER_POSITION = "GENERAL_MEMBER"
+
+/** Static payment account (README §8 item 5 static copy); copied to the clipboard digits-only. */
+const BANK_ACCOUNT_DISPLAY = "207-8-13870-2"
 
 /**
  * The member fields the form's ① section displays. Deliberately looser than
@@ -102,7 +106,8 @@ function validateSlipFile(file: File): string | null {
 
 type StagedSlip = {
 	readonly file: File
-	readonly previewUrl: string
+	/** CSP-safe local preview (card-03 pattern) — blob: is not allowed by the app's img-src. */
+	readonly dataUrl: string
 }
 
 type RenewalFormDialogProps = {
@@ -142,6 +147,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 	const [succeeded, setSucceeded] = useState(false)
 	const [submitError, setSubmitError] = useState<string | null>(null)
 	const [isUploading, setIsUploading] = useState(false)
+	const [copiedAccount, setCopiedAccount] = useState(false)
 
 	const committeeCount = selected !== null && selected.position !== GENERAL_MEMBER_POSITION ? 1 : 0
 	const total = selected !== null ? FEE_PER_BUSINESS - WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount : null
@@ -159,17 +165,6 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 
 	const isSubmitting = isUploading || createRenewal.isPending
 
-	// Sole owner of the object-URL lifecycle: the cleanup revokes the previous
-	// preview on every slip change and on unmount (dialog close), so staging a
-	// new file or closing with a file staged can never leak a blob URL.
-	useEffect(() => {
-		return () => {
-			if (slip !== null) {
-				URL.revokeObjectURL(slip.previewUrl)
-			}
-		}
-	}, [slip])
-
 	const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0]
 		event.target.value = ""
@@ -182,11 +177,24 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 			return
 		}
 		setSlipError(null)
-		setSlip({ file, previewUrl: URL.createObjectURL(file) })
+		// CSP-safe preview (card-03 pattern): img-src allows data:, not blob:.
+		const reader = new FileReader()
+		reader.onload = () => {
+			if (typeof reader.result === "string") {
+				setSlip({ file, dataUrl: reader.result })
+			}
+		}
+		reader.readAsDataURL(file)
 	}
 
 	const clearSlip = () => {
 		setSlip(null)
+	}
+
+	const handleCopyAccount = () => {
+		void navigator.clipboard?.writeText(BANK_ACCOUNT_DISPLAY.replace(/-/g, ""))
+		setCopiedAccount(true)
+		setTimeout(() => setCopiedAccount(false), 2000)
 	}
 
 	const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -352,7 +360,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 										) : (
 											<div className="space-y-2">
 												{/* eslint-disable-next-line @next/next/no-img-element -- local object URL, not a Next image route */}
-												<img src={slip.previewUrl} alt={`ตัวอย่างสลิป ${slip.file.name}`} className="mx-auto max-h-40 rounded border shadow-sm" />
+												<img src={slip.dataUrl} alt={`ตัวอย่างสลิป ${slip.file.name}`} className="mx-auto max-h-40 rounded border shadow-sm" />
 												<p className="text-success text-xs font-medium">ไฟล์ที่เลือก: {slip.file.name}</p>
 												<button
 													type="button"
@@ -436,7 +444,24 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 									<div className="min-w-0">
 										<p className="text-muted-foreground text-xs">ธนาคารกสิกรไทย (KBANK)</p>
 										<p className="text-sm font-bold">YEC LAMPHUN</p>
-										<p className="text-success font-mono text-base tracking-wider">207-8-13870-2</p>
+										<div className="flex items-center gap-1.5">
+											<p className="text-success font-mono text-base tracking-wider">{BANK_ACCOUNT_DISPLAY}</p>
+											<button
+												type="button"
+												onClick={handleCopyAccount}
+												aria-label="คัดลอกเลขบัญชี"
+												title="คัดลอกเลขบัญชี"
+												data-slot="renewal-copy-account"
+												className={cn(copiedAccount ? "text-success" : "text-muted-foreground hover:text-foreground")}
+											>
+												<HugeiconsIcon icon={copiedAccount ? CheckmarkCircleIcon : Copy01Icon} className="size-4" />
+											</button>
+											{copiedAccount && (
+												<span className="text-success text-xs font-medium" role="status">
+													คัดลอกแล้ว
+												</span>
+											)}
+										</div>
 									</div>
 								</div>
 								<p className="text-muted-foreground text-xs leading-relaxed">

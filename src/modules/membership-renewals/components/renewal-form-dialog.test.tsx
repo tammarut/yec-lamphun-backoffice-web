@@ -83,6 +83,12 @@ function pickSlipFile(file: File) {
 	fireEvent.change(input, { target: { files: [file] } })
 }
 
+/** Stage a VALID slip — the data:-URL preview derives via FileReader (async), so wait for the staged state. */
+async function stageSlipFile(file: File) {
+	pickSlipFile(file)
+	await screen.findByText(/ไฟล์ที่เลือก:/)
+}
+
 beforeEach(() => {
 	// Radix Checkbox (react-use-size) needs ResizeObserver in jsdom.
 	vi.stubGlobal(
@@ -121,7 +127,7 @@ describe("RenewalFormDialog", () => {
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
-			pickSlipFile(pngFile())
+			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
@@ -169,7 +175,7 @@ describe("RenewalFormDialog", () => {
 			expect(screen.queryByRole("button", { name: "เปลี่ยนสมาชิก" })).toBeNull()
 			expect(screen.queryByRole("combobox")).toBeNull()
 
-			pickSlipFile(pngFile())
+			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
 
@@ -230,7 +236,7 @@ describe("RenewalFormDialog", () => {
 			)
 			const view = render(ui(true))
 
-			pickSlipFile(pngFile())
+			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
 			expect(await screen.findByText("ต่ออายุสำเร็จ")).toBeTruthy()
@@ -281,7 +287,7 @@ describe("RenewalFormDialog", () => {
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
-			pickSlipFile(pngFile())
+			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
@@ -298,7 +304,7 @@ describe("RenewalFormDialog", () => {
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
-			pickSlipFile(pngFile())
+			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
@@ -315,7 +321,7 @@ describe("RenewalFormDialog", () => {
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
-			pickSlipFile(pngFile())
+			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
@@ -323,22 +329,27 @@ describe("RenewalFormDialog", () => {
 			expect(screen.getByText(/Member not found/)).toBeTruthy()
 		})
 
-		it("revokes the slip's object URL when the dialog unmounts", async () => {
-			const revokeSpy = vi.spyOn(URL, "revokeObjectURL")
-			const { settleDebounce, unmount } = renderDialog({})
+		it("preview derives a CSP-safe data: URL from the staged file (blob: is blocked by img-src)", async () => {
+			const { settleDebounce } = renderDialog({})
 
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
-			pickSlipFile(pngFile())
-			const stagedUrl = screen.getByRole("img", { name: /ตัวอย่างสลิป/ }).getAttribute("src")
+			await stageSlipFile(pngFile())
 
-			expect(stagedUrl).toBeTruthy()
-			expect(revokeSpy).not.toHaveBeenCalledWith(stagedUrl)
-			unmount()
-			expect(revokeSpy).toHaveBeenCalledWith(stagedUrl)
+			const preview = screen.getByRole("img", { name: /ตัวอย่างสลิป slip.png/ })
+			expect(preview.getAttribute("src")?.startsWith("data:image/")).toBe(true)
+		})
 
-			revokeSpy.mockRestore()
+		it("copy button writes the account number digits-only and confirms", async () => {
+			const writeText = vi.fn().mockResolvedValue(undefined)
+			Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+			renderDialog({})
+
+			fireEvent.click(screen.getByRole("button", { name: "คัดลอกเลขบัญชี" }))
+
+			expect(writeText).toHaveBeenCalledWith("2078138702")
+			expect(screen.getByText("คัดลอกแล้ว")).toBeTruthy()
 		})
 
 		it("non-image slip is rejected with the extension message", async () => {
