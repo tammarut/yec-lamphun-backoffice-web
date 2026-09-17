@@ -95,12 +95,14 @@ Correction after PR 2b shipped: no switch (and no tabs) existed — the เป�
 
 > Shipped notes (both scrutiny gates ran — in-session /scrutinize: ship after Z1/Z2 fixes; Antigravity Gemini 3.8-Flash High: fix-then-ship, M1–M4 fixed in `1a57cc2`/`0136e5a`): (1) **NO Switch/Tabs primitives existed** despite this card's earlier claim — the toggle shipped as the mockup-faithful เปิด/ปิด segmented two-button pill (Tailwind buttons; no new shadcn component); (2) **final color mapping (user decision 2026-09-16, after a one-day red detour `cef7361`, reverted `012c970`)**: ยังไม่ได้ต่ออายุ = `warning` brownish-orange, รอตรวจสอบการโอน + the PENDING_REVIEW pill = the NEW `--pending` soft-yellow token (globals.css, light+dark), ปกติ = success, ไม่อนุมัติ = destructive — `RenewalStatusBadgeTone` gained `"pending"`; (3) admin default filter = keyed remount of the page body (`key={isAdmin…}`), NOT a set-state effect; (4) pending rows' ดำเนินการ = `-` placeholder by design until PR 3; (5) settings + stat hooks carry `staleTime: 30_000` (writes invalidate regardless); (6) the page h1 moved from the worklist view up to `renewal-page-view.tsx` — the composed page renders exactly one h1; (7) presigned slip CSP verified live (served img-src already lists the R2 private host); (8) the cross-module **type-only** import of `LatestRenewalResponse` is deliberate (user decision: keep — revisit only if PR 3's review dialog makes the coupling hurt).
 
-### PR 3 — write flows (`feature/ui-04c-renewal-write`, closes #49)
+### PR 3 — write flows (`feature/ui-04c-renewal-write`, closes #49) — **SHIPPED as PR #57** (merged 2026-09-17, `9f9f2b1`)
 
 - Renewal form dialog: ① member autocomplete from `/members?search=` (debounced prefix search; selected state = member card with avatar · business · status; readonly in manual mode); ③ slip upload (uploads-first: POST `/file/upload` once, then `POST /renewals` or `/manual` with the returned `payment_slip_file_path`); ④ PDPA consent gating submit; display-only fee rail; missing-field summary list; in-dialog success screen; 409 pending-exists / 403 resigned / 404 surfaced inline from `{ error_message }`. (② สมาชิกเพิ่มเติม stays deferred to #50.)
 - Review dialog: per-state title variants (ตรวจสอบการชำระเงิน / หลักฐานการโอนเงิน / คำขอต่ออายุที่ไม่อนุมัติ); rejected rows show เหตุผลที่ไม่อนุมัติ (เมื่อ {rejected_at}); approve / reject-with-reason; 409 already-reviewed → inline message + list refetch; slip from `GET /renewals/{member_id}` (1-hour presigned URL; expired preview recovers by refetching).
 - Row actions wired into the PR 2 tables: ตรวจสอบ/อนุมัติ (pending), ต่ออายุ (Manual) (pending/rejected rows); invalidate stat + active list on every successful write.
 - Form + review + wiring tests; the card-level acceptance-criteria walk below completes in this PR.
+
+> Shipped notes (both scrutiny gates ran — in-session /scrutinize: fix-then-ship, dialog-state-leak fixed in `bb9aacb`; Antigravity Gemini 3.8-Flash High: fix-then-ship, F1/F3/F4/F5 fixed in `e260787`, F2 proven-correct; then three user-driven rounds in review): (1) **dialog state-leak** — both dialogs rendered unconditionally so `useState` survived Radix content unmounts (stale success screen; reject draft leaking member A → B); fix = outer gate + fresh-mounting body (hooks/state only in the body, mounted while open) — the pattern for any future dialog with cross-open state; (2) **Antigravity F1** object-URL leak → superseded by (3); **F3** ต่ออายุ (Manual) on the ไม่อนุมัติ panel green like the expired table (mockup drew red; user picked the report); **F4** +403/404 inline tests; **F5** `staleTime: 30s` on the member-search hook; **F2** approved-variant no-change → superseded by (4); (3) **slip preview = `readAsDataURL` data: URL (card-03 pattern)** — the original `blob:` preview never displayed: the CSP `img-src` allows `data:` + R2 hosts but not `blob:` (card 03 documented the same constraint); data: URLs need no lifecycle so the revoke machinery was deleted; (4) **ONE review dialog, three states** (user decision): approved rows' eye action opens the review dialog's หลักฐานการโอนเงิน variant (member grid + slip + ปิดหน้าต่าง) per mockup v3 and the three-state description above; `SlipViewerDialog` retired; (5) **dialog widths must be sm:-prefixed** — the shared DialogContent default `sm:max-w-sm` outranks an unprefixed `max-w-*` at ≥640px (384px dialogs); form `sm:max-w-4xl`, review `sm:max-w-lg` (the card-03 wizard's `sm:max-w-6xl` convention); (6) **the mockup's `md:grid-cols-[1fr,280px]` is invalid CSS** (Tailwind-v1 comma-ism) — compiled to a dropped declaration, the two-column form+rail layout never engaged; fixed to `[1fr_280px]`; (7) **account copy button** on the KBANK card (digits-only to the clipboard, 2s คัดลอกแล้ว); (8) **mobile floating ต่ออายุ pill** below 768px (header button hides; page gains pb-24; mockup v3 has no mobile layout — responsive contract fills the gap); (9) **member picker = EXPIRED only** (grill session 2026-09-17): แจ้งต่ออายุสมาชิก files for an EXPIRED member — ACTIVE has nothing to renew yet (early renewal yields the same Dec-31-next-year expiry), PENDING_RENEWAL already holds the one live renewal (a pick only earns the 409); UI filter only, the public endpoint stays permissive; admin accepts losing the cookie-fork quick-renew of still-ACTIVE members; (10) header แจ้งชำระเงิน / ต่ออายุ button visible to everyone (ADR-0015 cookie fork deliberate); autocomplete excludes RESIGNED.
 
 ## Out of scope
 
@@ -115,79 +117,16 @@ Correction after PR 2b shipped: no switch (and no tabs) existed — the เป�
 - [x] Stat cards render counts from `/stat` and filter the area below on click (ยังไม่ได้ต่ออายุ → expired endpoint). *(PR #55)*
 - [x] ยังไม่ได้ต่ออายุ renders the sectioned worklist: pinned ไม่อนุมัติ panel (reason + date on rows for admin, collapsible, green all-clear when none) above the หมดอายุ section (member_since column, +10 load-more). *(PR #53; the mockup's business line on rejected rows is dropped — the expired DTO has no such field; the หมดอายุ count badge is deliberately absent — see the PR 2 shipped notes.)*
 - [x] Server-side search works per active filter; cursor load-more works (รอตรวจสอบ/ปกติ) and the หมดอายุ client paging works. *(expired half in PR #53; รอตรวจสอบ/ปกติ search + cursor in PR #55)*
-- [ ] Member renewal form submits end-to-end: autocomplete → slip upload → consent → 201; in-dialog success screen; status becomes รอตรวจสอบ (admin manual mode → ปกติ).
-- [ ] Admin review dialog approves and rejects-with-reason (per-state title variants, rejected rows show reason + date); 409 already-reviewed surfaces inline; slip viewer shows the presigned image.
-- [ ] Fee banner + display-only fee rail render; manual renewal works for pending/rejected rows; all states reachable; admin-only elements hidden when logged out; `bun run lint` + `bun run test` green. *(fee banner rendered in PR #55; everything else → PR 3)*
+- [x] Member renewal form submits end-to-end: autocomplete → slip upload → consent → 201; in-dialog success screen; status becomes รอตรวจสอบ (admin manual mode → ปกติ). *(PR #57; the picker offers EXPIRED members only — shipped note 9.)*
+- [x] Admin review dialog approves and rejects-with-reason (per-state title variants, rejected rows show reason + date); 409 already-reviewed surfaces inline; slip viewer shows the presigned image. *(PR #57; approved rows' eye opens the review dialog's หลักฐานการโอนเงิน read-only variant — shipped note 4.)*
+- [x] Fee banner + display-only fee rail render; manual renewal works for pending/rejected rows; all states reachable; admin-only elements hidden when logged out; `bun run lint` + `bun run test` green. *(fee banner PR #55; everything else PR #57.)*
 
 ## AI implementation prompt
 
-The card-level prompt served its purpose across PRs 1–2b; per the card-03
-convention, this block now carries the NEXT session's full kickoff prompt
-(PR 3 — the finale, closes #49).
-
-```text
-Implement PR 3 of UI-04 (four-PR plan per the card): the write flows —
-closes #49.
-
-Read first: AGENTS.md; the card docs/ui-conversion/cards/04-membership-renewal.md
-(esp. "PR 3" in Task breakdown + the PR 2b shipped notes); CONTEXT.md renewal
-terms (Renewal Submission, Manual Renewal Submission, Renewal Review); the
-mockup v3 in ui-mockup/YEC-Lamphun.html (Membership Renewal page — renewal
-form dialog ①③④ + right rail, review dialog, row actions). Then the live
-code — the shipped PR 2/2b read side (src/modules/membership-renewals/
-components/ + hooks/: renewal-page-view, renewal-table, slip-viewer-dialog,
-renewal-labels, the renderView test harness with real-timer settleDebounce)
-and the endpoints: POST /api/v1/membership/renewals,
-POST /api/v1/membership/renewals/manual, PATCH
-/api/v1/membership/renewals/review/[renewal_id], GET /api/v1/members?search=,
-POST /api/v1/members/file/upload (field payment_slip), and GET
-/api/v1/membership/renewals/[member_id] (review-dialog slip).
-
-Scope (per the card's PR 3 section — the card is the source of truth):
-1. Renewal form dialog: ① member autocomplete from GET /members?search=
-   (debounced prefix search; selected state = member card with avatar ·
-   business · status; readonly in manual mode); ③ slip upload (uploads-first:
-   POST /file/upload once, then POST /renewals or /manual with the returned
-   payment_slip_file_path; 7MB/image client checks mirroring card 03);
-   ④ PDPA consent (อ่านรายละเอียด ▾ + required checkbox gating submit);
-   display-only fee rail (1 คน 5,000 / 2+ 4,000, −500/คน คณะทำงาน — client
-   math only, nothing sent to the API); missing-field red summary list
-   (เลือกสมาชิกที่ต่ออายุ / แนบหลักฐานการโอนเงิน (Slip) / ยอมรับหนังสือให้
-   ความยินยอม (PDPA)); in-dialog success screen (ต่ออายุสำเร็จ / ส่งข้อมูล
-   เรียบร้อยแล้ว + สถานะ line + ปิด); 409 pending-exists / 403 resigned /
-   404 surfaced inline from { error_message }. (② สมาชิกเพิ่มเติม stays
-   deferred to #50 — the fee rail renders the single-member 5,000 total.)
-2. Review dialog: per-state titles (ตรวจสอบการชำระเงิน / หลักฐานการโอนเงิน /
-   คำขอต่ออายุที่ไม่อนุมัติ); ข้อมูลสมาชิก grid; rejected rows show เหตุผลที่
-   ไม่อนุมัติ (เมื่อ {rejected_at}); approve / reject-with-reason (placeholder
-   เช่น สลิปไม่ชัดเจน, ยอดเงินไม่ถูกต้อง...; guarded transition, ADR-0018);
-   409 already-reviewed → inline message + list refetch; slip panel from
-   GET /renewals/{member_id} (1-hour presigned URL; expired preview recovers
-   by refetching — reuse the slip-viewer recovery pattern).
-3. Row actions wired into the shipped tables: ตรวจสอบ/อนุมัติ (pending rows,
-   replacing the "-" placeholder), ต่ออายุ (Manual) (pending/rejected rows in
-   the worklist), and the header แจ้งชำระเงิน / ต่ออายุ button (member mode);
-   invalidate the stat + active list queries on every successful write.
-4. Client types + hooks + components + tests (jsdom recipes apply); look&feel
-   match to mockup v3, never pixel-perfect; API wins on any contradiction;
-   admin-gated copy per card 03 conventions. NO new backend read-model
-   changes — statuses, transitions, and endpoints are all live (ADR-0015–0018).
-
-Workflow: branch feature/ui-04c-renewal-write off updated main; commit per
-unit. TWO scrutiny gates BEFORE the PR, both required:
-  Gate 1 — run /scrutinize in this session as usual.
-  Gate 2 — deliver a paste-ready Antigravity scrutinize prompt (self-contained
-  block naming the branch, the diff range vs main, the card's PR-3 section as
-  the spec axis, and the acceptance criteria) so the same review runs in
-  Antigravity IDE (Gemini 3.8-Flash High) as an independent second model. STOP
-  and wait for the findings paste-back. Dispose of each finding ID (fix, or
-  prove already-correct with evidence), commit the fixes, then push and open
-  the PR (closes #49). Never merge. Surface questions as decisions (options +
-  recommendation).
-Definition of done: functional in browser, Thai copy checked, tests green,
-bun run lint + bun run test green, BOTH scrutiny gates run and their findings
-dispositioned, Antigravity verdict noted in the PR body.
-```
+SERVED — the PR 3 kickoff prompt (authored 2026-09-16) drove its session
+and the card is fully shipped as of PR #57 (`9f9f2b1`); the block is
+removed per the card-03 convention. The verbatim text lives in git history
+(`git show 15cb890:docs/ui-conversion/cards/04-membership-renewal.md`).
 
 ## References
 
