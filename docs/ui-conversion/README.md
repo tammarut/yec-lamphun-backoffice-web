@@ -21,7 +21,7 @@ Convert the client-approved mockup `ui-mockup/YEC-Lamphun.html` into production 
 | [UI-01](cards/01-dashboard.md) | Dashboard | — | Any time after 00. |
 | [UI-02](cards/02-org-chart.md) | Org chart | — | Any time after 00. |
 | [UI-03](cards/03-members.md) | Members | — | Before 04 (04 reuses its patterns). **Split executed, then re-split for 3b — fully SHIPPED**: 3a list/card + delete + CSV — SHIPPED as PR #42 (`83b05fa`), relocated into the module by the ADR-0022 refactor PR #43 (`4de4502`); 3b-create wizard shell + create flow — SHIPPED as PR #45 (`389b41e`); 3b-edit edit action + pre-fill + presigned previews — SHIPPED as PR #47 (`9edd9ba`), which closed #41. |
-| [UI-04](cards/04-membership-renewal.md) | Membership renewal | — | Last. Reuses autocomplete + upload patterns from 03. **Split into four PRs** (2026-09-15 amendment): PR 1 rejection read-model — SHIPPED as PR #52 (`c20c703`); PR 2 expired worklist read UI — SHIPPED as PR #53 (`2562af1`); PR 2b read-side remainder (gate/toggle, stat cards, รอตรวจสอบ/ปกติ table, slip viewer) — SHIPPED as PR #55 (`57d9a2c`); PR 3 write flows (closes #49) remains. |
+| [UI-04](cards/04-membership-renewal.md) | Membership renewal | — | Last. Reuses autocomplete + upload patterns from 03. **Split into four PRs** (2026-09-15 amendment) — **fully SHIPPED, #49 closed**: PR 1 rejection read-model — SHIPPED as PR #52 (`c20c703`); PR 2 expired worklist read UI — SHIPPED as PR #53 (`2562af1`); PR 2b read-side remainder (gate/toggle, stat cards, รอตรวจสอบ/ปกติ table, slip viewer) — SHIPPED as PR #55 (`57d9a2c`); PR 3 write flows (form dialog ①③④ + fee rail, review dialog, row actions, mobile FAB) — SHIPPED as PR #57 (`9f9f2b1`), closed #49. |
 
 ## 3. Per-card workflow (mockup → production → tested)
 
