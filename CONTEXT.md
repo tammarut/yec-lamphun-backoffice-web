@@ -56,9 +56,13 @@ _Avoid_: ghost node, empty position, missing rung
 A formal record attached to a member, of a fixed kind: `ID_CARD`, `COMPANY_CERTIFICATE`, or `PAYMENT_SLIP`. Stored as a file path reference plus a type tag — distinct from a **Member File**, which is the upload artifact before it is associated.
 _Avoid_: attachment, file
 
-**Member Business**:
-The single business record a member is affiliated with. A member has at most one business. Its geographic location is stored as a two-element numeric array in `[longitude, latitude]` order.
-_Avoid_: company, merchant
+**Business**:
+A real-world enterprise affiliated with members. Shared: many members may link to the same business, and a member has at most one. Editing a business through any linked member updates the single shared record every linked member sees. Its geographic location is stored as a two-element numeric array in `[longitude, latitude]` order.
+_Avoid_: company, merchant, member business
+
+**Live Business**:
+A business currently linked by at least one member whose membership is live. When the last live member link goes, the business ends with it — it is never kept as a memberless record.
+_Avoid_: active business, orphan business, dormant business
 
 **ID Card**:
 A member's Thai national ID. Never stored in plaintext: the column `id_card_no` holds AES-256-GCM ciphertext (base64 of IV+ ciphertext+ auth tag); the column `id_card_no_hash` holds an HMAC-SHA256 hex digest used as a blind index for duplicate lookup and uniqueness.
