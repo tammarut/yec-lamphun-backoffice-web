@@ -23,14 +23,20 @@ sql:
             options:
                 runtime: "node"
                 driver: "postgres"
-    # The members module owns members, positions, member_documents, and
-    # member_business (see docs/adr/0005-merge-member-business-and-member-document-into-members-module.md).
+    # The members module owns members, positions, member_documents,
+    # businesses, and member_business (see
+    # docs/adr/0005-merge-member-business-and-member-document-into-members-module.md).
+    # businesses is the shared entity extracted from member_business
+    # (spec #66); members.business_id FKs to it, so its schema must be in
+    # this parse set. member_business is still queried today — it is dropped
+    # by the cutover ticket (#72) together with the migration script run.
     # business_categories is referenced only so its FK resolves during parsing.
     # membership_renewals is likewise referenced only so its FK to members(id)
     # resolves during parsing — the members repo owns the cascade soft-delete
     # transaction (ADR-0013); no TS cross-import into membership-renewals/.
     - schema:
           - "src/modules/business-categories/repository/sql/schema.sql"
+          - "src/modules/members/repository/businesses/sql/schema.sql"
           - "src/modules/members/repository/sql/schema.sql"
           - "src/modules/members/repository/member-document/sql/schema.sql"
           - "src/modules/members/repository/member-business/sql/schema.sql"
@@ -46,11 +52,16 @@ sql:
     # The membership-renewals module owns renewal create/update/reads. Its
     # sqlc block references members/repository/sql/schema.sql ONLY so the FK to
     # members(id) and the members columns it UPDATEs resolve during parsing — no
-    # TS cross-import. This is the symmetric mirror of ADR-0013, where the
-    # members block references membership-renewals/repository/sql/schema.sql for
-    # the cascade soft-delete. The renewals repo owns the cross-table create
-    # transaction (ADR-0014).
+    # TS cross-import. members.business_id in turn FKs to businesses, whose
+    # category_id FKs to business_categories, so both schemas ride along for
+    # parse-time FK resolution only. This is the symmetric mirror of ADR-0013,
+    # where the members block references
+    # membership-renewals/repository/sql/schema.sql for the cascade
+    # soft-delete. The renewals repo owns the cross-table create transaction
+    # (ADR-0014).
     - schema:
+          - "src/modules/business-categories/repository/sql/schema.sql"
+          - "src/modules/members/repository/businesses/sql/schema.sql"
           - "src/modules/members/repository/sql/schema.sql"
           - "src/modules/membership-renewals/repository/sql/schema.sql"
       queries: "src/modules/membership-renewals/repository/sql/queries.sql"
@@ -65,9 +76,14 @@ sql:
     # block references members/member_business/business_categories schemas
     # ONLY so the FKs resolve during parsing — no TS cross-import into the
     # members module (symmetric mirror of the renewals block, ADR-0013
-    # pattern). members/schema.sql already contains positions.
+    # pattern). members/schema.sql already contains positions, and
+    # members.business_id now FKs to businesses, so the businesses schema
+    # rides along for parsing too. member_business is still what the query
+    # counts today — the swap to counting non-deleted businesses rows belongs
+    # to the cutover ticket (#72).
     - schema:
           - "src/modules/business-categories/repository/sql/schema.sql"
+          - "src/modules/members/repository/businesses/sql/schema.sql"
           - "src/modules/members/repository/sql/schema.sql"
           - "src/modules/members/repository/member-business/sql/schema.sql"
       queries: "src/modules/dashboard/repository/sql/queries.sql"

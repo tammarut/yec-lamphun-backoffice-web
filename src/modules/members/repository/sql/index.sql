@@ -12,6 +12,11 @@ CREATE INDEX IF NOT EXISTS idx_members_latest_renewal_status
 CREATE INDEX IF NOT EXISTS idx_members_position_code
     ON members(position_code);
 
+-- Join support for the business link (FK to businesses; same statement as
+-- businesses-migration.sql section 3 — keep in sync)
+CREATE INDEX IF NOT EXISTS idx_members_business_id
+    ON members(business_id);
+
 -- Enforce uniqueness of the ID card without exposing the plaintext (unchanged)
 CREATE UNIQUE INDEX IF NOT EXISTS members_id_card_hash_unique_idx
     ON members (id_card_no_hash);
