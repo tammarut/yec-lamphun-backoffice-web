@@ -1,5 +1,7 @@
+-- ============================================================================
 -- businesses indexes
 -- (same statements as businesses-migration.sql section 4 — keep in sync)
+-- ============================================================================
 
 -- Live-rows-only partial UNIQUE on the dedupe identity key — soft-deleting a
 -- business drops its row from the partial index, releasing the juristic

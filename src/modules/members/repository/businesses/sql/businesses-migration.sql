@@ -5,6 +5,8 @@
 -- One transaction: ANY failure rolls the whole thing back (PG DDL is tx-safe).
 -- Before running:  pg_dump --table member_business --table members "$DATABASE_URL" \
 --                    > pre-businesses-migration.dump
+-- WHEN: only at the cutover ticket (#72) merge — the pre-cutover app still
+--       queries member_business; running this earlier breaks it.
 -- ============================================================================
 
 BEGIN;
@@ -48,11 +50,16 @@ WITH merged AS (
         (ARRAY_AGG(mb.description       ORDER BY mb.created_at, mb.id))[1] AS description,
         (ARRAY_AGG(mb.category_id       ORDER BY mb.created_at, mb.id))[1] AS category_id,
         (ARRAY_AGG(mb.address           ORDER BY mb.created_at, mb.id))[1] AS address,
-        -- location is array-typed: ARRAY_AGG flattens sub-arrays into one 2-D
-        -- array, so plain [1] would scalar-ize (first double, not the pair) and
-        -- fail the INSERT. The [1:1] slice takes the first full sub-array.
-        (ARRAY_AGG(mb.location          ORDER BY mb.created_at, mb.id)
-             FILTER (WHERE mb.location IS NOT NULL))[1:1] AS location,
+        -- location is array-typed, which breaks the ARRAY_AGG route twice:
+        -- plain [1] scalar-izes (ARRAY_AGG flattens sub-arrays into one 2-D
+        -- array typed double precision[]) AND array-typed aggregates reject
+        -- NULL inputs outright ("cannot accumulate null arrays"). Locked
+        -- semantics = the canonical row supplies location, NULL stays NULL —
+        -- so pick it straight off the canonical row instead.
+        (SELECT mb2.location FROM member_business mb2
+          WHERE mb2.juristic_registration_no = mb.juristic_registration_no
+          ORDER BY mb2.created_at, mb2.id
+          LIMIT 1) AS location,
         (ARRAY_AGG(mb.core_business     ORDER BY mb.created_at, mb.id))[1] AS core_business,
         (ARRAY_AGG(mb.website           ORDER BY mb.created_at, mb.id))[1] AS website,
         (ARRAY_AGG(mb.logo_file_path    ORDER BY mb.created_at, mb.id)
@@ -138,3 +145,6 @@ COMMIT;
 --       DROP TABLE businesses;
 --     …or restore pre-businesses-migration.dump wholesale.
 -- ============================================================================
+-- One-time manual post-checks after COMMIT (from #60):
+--   · review the 2-name-variant group at juristic no 105557026729
+--   · review the 4 personal-ID-shaped juristic_registration_no values

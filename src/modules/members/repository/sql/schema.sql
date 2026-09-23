@@ -65,8 +65,9 @@ CREATE TABLE members (
     -- Position (FK to positions; hierarchy is DERIVED, NOT stored on members)
     position_code VARCHAR(30) NOT NULL REFERENCES positions (code) ON DELETE RESTRICT,
     -- Business (FK to businesses; the shared entity extracted from
-    -- member_business — members link to it by reference. NOT NULL once the
-    -- businesses-migration.sql cutover has run; fresh DBs get it directly.)
+    -- member_business — members link to it by reference. Nullable until the
+    -- cutover ticket (#72): the pre-cutover app doesn't write this column;
+    -- #72 flips it to NOT NULL together with the behavior cutover.)
     business_id BIGINT,
     -- Member Status
     status VARCHAR(50) NOT NULL,
@@ -91,7 +92,8 @@ CREATE TABLE members (
     CONSTRAINT chk_members_latest_renewal_status CHECK (
         latest_renewal_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')
     ),
-    -- Name matches businesses-migration.sql's manual-reverse DROP CONSTRAINT.
+    -- Name + definition mirror businesses-migration.sql section 3 — keep in
+    -- sync (the name also matches its manual-reverse DROP CONSTRAINT).
     CONSTRAINT fk_members_business
         FOREIGN KEY (business_id) REFERENCES businesses (id) ON DELETE RESTRICT
     -- NOTE: chk_members_position is GONE — replaced by the FK to positions.
