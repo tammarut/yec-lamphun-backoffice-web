@@ -237,9 +237,10 @@ WHERE id = $1
   AND deleted_at IS NULL;
 
 -- name: CountLiveMembersByBusinessId :many
--- 5. OTHER live members still linked to the business (the deleting member is
--- still live at count time — the lock in step 1 precedes the soft-deletes —
--- hence the id <> $2 self-exclusion). 0 ⇒ step 6 fires.
+-- 5. Live members still linked to the business, excluding the deleting member
+-- by id ($2) as belt-and-braces: the caller soft-deletes the member row before
+-- counting, so the deleted_at filter already excludes it — the id exclusion
+-- keeps this correct even if the step order is ever rearranged. 0 ⇒ step 6.
 SELECT count(*)::int AS live_count
 FROM members
 WHERE business_id = $1

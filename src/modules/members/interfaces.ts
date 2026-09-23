@@ -102,10 +102,12 @@ export interface IMemberRepository {
 	softDeleteMemberRow(tx: Sql, memberId: number): Promise<void>
 
 	/**
-	 * Count OTHER live members still linked to the business. `excludeMemberId`
-	 * is the deleting member — still live at count time (the lock precedes the
-	 * soft-deletes), so it must be excluded. 0 ⇒ the caller fires
-	 * {@link softDeleteBusinessById} (ADR-0023 last-live-link rule).
+	 * Count live members still linked to the business, excluding
+	 * `excludeMemberId` (the deleting member). The exclusion is belt-and-braces:
+	 * the caller soft-deletes the member row BEFORE counting, so the
+	 * `deleted_at IS NULL` filter already excludes them — the id exclusion keeps
+	 * the count correct even if the step order is ever rearranged. 0 ⇒ the
+	 * caller fires {@link softDeleteBusinessById} (ADR-0023 last-live-link rule).
 	 */
 	countLiveMembersByBusinessId(tx: Sql, businessId: number, excludeMemberId: number): Promise<number>
 

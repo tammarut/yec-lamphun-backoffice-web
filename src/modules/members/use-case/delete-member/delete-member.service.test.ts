@@ -41,7 +41,8 @@ describe("DeleteMemberService", () => {
 				expect(mockRepo.softDeleteMemberDocuments).toHaveBeenCalledWith(fakeTx, 101)
 				expect(mockRepo.softDeleteMembershipRenewals).toHaveBeenCalledWith(fakeTx, 101)
 				expect(mockRepo.softDeleteMemberRow).toHaveBeenCalledWith(fakeTx, 101)
-				// Lock precedes the soft-deletes (the count's self-exclusion relies on it).
+				// Lock precedes the soft-deletes: the cascade gate must observe the
+				// live business before anything in the transaction changes.
 				expect(mockRepo.findLiveBusinessIdForCascade.mock.invocationCallOrder[0]).toBeLessThan(mockRepo.softDeleteMemberDocuments.mock.invocationCallOrder[0]!)
 			})
 

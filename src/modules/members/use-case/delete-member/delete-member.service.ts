@@ -45,8 +45,10 @@ export class DeleteMemberService {
 				//    own idempotent soft-deletes, skip the cascade decision.
 				const businessId = await this.repository.findLiveBusinessIdForCascade(sql, id)
 
-				// 2-4. The member's dependent rows, then the member row. The member is
-				//      still live during the count below, so it self-excludes there.
+				// 2-4. The member's dependent rows, then the member row. By the count
+				//      below the member row is already soft-deleted, so it can never
+				//      count itself; the query additionally self-excludes by id as
+				//      belt-and-braces against step reordering.
 				await this.repository.softDeleteMemberDocuments(sql, id)
 				await this.repository.softDeleteMembershipRenewals(sql, id)
 				await this.repository.softDeleteMemberRow(sql, id)
