@@ -24,22 +24,21 @@ sql:
                 runtime: "node"
                 driver: "postgres"
     # The members module owns members, positions, member_documents,
-    # businesses, and member_business (see
+    # and businesses (see
     # docs/adr/0005-merge-member-business-and-member-document-into-members-module.md).
     # businesses is the shared entity extracted from member_business
-    # (spec #66); members.business_id FKs to it, so its schema must be in
-    # this parse set. member_business is still queried today — it is dropped
-    # by the cutover ticket (#72) together with the migration script run.
-    # business_categories is referenced only so its FK resolves during parsing.
-    # membership_renewals is likewise referenced only so its FK to members(id)
-    # resolves during parsing — the members repo owns the cascade soft-delete
-    # transaction (ADR-0013); no TS cross-import into membership-renewals/.
+    # (spec #66, cutover #72 — member_business is DROPPED); members link to it
+    # via the NOT NULL members.business_id FK, so its schema is in this parse
+    # set. business_categories is referenced only so its FK resolves during
+    # parsing. membership_renewals is likewise referenced only so its FK to
+    # members(id) resolves during parsing — the members repo owns the cascade
+    # soft-delete queries (ADR-0013/0023); no TS cross-import into
+    # membership-renewals/.
     - schema:
           - "src/modules/business-categories/repository/sql/schema.sql"
           - "src/modules/members/repository/businesses/sql/schema.sql"
           - "src/modules/members/repository/sql/schema.sql"
           - "src/modules/members/repository/member-document/sql/schema.sql"
-          - "src/modules/members/repository/member-business/sql/schema.sql"
           - "src/modules/membership-renewals/repository/sql/schema.sql"
       queries: "src/modules/members/repository/sql/queries.sql"
       engine: "postgresql"
@@ -73,19 +72,18 @@ sql:
                 runtime: "node"
                 driver: "postgres"
     # The dashboard module owns the Dashboard Stat read (ADR-0019). Its sqlc
-    # block references members/member_business/business_categories schemas
-    # ONLY so the FKs resolve during parsing — no TS cross-import into the
-    # members module (symmetric mirror of the renewals block, ADR-0013
-    # pattern). members/schema.sql already contains positions, and
-    # members.business_id now FKs to businesses, so the businesses schema
-    # rides along for parsing too. member_business is still what the query
-    # counts today — the swap to counting non-deleted businesses rows belongs
-    # to the cutover ticket (#72).
+    # block references members/businesses/business_categories schemas ONLY so
+    # the FKs resolve during parsing — no TS cross-import into the members
+    # module (symmetric mirror of the renewals block, ADR-0013 pattern).
+    # members/schema.sql already contains positions, and members.business_id
+    # FKs to businesses, so the businesses schema rides along for parsing.
+    # Since the #72 cutover, total_businesses counts non-deleted businesses
+    # rows — equal by construction to the pre-cutover live member_business
+    # count (non-deleted business ⇔ ≥1 live member).
     - schema:
           - "src/modules/business-categories/repository/sql/schema.sql"
           - "src/modules/members/repository/businesses/sql/schema.sql"
           - "src/modules/members/repository/sql/schema.sql"
-          - "src/modules/members/repository/member-business/sql/schema.sql"
       queries: "src/modules/dashboard/repository/sql/queries.sql"
       engine: "postgresql"
       codegen:

@@ -65,10 +65,11 @@ CREATE TABLE members (
     -- Position (FK to positions; hierarchy is DERIVED, NOT stored on members)
     position_code VARCHAR(30) NOT NULL REFERENCES positions (code) ON DELETE RESTRICT,
     -- Business (FK to businesses; the shared entity extracted from
-    -- member_business — members link to it by reference. Nullable until the
-    -- cutover ticket (#72): the pre-cutover app doesn't write this column;
-    -- #72 flips it to NOT NULL together with the behavior cutover.)
-    business_id BIGINT,
+    -- member_business — members link to it by reference. NOT NULL since the
+    -- #72 cutover: every member row is created with its business link in the
+    -- same transaction, and businesses-migration.sql section 3 backfilled +
+    -- gated the column before setting NOT NULL.)
+    business_id BIGINT NOT NULL,
     -- Member Status
     status VARCHAR(50) NOT NULL,
     -- Cache Columns for performance

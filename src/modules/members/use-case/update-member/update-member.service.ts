@@ -1,5 +1,6 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
 import { inject, singleton } from "tsyringe"
 import { Member } from "../../domain/member"
@@ -64,6 +65,13 @@ export class UpdateMemberService {
 		const existing = existingResult.value
 		if (existing === null) {
 			return err(new MemberNotFoundError())
+		}
+		if (existing.business === null) {
+			// Unreachable in practice — the repository's read already maps a live
+			// member with no live business to DatabaseError (corruption → 500).
+			// Kept as the type-honest mirror of that guard: this use case needs
+			// the shared business id to target the wholesale overwrite.
+			return err(new DatabaseError(`Member ${id} has no live business row (violates the live-member⇒live-business invariant)`))
 		}
 
 		// 2. Resolve the five sticky file-path fields (ADR-0012): null in the
@@ -158,8 +166,11 @@ export class UpdateMemberService {
 		})
 
 		// 7. Persist — the transaction + multi-table update is an internal
-		//    detail of the repository. One call, returns ok or err.
-		const updateResult = await this.repository.update(id, updatedMember.value, documentTypesToReplace)
+		//    detail of the repository. One call, returns ok or err. The shared
+		//    business row to overwrite is the one resolved by the read model
+		//    above (a live member always has a live business — the corruption
+		//    guard ran upstream), so its id is non-null here (ADR-0023).
+		const updateResult = await this.repository.update(id, updatedMember.value, existing.business.id, documentTypesToReplace)
 		if (updateResult.isErr()) {
 			return err(updateResult.error)
 		}

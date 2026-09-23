@@ -7,7 +7,7 @@ import type { DashboardMemberStatusCountsRow, MemberCountByYearRow } from "./use
  *
  * The module's single use case (the Dashboard Stat) is assembled from three
  * independent aggregate reads over the members-owned tables (`members`,
- * `member_business` — owned by the members module per ADR-0005). This module
+ * `businesses` — owned by the members module per ADR-0005/ADR-0023). This module
  * reads them through its own sqlc block (schemas referenced for FK parsing
  * only, no TS cross-import — the symmetric mirror of the renewals block,
  * ADR-0013 pattern; ADR-0019). All three queries are STATIC text, so sqlc owns

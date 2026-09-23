@@ -60,6 +60,10 @@ describe("UpdateMemberService", () => {
 			expect(mockRepo.countMemberByIdCardHash).not.toHaveBeenCalled()
 			expect(mockRepo.countActiveHolderByPosition).not.toHaveBeenCalled()
 			expect(mockRepo.update).toHaveBeenCalledTimes(1)
+			// ADR-0023: the wholesale overwrite targets the SHARED business row the
+			// read model resolved — business.id from makeReadModel, not the member id.
+			expect(mockRepo.update.mock.calls[0]![0]).toBe(101)
+			expect(mockRepo.update.mock.calls[0]![2]).toBe(14)
 		})
 
 		test("resolves sticky null file paths to the stored values before update", async () => {
@@ -153,7 +157,7 @@ describe("UpdateMemberService", () => {
 
 			// Assert — ID_CARD not in the replacement set → empty types list.
 			expect(result.isOk()).toBe(true)
-			expect(mockRepo.update.mock.calls[0]![2]).toEqual([])
+			expect(mockRepo.update.mock.calls[0]![3]).toEqual([])
 		})
 	})
 

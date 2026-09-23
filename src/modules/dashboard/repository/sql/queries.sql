@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Dashboard module — sqlc queries for GET /api/v1/dashboard/stat (the
 -- Dashboard Stat). Static aggregate reads over the members-owned tables
--- (members, member_business), each with the house `::int` casts so counts
+-- (members, businesses), each with the house `::int` casts so counts
 -- arrive as JS numbers (BIGINT would arrive as a string). See ADR-0010/0019.
 --
 -- The dashboard module owns this block; the referenced schemas resolve in
@@ -25,11 +25,12 @@ FROM members
 WHERE deleted_at IS NULL;
 
 -- name: CountDashboardBusinesses :many
--- Single-row count of non-deleted Member Businesses (at most one per member,
--- ADR-0005). :many per ADR-0001; the repo narrows rows[0] with a zeros
--- fallback.
+-- Single-row count of non-deleted shared businesses (spec #66). Equal by
+-- construction to the pre-cutover live member_business count: a business is
+-- non-deleted exactly while ≥1 live member links to it (ADR-0023 invariant).
+-- :many per ADR-0001; the repo narrows rows[0] with a zeros fallback.
 SELECT COUNT(*)::int AS total_businesses
-FROM member_business
+FROM businesses
 WHERE deleted_at IS NULL;
 
 -- name: GetDashboardMemberCountsByYear :many

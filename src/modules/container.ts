@@ -214,10 +214,11 @@ container.register(
 	{ lifecycle: Lifecycle.Singleton }
 )
 
-// 10e. Register Members Module (delete-member-by-id command) — ADR-0013.
-// Paper-thin DI/test seam over the repository's atomic cascade soft-delete
-// transaction (member_documents → member_business → membership_renewals →
-// members). No existence check, no crypto — idempotent 204 on any valid id.
+// 10e. Register Members Module (delete-member-by-id command) — ADR-0013/0023.
+// DI/test seam that owns the cascade soft-delete transaction
+// (member_documents → membership_renewals → members, plus the shared business
+// when the last live link goes). No existence check, no crypto — idempotent
+// 204 on any valid id.
 container.register(REGISTER_KEY.DELETE_MEMBER_SERVICE, { useClass: DeleteMemberService }, { lifecycle: Lifecycle.Singleton })
 
 // 10f. Register Membership-Renewals Module (create-renewal command) — ADR-0014.

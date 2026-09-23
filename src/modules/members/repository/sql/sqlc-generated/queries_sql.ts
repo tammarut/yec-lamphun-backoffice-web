@@ -85,9 +85,10 @@ INSERT INTO members (
     phone_no, email, line_id,
     shirt_size,
     position_code,
+    business_id,
     status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
 )
 RETURNING id`
 
@@ -114,6 +115,7 @@ export interface InsertMemberArgs {
 	lineId: string | null
 	shirtSize: string | null
 	positionCode: string
+	businessId: string
 	status: string
 }
 
@@ -147,6 +149,7 @@ export async function insertMember(sql: Sql, args: InsertMemberArgs): Promise<In
 				args.lineId,
 				args.shirtSize,
 				args.positionCode,
+				args.businessId,
 				args.status,
 			])
 			.values()
@@ -169,16 +172,16 @@ export async function insertMemberDocument(sql: Sql, args: InsertMemberDocumentA
 	await sql.unsafe(insertMemberDocumentQuery, [args.memberId, args.type, args.filePath])
 }
 
-export const insertMemberBusinessQuery = `-- name: InsertMemberBusiness :exec
-INSERT INTO member_business (
-    member_id, name, description, juristic_registration_no, category_id,
+export const insertBusinessQuery = `-- name: InsertBusiness :many
+INSERT INTO businesses (
+    name, description, juristic_registration_no, category_id,
     address, location, core_business, website, logo_file_path, product_file_path
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-)`
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+)
+RETURNING id`
 
-export interface InsertMemberBusinessArgs {
-	memberId: string
+export interface InsertBusinessArgs {
 	name: string
 	description: string
 	juristicRegistrationNo: string
@@ -191,20 +194,29 @@ export interface InsertMemberBusinessArgs {
 	productFilePath: string | null
 }
 
-export async function insertMemberBusiness(sql: Sql, args: InsertMemberBusinessArgs): Promise<void> {
-	await sql.unsafe(insertMemberBusinessQuery, [
-		args.memberId,
-		args.name,
-		args.description,
-		args.juristicRegistrationNo,
-		args.categoryId,
-		args.address,
-		args.location,
-		args.coreBusiness,
-		args.website,
-		args.logoFilePath,
-		args.productFilePath,
-	])
+export interface InsertBusinessRow {
+	id: string
+}
+
+export async function insertBusiness(sql: Sql, args: InsertBusinessArgs): Promise<InsertBusinessRow[]> {
+	return (
+		await sql
+			.unsafe(insertBusinessQuery, [
+				args.name,
+				args.description,
+				args.juristicRegistrationNo,
+				args.categoryId,
+				args.address,
+				args.location,
+				args.coreBusiness,
+				args.website,
+				args.logoFilePath,
+				args.productFilePath,
+			])
+			.values()
+	).map((row) => ({
+		id: row[0],
+	}))
 }
 
 export const getMemberWithBusinessByIdQuery = `-- name: GetMemberWithBusinessById :many
@@ -238,8 +250,8 @@ SELECT m.id,
        b.created_at    AS business_created_at,
        b.updated_at    AS business_updated_at
 FROM members m
-LEFT JOIN member_business b
-       ON b.member_id = m.id
+LEFT JOIN businesses b
+       ON b.id = m.business_id
       AND b.deleted_at IS NULL
 WHERE m.id = $1
   AND m.deleted_at IS NULL`
@@ -429,8 +441,8 @@ export async function updateMemberById(sql: Sql, args: UpdateMemberByIdArgs): Pr
 	])
 }
 
-export const updateMemberBusinessByMemberIdQuery = `-- name: UpdateMemberBusinessByMemberId :exec
-UPDATE member_business SET
+export const updateBusinessByIdQuery = `-- name: UpdateBusinessById :exec
+UPDATE businesses SET
     name = $2,
     description = $3,
     juristic_registration_no = $4,
@@ -442,11 +454,11 @@ UPDATE member_business SET
     logo_file_path = $10,
     product_file_path = $11,
     updated_at = NOW()
-WHERE member_id = $1
+WHERE id = $1
   AND deleted_at IS NULL`
 
-export interface UpdateMemberBusinessByMemberIdArgs {
-	memberId: string
+export interface UpdateBusinessByIdArgs {
+	id: string
 	name: string
 	description: string
 	juristicRegistrationNo: string
@@ -459,9 +471,9 @@ export interface UpdateMemberBusinessByMemberIdArgs {
 	productFilePath: string | null
 }
 
-export async function updateMemberBusinessByMemberId(sql: Sql, args: UpdateMemberBusinessByMemberIdArgs): Promise<void> {
-	await sql.unsafe(updateMemberBusinessByMemberIdQuery, [
-		args.memberId,
+export async function updateBusinessById(sql: Sql, args: UpdateBusinessByIdArgs): Promise<void> {
+	await sql.unsafe(updateBusinessByIdQuery, [
+		args.id,
 		args.name,
 		args.description,
 		args.juristicRegistrationNo,
@@ -491,8 +503,29 @@ export async function softDeleteMemberDocumentsByMemberIdAndTypes(sql: Sql, args
 	await sql.unsafe(softDeleteMemberDocumentsByMemberIdAndTypesQuery, [args.memberId, args.types])
 }
 
-export const softDeleteMemberDocumentsByMemberIdQuery = `-- name: SoftDeleteMemberDocumentsByMemberId :exec
+export const findLiveBusinessIdForCascadeQuery = `-- name: FindLiveBusinessIdForCascade :many
 
+SELECT b.id AS business_id
+FROM businesses b
+WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1)
+  AND b.deleted_at IS NULL
+FOR UPDATE`
+
+export interface FindLiveBusinessIdForCascadeArgs {
+	id: string
+}
+
+export interface FindLiveBusinessIdForCascadeRow {
+	businessId: string
+}
+
+export async function findLiveBusinessIdForCascade(sql: Sql, args: FindLiveBusinessIdForCascadeArgs): Promise<FindLiveBusinessIdForCascadeRow[]> {
+	return (await sql.unsafe(findLiveBusinessIdForCascadeQuery, [args.id]).values()).map((row) => ({
+		businessId: row[0],
+	}))
+}
+
+export const softDeleteMemberDocumentsByMemberIdQuery = `-- name: SoftDeleteMemberDocumentsByMemberId :exec
 UPDATE member_documents
 SET deleted_at = NOW(), updated_at = NOW()
 WHERE member_id = $1
@@ -504,20 +537,6 @@ export interface SoftDeleteMemberDocumentsByMemberIdArgs {
 
 export async function softDeleteMemberDocumentsByMemberId(sql: Sql, args: SoftDeleteMemberDocumentsByMemberIdArgs): Promise<void> {
 	await sql.unsafe(softDeleteMemberDocumentsByMemberIdQuery, [args.memberId])
-}
-
-export const softDeleteMemberBusinessByMemberIdQuery = `-- name: SoftDeleteMemberBusinessByMemberId :exec
-UPDATE member_business
-SET deleted_at = NOW(), updated_at = NOW()
-WHERE member_id = $1
-  AND deleted_at IS NULL`
-
-export interface SoftDeleteMemberBusinessByMemberIdArgs {
-	memberId: string
-}
-
-export async function softDeleteMemberBusinessByMemberId(sql: Sql, args: SoftDeleteMemberBusinessByMemberIdArgs): Promise<void> {
-	await sql.unsafe(softDeleteMemberBusinessByMemberIdQuery, [args.memberId])
 }
 
 export const softDeleteMembershipRenewalsByMemberIdQuery = `-- name: SoftDeleteMembershipRenewalsByMemberId :exec
@@ -548,6 +567,42 @@ export async function softDeleteMemberById(sql: Sql, args: SoftDeleteMemberByIdA
 	await sql.unsafe(softDeleteMemberByIdQuery, [args.id])
 }
 
+export const countLiveMembersByBusinessIdQuery = `-- name: CountLiveMembersByBusinessId :many
+SELECT count(*)::int AS live_count
+FROM members
+WHERE business_id = $1
+  AND id <> $2
+  AND deleted_at IS NULL`
+
+export interface CountLiveMembersByBusinessIdArgs {
+	businessId: string
+	id: string
+}
+
+export interface CountLiveMembersByBusinessIdRow {
+	liveCount: number
+}
+
+export async function countLiveMembersByBusinessId(sql: Sql, args: CountLiveMembersByBusinessIdArgs): Promise<CountLiveMembersByBusinessIdRow[]> {
+	return (await sql.unsafe(countLiveMembersByBusinessIdQuery, [args.businessId, args.id]).values()).map((row) => ({
+		liveCount: row[0],
+	}))
+}
+
+export const softDeleteBusinessByIdQuery = `-- name: SoftDeleteBusinessById :exec
+UPDATE businesses
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface SoftDeleteBusinessByIdArgs {
+	id: string
+}
+
+export async function softDeleteBusinessById(sql: Sql, args: SoftDeleteBusinessByIdArgs): Promise<void> {
+	await sql.unsafe(softDeleteBusinessByIdQuery, [args.id])
+}
+
 export const getLatestRenewalByMemberIdQuery = `-- name: GetLatestRenewalByMemberId :many
 
 SELECT
@@ -559,14 +614,14 @@ SELECT
   m.nickname,
   m.phone_no,
   m.position_code,
-  mb.name AS business_name,
+  b.name AS business_name,
   mr.id AS renewal_id,
   mr.payment_date_at AS renewal_payment_date_at,
   mr.payment_slip_file_path AS renewal_payment_slip_file_path,
   mr.rejection_reason AS renewal_rejection_reason,
   mr.reviewed_at AS renewal_reviewed_at
 FROM members m
-JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL
+JOIN businesses b ON b.id = m.business_id AND b.deleted_at IS NULL
 LEFT JOIN LATERAL (
   SELECT id, payment_date_at, payment_slip_file_path,
          -- UI-04 PR 1: expose the rejection fields of the LATEST renewal only
@@ -661,8 +716,8 @@ SELECT m.id,
        b.name AS business_name
 FROM members m
 INNER JOIN positions p ON p.code = m.position_code
-LEFT JOIN member_business b
-       ON b.member_id = m.id
+LEFT JOIN businesses b
+       ON b.id = m.business_id
       AND b.deleted_at IS NULL
 WHERE m.deleted_at IS NULL
   AND m.status IN ('ACTIVE', 'PENDING_RENEWAL', 'EXPIRED')
@@ -724,6 +779,9 @@ export async function findLiveContactConflicts(sql: Sql, args: FindLiveContactCo
 		return null
 	}
 	const row = rows[0]
+	// HAND-PATCH (re-apply after every `sqlc generate`): noUncheckedIndexedAccess
+	// types this row as possibly undefined; the generator's template drops the
+	// guard (tsc TS18048 is the detector). Do not remove.
 	if (row === undefined) {
 		return null
 	}

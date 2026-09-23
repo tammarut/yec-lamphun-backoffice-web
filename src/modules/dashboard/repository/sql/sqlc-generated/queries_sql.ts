@@ -25,7 +25,7 @@ export async function getDashboardMemberStatusCounts(sql: Sql): Promise<GetDashb
 
 export const countDashboardBusinessesQuery = `-- name: CountDashboardBusinesses :many
 SELECT COUNT(*)::int AS total_businesses
-FROM member_business
+FROM businesses
 WHERE deleted_at IS NULL`
 
 export interface CountDashboardBusinessesRow {
