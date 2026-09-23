@@ -1,12 +1,31 @@
 -- ============================================================================
 -- Migration: extract `businesses` entity + `members.business_id` FK
 -- Map ticket: https://github.com/tammarut/yec-lamphun-backoffice-web/issues/65
--- Run ONCE, manually:  psql -v ON_ERROR_STOP=1 -f businesses-migration.sql
+-- Run ONCE, at the cutover ticket (#72) merge — the pre-cutover app still
+-- queries member_business; running this earlier breaks it.
 -- One transaction: ANY failure rolls the whole thing back (PG DDL is tx-safe).
--- Before running:  pg_dump --table member_business --table members "$DATABASE_URL" \
---                    > pre-businesses-migration.dump
--- WHEN: only at the cutover ticket (#72) merge — the pre-cutover app still
---       queries member_business; running this earlier breaks it.
+--
+-- Operator runbook (DBeaver):
+--   STEP 1 — backup, in a SEPARATE editor tab, run first (plain execution):
+--       CREATE TABLE member_business_pre_b67 AS SELECT * FROM member_business;
+--       CREATE TABLE members_pre_b67         AS SELECT * FROM members;
+--   STEP 2 — run THIS WHOLE FILE at once ("Execute script", Alt+X — never
+--       statement-by-statement). DBeaver keeps executing after an error
+--       (no ON_ERROR_STOP), but the explicit BEGIN/COMMIT still makes any
+--       failure roll everything back. The mid-script SELECT prints a
+--       seeded == expected sanity grid (informational).
+--       After ANY error, confirm nothing applied:
+--           SELECT to_regclass('member_business') IS NOT NULL AS mb_alive,
+--                  to_regclass('businesses')    IS NOT NULL AS biz_alive;
+--       (expect mb_alive = t, biz_alive = f; after a good run: f / t)
+--   STEP 3 — post-checks after COMMIT (from #60):
+--       · review the 2-name-variant group at juristic no 105557026729
+--       · review the 4 personal-ID-shaped juristic_registration_no values
+--   Cleanup, once #72 is verified:
+--       DROP TABLE member_business_pre_b67; DROP TABLE members_pre_b67;
+--   Shell alternative: pg_dump --table member_business --table members
+--       "$DATABASE_URL" > pre-businesses-migration.dump
+--       psql -v ON_ERROR_STOP=1 -f businesses-migration.sql
 -- ============================================================================
 
 BEGIN;
@@ -143,8 +162,8 @@ COMMIT;
 --       ALTER TABLE members DROP CONSTRAINT fk_members_business;
 --       ALTER TABLE members DROP COLUMN business_id;
 --       DROP TABLE businesses;
---     …or restore pre-businesses-migration.dump wholesale.
+--     Data restore: recreate member_business from its DDL on `main`
+--     (src/modules/members/repository/member-business/sql/schema.sql), then
+--     INSERT INTO member_business SELECT * FROM member_business_pre_b67;
+--     …or wholesale-restore the STEP-1 backup tables.
 -- ============================================================================
--- One-time manual post-checks after COMMIT (from #60):
---   · review the 2-name-variant group at juristic no 105557026729
---   · review the 4 personal-ID-shaped juristic_registration_no values
