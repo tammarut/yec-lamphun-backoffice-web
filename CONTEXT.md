@@ -75,7 +75,7 @@ _Avoid_: masked id number, hidden id, redacted id
 ## Membership Renewal
 
 **Membership Renewal**:
-A member's request to extend their membership tenure, submitted with a payment slip as proof of payment. Each renewal has an independent lifecycle (a review state machine stamped `reviewed_at` when decided; the reviewer's identity is not recorded) separate from the member who filed it. Unlike the 1:1 `member_business` child, a member accumulates many renewal rows over time — at most one of them live (non-deleted) in `PENDING_REVIEW` at any moment.
+A member's request to extend their membership tenure, submitted with a payment slip as proof of payment. Each renewal has an independent lifecycle (a review state machine stamped `reviewed_at` when decided; the reviewer's identity is not recorded) separate from the member who filed it. Unlike the shared **Business** a member links to (at most one, shared across members), a member accumulates many renewal rows over time — at most one of them live (non-deleted) in `PENDING_REVIEW` at any moment.
 _Avoid_: renewal, extension, membership extension, renewal record
 
 **Renewal Submission**:
