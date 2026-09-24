@@ -208,6 +208,23 @@ describe("UpdateMemberService", () => {
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberNotFoundError)
 		})
 
+		test("returns DatabaseError when the live member has no live business row (corruption)", async () => {
+			// Arrange — violates the live-member ⇒ live-business invariant (ADR-0023).
+			// Unreachable via the repository read (it maps the same corruption to
+			// err before the read model escapes), so this test pins the service's
+			// type-honest mirror of that guard: it must fire BEFORE the shared
+			// business id is dereferenced for the wholesale overwrite.
+			mockRepo.getMemberDetailById.mockResolvedValue(ok({ ...makeReadModel(), business: null }))
+
+			// Act
+			const result = await service.execute(101, makeRequest())
+
+			// Assert
+			expect(result.isErr()).toBe(true)
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+			expect(mockRepo.update).not.toHaveBeenCalled()
+		})
+
 		test("returns MemberValidationError when the requested position code is unknown", async () => {
 			// Arrange
 			mockRepo.getPositionByCode.mockResolvedValue(ok(null))

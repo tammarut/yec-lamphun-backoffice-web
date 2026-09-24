@@ -207,6 +207,15 @@ WHERE member_id = $1
 -- members.business_id even for an already-soft-deleted member (re-delete) —
 -- the deleted_at filter on businesses is what makes this return no row and
 -- the whole cascade skip. `:many` per ADR-0001; narrowed by hand.
+--
+-- Locking note: FOR UPDATE locks only the businesses row, NOT the members row
+-- the subquery reads. That is safe because business_id is immutable after
+-- creation — set once by InsertMember, never touched by UpdateMemberById — so
+-- no concurrent transaction can re-point the link mid-read. If a future
+-- ticket ever makes business_id mutable, this gate must lock the member row
+-- FIRST (SELECT business_id FROM members WHERE id = $1 FOR UPDATE) before
+-- locking the business, or the cascade can phantom-read a concurrently
+-- re-pointed link.
 SELECT b.id AS business_id
 FROM businesses b
 WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1)
