@@ -3527,7 +3527,8 @@
 				"properties": {
 					"id": {
 						"type": "integer",
-						"format": "uint"
+						"format": "uint",
+						"description": "The shared business entity's id (businesses.id, ADR-0023). Not a per-member row id: members whose juristic registration no. matched at the #72 cutover now link to one shared row, so this id is identical across those members' detail responses and edits through any linked member are visible to all of them. Ids are NOT carried over from the pre-cutover rows (fresh sequence)."
 					},
 					"name": {
 						"type": "string",

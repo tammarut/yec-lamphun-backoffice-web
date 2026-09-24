@@ -120,8 +120,9 @@ export const PATCH = withAuth<ResponseBodyError>(async function PATCH(request: N
 //
 // Idempotent (grilling Q2): a syntactically valid id ALWAYS returns 204,
 // whether the member is active, already soft-deleted, or never existed. The
-// cascade (member_documents → member_business → membership_renewals → members)
-// runs atomically in one transaction in the repository; each UPDATE carries
+// cascade (member_documents → membership_renewals → members, plus the shared
+// business when the member held its last live link — ADR-0023) runs atomically
+// in one transaction owned by the service; each UPDATE carries
 // `deleted_at IS NULL`, so an already-deleted member is a 0-row no-op. No
 // existence pre-check, no 404 path, no row-count inspection. R2 files are left
 // untouched (grilling Q5).

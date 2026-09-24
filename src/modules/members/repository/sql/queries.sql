@@ -27,7 +27,9 @@ WHERE position_code = $1
   AND deleted_at IS NULL;
 
 -- name: InsertMember :many
--- Insert the member row and return the generated id. Runs INSIDE the tx.
+-- Insert the member row (with its business link) and return the generated id.
+-- Runs INSIDE the tx, AFTER InsertBusiness — business_id is NOT NULL and the
+-- insert consumes the id InsertBusiness just returned.
 -- Columns omitted here (renewal_successful_count, latest_renewal_status,
 -- created_at, updated_at) take their defaults.
 INSERT INTO members (
@@ -42,9 +44,10 @@ INSERT INTO members (
     phone_no, email, line_id,
     shirt_size,
     position_code,
+    business_id,
     status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
 )
 RETURNING id;
 
@@ -54,27 +57,31 @@ RETURNING id;
 INSERT INTO member_documents (member_id, type, file_path)
 VALUES ($1, $2, $3);
 
--- name: InsertMemberBusiness :exec
--- Insert the member's business record with location already swapped to
--- [long, lat]. Runs INSIDE the tx.
-INSERT INTO member_business (
-    member_id, name, description, juristic_registration_no, category_id,
+-- name: InsertBusiness :many
+-- Insert the shared business row and return the generated id. Runs INSIDE the
+-- tx, BEFORE InsertMember (whose business_id consumes the returned id).
+-- location must arrive already swapped to [long, lat].
+INSERT INTO businesses (
+    name, description, juristic_registration_no, category_id,
     address, location, core_business, website, logo_file_path, product_file_path
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-);
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+)
+RETURNING id;
 
 -- ============================================================================
 -- Read queries (GET /api/v1/members/:id)
 -- ============================================================================
 
 -- name: GetMemberWithBusinessById :many
--- Fetch a non-deleted member and its 1:1 non-deleted business in one round-trip.
--- `:many` per ADR-0001; the repository narrows the single row by hand.
--- business_* columns are NULL when the business row is soft-deleted or absent
--- (the LEFT JOIN's soft-delete filter lives in the ON clause so a missing
--- business does not drop the member). The repository treats a live member with
--- no business row as corruption → DatabaseError → 500 (grilling Q6/iii-a).
+-- Fetch a non-deleted member and its linked non-deleted shared business in one
+-- round-trip. `:many` per ADR-0001; the repository narrows the single row by
+-- hand. business_* columns are NULL when the business row is soft-deleted or
+-- absent (the LEFT JOIN's soft-delete filter lives in the ON clause so a
+-- missing business does not drop the member). The repository treats a live
+-- member with no business row as corruption → DatabaseError → 500 (grilling
+-- Q6/iii-a). Post-cutover (#72) the invariant makes this unreachable — a live
+-- member always has a live business — but the guard stays loud.
 SELECT m.id,
        m.registration_type,
        m.title_name_th, m.first_name_th, m.last_name_th,
@@ -104,8 +111,8 @@ SELECT m.id,
        b.created_at    AS business_created_at,
        b.updated_at    AS business_updated_at
 FROM members m
-LEFT JOIN member_business b
-       ON b.member_id = m.id
+LEFT JOIN businesses b
+       ON b.id = m.business_id
       AND b.deleted_at IS NULL
 WHERE m.id = $1
   AND m.deleted_at IS NULL;
@@ -146,11 +153,12 @@ UPDATE members SET
 WHERE id = $1
   AND deleted_at IS NULL;
 
--- name: UpdateMemberBusinessByMemberId :exec
--- Update the member's 1:1 non-deleted business row. location must arrive
--- already swapped to [long, lat] (the MemberBusiness VO owns the swap).
--- updated_at is bumped server-side.
-UPDATE member_business SET
+-- name: UpdateBusinessById :exec
+-- Wholesale-overwrite the member's linked shared business row. location must
+-- arrive already swapped to [long, lat] (the MemberBusiness VO owns the swap).
+-- The id is the shared businesses.id resolved from the read model by the
+-- update service. updated_at is bumped server-side.
+UPDATE businesses SET
     name = $2,
     description = $3,
     juristic_registration_no = $4,
@@ -162,7 +170,7 @@ UPDATE member_business SET
     logo_file_path = $10,
     product_file_path = $11,
     updated_at = NOW()
-WHERE member_id = $1
+WHERE id = $1
   AND deleted_at IS NULL;
 
 -- name: SoftDeleteMemberDocumentsByMemberIdAndTypes :exec
@@ -179,26 +187,44 @@ WHERE member_id = $1
   AND deleted_at IS NULL;
 
 -- ============================================================================
--- Delete queries (DELETE /api/v1/members/:id) — ADR-0013
--- Atomic cascade soft-delete in spec order: member_documents → member_business
--- → membership_renewals → members. All idempotent (deleted_at IS NULL guard),
--- so an already-deleted member is a 0-row no-op that still returns 204
--- (grilling Q2: the route is 204 regardless, never 404). The repository runs
--- these four inside one transaction; order matches the spec's sequence diagram
--- verbatim (grilling Q4) even though it is semantically irrelevant for a
--- soft-delete (no RESTRICT FKs, no triggers).
+-- Delete queries (DELETE /api/v1/members/:id) — ADR-0013 cascade, ADR-0023
+-- business rule. The SERVICE owns the transaction and the cascade decision;
+-- these are its tx-scoped steps, in call order:
+--   1. lock the linked business (FOR UPDATE) — serializes concurrent deletes
+--      of co-linked members; NULL ⇒ business already gone ⇒ re-delete is an
+--      idempotent no-op that still returns 204 (grilling Q2: never 404)
+--   2-4. soft-delete member_documents, membership_renewals, then members —
+--      all idempotent (deleted_at IS NULL guard, 0-row no-ops on re-delete)
+--   5. count OTHER live members still linked to that business
+--   6. soft-delete the business only when the deleted member held the last
+--      live link (ADR-0023: businesses do not survive their last live member;
+--      non-deleted business ⇔ ≥1 live member)
 -- ============================================================================
 
--- name: SoftDeleteMemberDocumentsByMemberId :exec
--- 1. member_documents (all types for the member, not just the replaced subset).
-UPDATE member_documents
-SET deleted_at = NOW(), updated_at = NOW()
-WHERE member_id = $1
-  AND deleted_at IS NULL;
+-- name: FindLiveBusinessIdForCascade :many
+-- 1. The member's linked LIVE business id, locking the businesses row against
+-- concurrent cascades until this transaction ends. The scalar subquery reads
+-- members.business_id even for an already-soft-deleted member (re-delete) —
+-- the deleted_at filter on businesses is what makes this return no row and
+-- the whole cascade skip. `:many` per ADR-0001; narrowed by hand.
+--
+-- Locking note: FOR UPDATE locks only the businesses row, NOT the members row
+-- the subquery reads. That is safe because business_id is immutable after
+-- creation — set once by InsertMember, never touched by UpdateMemberById — so
+-- no concurrent transaction can re-point the link mid-read. If a future
+-- ticket ever makes business_id mutable, this gate must lock the member row
+-- FIRST (SELECT business_id FROM members WHERE id = $1 FOR UPDATE) before
+-- locking the business, or the cascade can phantom-read a concurrently
+-- re-pointed link.
+SELECT b.id AS business_id
+FROM businesses b
+WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1)
+  AND b.deleted_at IS NULL
+FOR UPDATE;
 
--- name: SoftDeleteMemberBusinessByMemberId :exec
--- 2. member_business (the member's 1:1 business record).
-UPDATE member_business
+-- name: SoftDeleteMemberDocumentsByMemberId :exec
+-- 2. member_documents (all types for the member, not just the replaced subset).
+UPDATE member_documents
 SET deleted_at = NOW(), updated_at = NOW()
 WHERE member_id = $1
   AND deleted_at IS NULL;
@@ -219,16 +245,40 @@ SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL;
 
+-- name: CountLiveMembersByBusinessId :many
+-- 5. Live members still linked to the business, excluding the deleting member
+-- by id ($2) as belt-and-braces: the caller soft-deletes the member row before
+-- counting, so the deleted_at filter already excludes it — the id exclusion
+-- keeps this correct even if the step order is ever rearranged. 0 ⇒ step 6.
+SELECT count(*)::int AS live_count
+FROM members
+WHERE business_id = $1
+  AND id <> $2
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteBusinessById :exec
+-- 6. The shared business row, when the deleted member held the last live link
+-- (ADR-0023). Soft-deleting releases the juristic_registration_no for
+-- re-registration (live-rows-only partial unique). The deleted_at guard makes
+-- this a no-op if a concurrent tx beat us to it.
+UPDATE businesses
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;
+
 -- ============================================================================
 -- Get latest renewal by member_id (GET /api/v1/membership/renewals/:member_id)
 -- A single round-trip for the backoffice "latest renewal" single-view: a
--- non-deleted member + its 1:1 business + the single newest non-deleted renewal
--- (id DESC, LIMIT 1) via LEFT JOIN LATERAL. Static query -> sqlc (ADR-0010).
--- `:many` per ADR-0001; the repository narrows the single row by hand.
+-- non-deleted member + its linked shared business + the single newest
+-- non-deleted renewal (id DESC, LIMIT 1) via LEFT JOIN LATERAL. Static query
+-- -> sqlc (ADR-0010). `:many` per ADR-0001; the repository narrows the single
+-- row by hand.
 --
--- The INNER JOIN on member_business collapses a member-with-no-live-business to
--- 0 rows (the repo maps that to null -> "Member or renewal not found" 404). The
--- LEFT LATERAL keeps a member-with-no-renewal as ONE row with NULL renewal_*
+-- The INNER JOIN on businesses (via members.business_id) collapses a
+-- member-with-no-live-business to 0 rows (the repo maps that to null ->
+-- "Member or renewal not found" 404). Post-cutover (#72) the invariant makes
+-- that unreachable for a live member, but the 404 contract is kept. The LEFT
+-- LATERAL keeps a member-with-no-renewal as ONE row with NULL renewal_*
 -- columns, so the service can distinguish it as the distinct "no renewal" 404.
 -- membership_renewals is referenced here for FK/type parsing only — no TS
 -- cross-import (same pattern as the ADR-0013 cascade soft-delete above).
@@ -244,14 +294,14 @@ SELECT
   m.nickname,
   m.phone_no,
   m.position_code,
-  mb.name AS business_name,
+  b.name AS business_name,
   mr.id AS renewal_id,
   mr.payment_date_at AS renewal_payment_date_at,
   mr.payment_slip_file_path AS renewal_payment_slip_file_path,
   mr.rejection_reason AS renewal_rejection_reason,
   mr.reviewed_at AS renewal_reviewed_at
 FROM members m
-JOIN member_business mb ON m.id = mb.member_id AND mb.deleted_at IS NULL
+JOIN businesses b ON b.id = m.business_id AND b.deleted_at IS NULL
 LEFT JOIN LATERAL (
   SELECT id, payment_date_at, payment_slip_file_path,
          -- UI-04 PR 1: expose the rejection fields of the LATEST renewal only
@@ -287,6 +337,17 @@ FROM positions
 ORDER BY display_order ASC, code ASC;
 
 -- name: GetExecutiveCommitteeMembers :many
+-- The org-chart read: every non-deleted, non-RESIGNED member holding any
+-- position except GENERAL_MEMBER, returned FLAT with the linked shared
+-- business name. The service assembles the tree from the position hierarchy —
+-- members has no parent_id column (supervisor is derived at read time), so
+-- these two queries carry everything the assembly needs: the full positions
+-- table (hierarchy + Thai names) and the member rows ordered by
+-- (display_order, id) so siblings land in org-chart order without re-sorting.
+-- The INNER JOIN on positions is guaranteed to match (FK ON DELETE RESTRICT);
+-- the LEFT JOIN's soft-delete filter lives in the ON clause so a missing
+-- business does not drop the member (same shape as GetMemberWithBusinessById).
+-- `:many` per ADR-0001.
 SELECT m.id,
        m.profile_avatar,
        m.title_name_th,
@@ -297,8 +358,8 @@ SELECT m.id,
        b.name AS business_name
 FROM members m
 INNER JOIN positions p ON p.code = m.position_code
-LEFT JOIN member_business b
-       ON b.member_id = m.id
+LEFT JOIN businesses b
+       ON b.id = m.business_id
       AND b.deleted_at IS NULL
 WHERE m.deleted_at IS NULL
   AND m.status IN ('ACTIVE', 'PENDING_RENEWAL', 'EXPIRED')
