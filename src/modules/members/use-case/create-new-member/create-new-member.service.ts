@@ -1,9 +1,14 @@
 import { err, ok, type Result } from "neverthrow"
+import type { Sql } from "postgres"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
+import { DatabaseError } from "src/shared/core/errors/app-error"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, singleton } from "tsyringe"
 import { Member } from "../../domain/member"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
+import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
+import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
 import type { CreateMemberError, MemberConflictReason } from "./create-member.errors"
 import { MemberConflictError, MemberValidationError } from "./create-member.errors"
@@ -18,24 +23,30 @@ import type { CreateMemberRequest } from "./create-member.types"
  *
  * Delegates the self-invariants (id_card format + expiry, position active,
  * encryption, defaults, business VO, documents) to {@link Member.create}, which
- * returns a fully validated Member aggregate. The aggregate is passed directly
- * to {@link IMemberRepository.create} — the transaction and multi-table insert
- * are invisible implementation details of the repository.
+ * returns a fully validated Member aggregate.
+ *
+ * Also owns the multi-table CREATE transaction (ADR-0024 — services own every
+ * multi-table tx; each repository executes its own table's step):
+ *   1. businesses row first (its generated id feeds the NOT NULL business_id)
+ *   2. member row with that link
+ *   3. one document row per provided document
+ * Any step throwing DatabaseError auto-rollbacks the whole transaction.
  *
  * Flow:
  *   1. Fetch the position + check it's not already held (cardinality-aware, ADR-0006).
  *   2. Member.create() — validate + encrypt + compute defaults + build VOs.
  *   3. OUTSIDE tx: duplicate id_card check → 409.
- *   4. repository.create(member) — atomically inserts member + documents + business.
+ *   4. The create transaction above → ok(memberId).
  *
  * Returns AGENTS.md §2B single-wrapped `Promise<Result<number, CreateMemberError>>`.
- * The repository converts all DB errors to DatabaseError internally; the service
- * never needs try/catch.
  */
 @singleton()
 export class CreateNewMemberService {
 	constructor(
+		@inject(DatabaseClient) private readonly dbClient: DatabaseClient,
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,
+		@inject(REGISTER_KEY.BUSINESSES_REPOSITORY) private readonly businessesRepository: IBusinessesRepository,
+		@inject(REGISTER_KEY.MEMBER_DOCUMENTS_REPOSITORY) private readonly documentsRepository: IMemberDocumentsRepository,
 		@inject(REGISTER_KEY.ENCRYPTION_SERVICE) private readonly encryption: IEncryptionService,
 		@inject(REGISTER_KEY.BLIND_INDEX_SERVICE) private readonly blindIndex: IBlindIndexService
 	) {}
@@ -93,14 +104,28 @@ export class CreateNewMemberService {
 			return err(this.conflict("DUPLICATE_LINE_ID", "A member with this Line ID already exists"))
 		}
 
-		// 5. Persist — the transaction + multi-table insert is an internal detail
-		//    of the repository. One call, returns ok(id) or err(DatabaseError).
-		const createResult = await this.repository.create(member.value)
-		if (createResult.isErr()) {
-			return err(createResult.error)
-		}
+		// 5. Persist — the multi-table CREATE transaction (ADR-0024): businesses →
+		//    member (with the link) → documents. Auto-commit on success,
+		//    auto-rollback on any throw.
+		try {
+			const memberId = await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
+				const businessId = await this.businessesRepository.insertBusiness(sql, member.value.business)
+				const memberId = await this.repository.insertMember(sql, member.value, businessId)
+				for (const doc of member.value.documents) {
+					await this.documentsRepository.insertDocument(sql, memberId, doc)
+				}
 
-		return ok(createResult.value)
+				return memberId
+			})
+
+			return ok(memberId)
+		} catch (error) {
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Member creation transaction failed", error))
+		}
 	}
 
 	/** Construct a MemberConflictError with a stable message. */

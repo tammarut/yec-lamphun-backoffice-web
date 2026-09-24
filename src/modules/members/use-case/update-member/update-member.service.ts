@@ -1,11 +1,15 @@
 import { err, ok, type Result } from "neverthrow"
+import type { Sql } from "postgres"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, singleton } from "tsyringe"
 import { Member } from "../../domain/member"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
 import type { MemberDocumentType } from "../../domain/member-read-models"
+import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
+import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberConflictError, MemberValidationError, type MemberConflictReason } from "../create-new-member/create-member.errors"
 import { MemberNotFoundError } from "../get-member-by-id/get-member-by-id.errors"
@@ -48,7 +52,10 @@ import type { UpdateMemberRequest } from "./update-member.types"
 @singleton()
 export class UpdateMemberService {
 	constructor(
+		@inject(DatabaseClient) private readonly dbClient: DatabaseClient,
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,
+		@inject(REGISTER_KEY.BUSINESSES_REPOSITORY) private readonly businessesRepository: IBusinessesRepository,
+		@inject(REGISTER_KEY.MEMBER_DOCUMENTS_REPOSITORY) private readonly documentsRepository: IMemberDocumentsRepository,
 		@inject(REGISTER_KEY.ENCRYPTION_SERVICE) private readonly encryption: IEncryptionService,
 		@inject(REGISTER_KEY.BLIND_INDEX_SERVICE) private readonly blindIndex: IBlindIndexService
 	) {}
@@ -73,6 +80,9 @@ export class UpdateMemberService {
 			// the shared business id to target the wholesale overwrite.
 			return err(new DatabaseError(`Member ${id} has no live business row (violates the live-member⇒live-business invariant)`))
 		}
+		// Hoisted out of the transaction closure — TS property narrowing on
+		// `existing.business` does not survive into the callback below.
+		const businessId = existing.business.id
 
 		// 2. Resolve the five sticky file-path fields (ADR-0012): null in the
 		//    request → keep the stored value. Scalars write through unchanged.
@@ -165,17 +175,36 @@ export class UpdateMemberService {
 			companyCertificatePath: existing.companyCertificatePath,
 		})
 
-		// 7. Persist — the transaction + multi-table update is an internal
-		//    detail of the repository. One call, returns ok or err. The shared
-		//    business row to overwrite is the one resolved by the read model
-		//    above (a live member always has a live business — the corruption
-		//    guard ran upstream), so its id is non-null here (ADR-0023).
-		const updateResult = await this.repository.update(id, updatedMember.value, existing.business.id, documentTypesToReplace)
-		if (updateResult.isErr()) {
-			return err(updateResult.error)
-		}
+		// 7. Persist — the multi-table UPDATE transaction (ADR-0024): member row →
+		//    shared business wholesale overwrite → per replaced type, soft-delete
+		//    old docs + insert new. Auto-commit on success, auto-rollback on any
+		//    throw.
+		try {
+			await this.dbClient.transaction(async (tx) => {
+				const sql = tx as unknown as Sql
 
-		return ok(undefined)
+				await this.repository.updateMember(sql, id, updatedMember.value)
+				await this.businessesRepository.updateBusinessById(sql, businessId, updatedMember.value.business)
+
+				if (documentTypesToReplace.length > 0) {
+					// Soft-delete the live rows of the replaced type(s) first.
+					await this.documentsRepository.softDeleteByTypes(sql, id, documentTypesToReplace)
+					// Then insert the new rows from the updated member's documents,
+					// filtered to just the replaced types.
+					const newDocsToInsert = updatedMember.value.documents.filter((doc) => documentTypesToReplace.includes(doc.type))
+					for (const doc of newDocsToInsert) {
+						await this.documentsRepository.insertDocument(sql, id, doc)
+					}
+				}
+			})
+
+			return ok(undefined)
+		} catch (error) {
+			if (error instanceof DatabaseError) {
+				return err(error)
+			}
+			return err(new DatabaseError("Member update transaction failed", error))
+		}
 	}
 
 	/** Construct a MemberConflictError with a stable message. */

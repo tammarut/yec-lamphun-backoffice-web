@@ -4,6 +4,8 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, singleton } from "tsyringe"
+import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
+import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
 import type { DeleteMemberError } from "./delete-member.errors"
 
@@ -15,8 +17,10 @@ import type { DeleteMemberError } from "./delete-member.errors"
  * held its last live link, decided under a `SELECT ... FOR UPDATE` row lock
  * on the businesses row INSIDE this transaction so concurrent deletes of
  * co-linked members serialize (the loser sees `deleted_at` already set and
- * skips). The transaction moved here from the repository (ADR-0023) so the
- * survive / soft-delete / idempotent behaviors are unit-testable at this seam.
+ * skips). Per ADR-0024 the transaction lives here and each repository
+ * (members / businesses / member_documents) executes its own table's step —
+ * which is what makes the survive / soft-delete / idempotent behaviors
+ * unit-testable at this seam.
  *
  * There is no existence check, no row-count inspection, and no 404 path: every
  * step is a `deleted_at IS NULL`-guarded no-op on an already-deleted member,
@@ -32,7 +36,9 @@ import type { DeleteMemberError } from "./delete-member.errors"
 export class DeleteMemberService {
 	constructor(
 		@inject(DatabaseClient) private readonly dbClient: DatabaseClient,
-		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository
+		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,
+		@inject(REGISTER_KEY.BUSINESSES_REPOSITORY) private readonly businessesRepository: IBusinessesRepository,
+		@inject(REGISTER_KEY.MEMBER_DOCUMENTS_REPOSITORY) private readonly documentsRepository: IMemberDocumentsRepository
 	) {}
 
 	async execute(id: number): Promise<Result<void, DeleteMemberError>> {
@@ -43,22 +49,22 @@ export class DeleteMemberService {
 				// 1. Lock the linked live business (gate for the ADR-0023 cascade).
 				//    null ⇒ business already gone ⇒ re-delete: still run the member's
 				//    own idempotent soft-deletes, skip the cascade decision.
-				const businessId = await this.repository.findLiveBusinessIdForCascade(sql, id)
+				const businessId = await this.businessesRepository.findLiveBusinessIdForCascade(sql, id)
 
 				// 2-4. The member's dependent rows, then the member row. By the count
 				//      below the member row is already soft-deleted, so it can never
 				//      count itself; the query additionally self-excludes by id as
 				//      belt-and-braces against step reordering.
-				await this.repository.softDeleteMemberDocuments(sql, id)
+				await this.documentsRepository.softDeleteByMemberId(sql, id)
 				await this.repository.softDeleteMembershipRenewals(sql, id)
 				await this.repository.softDeleteMemberRow(sql, id)
 
 				// 5-6. Last-live-link rule: soft-delete the shared business only when
 				//      no OTHER live member still links to it.
 				if (businessId !== null) {
-					const otherLiveMembers = await this.repository.countLiveMembersByBusinessId(sql, businessId, id)
+					const otherLiveMembers = await this.businessesRepository.countLiveMembersByBusinessId(sql, businessId, id)
 					if (otherLiveMembers === 0) {
-						await this.repository.softDeleteBusinessById(sql, businessId)
+						await this.businessesRepository.softDeleteBusinessById(sql, businessId)
 					}
 				}
 			})

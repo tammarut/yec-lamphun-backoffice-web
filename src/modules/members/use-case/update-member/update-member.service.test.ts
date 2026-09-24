@@ -1,10 +1,14 @@
+import { SQL } from "bun"
 import { err, ok } from "neverthrow"
 import { beforeEach, describe, expect, test } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
 import { CryptoError, type IBlindIndexService, type IEncryptionService } from "src/modules/shared/crypto"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { MemberDetailReadModel } from "src/modules/members/domain/member-read-models"
+import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
+import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberConflictError, MemberValidationError } from "../create-new-member/create-member.errors"
 import { MemberNotFoundError } from "../get-member-by-id/get-member-by-id.errors"
@@ -14,14 +18,26 @@ import type { UpdateMemberRequest } from "./update-member.types"
 describe("UpdateMemberService", () => {
 	let service: UpdateMemberService
 	let mockRepo: MockProxy<IMemberRepository>
+	let mockBusinessRepo: MockProxy<IBusinessesRepository>
+	let mockDocsRepo: MockProxy<IMemberDocumentsRepository>
+	let mockDbClient: MockProxy<DatabaseClient>
 	let mockEncryption: MockProxy<IEncryptionService>
 	let mockBlindIndex: MockProxy<IBlindIndexService>
+	const fakeTx = Symbol("tx") as unknown as SQL
 
 	beforeEach(() => {
-		// Arrange (shared setup)
+		// Arrange (shared setup) — the service owns the update transaction
+		// (ADR-0024); the mock tx handle flows through every repository step.
 		mockRepo = mock<IMemberRepository>()
+		mockBusinessRepo = mock<IBusinessesRepository>()
+		mockDocsRepo = mock<IMemberDocumentsRepository>()
+		mockDbClient = mock<DatabaseClient>()
 		mockEncryption = mock<IEncryptionService>()
 		mockBlindIndex = mock<IBlindIndexService>()
+
+		mockDbClient.transaction.mockImplementation(async (callback) => {
+			return await callback(fakeTx)
+		})
 
 		// Default: the existing member is found and carries the SAME hash +
 		// position as the request, so the conditional checks are skipped on the
@@ -45,9 +61,8 @@ describe("UpdateMemberService", () => {
 		// Same hash as stored → conditional dup check is skipped on happy path.
 		mockBlindIndex.hash.mockReturnValue(ok("stored-hmac-hash"))
 		mockEncryption.encrypt.mockReturnValue(ok("enc-base64"))
-		mockRepo.update.mockResolvedValue(ok(undefined))
 
-		service = new UpdateMemberService(mockRepo, mockEncryption, mockBlindIndex)
+		service = new UpdateMemberService(mockDbClient, mockRepo, mockBusinessRepo, mockDocsRepo, mockEncryption, mockBlindIndex)
 	})
 
 	describe("Happy cases", () => {
@@ -59,11 +74,13 @@ describe("UpdateMemberService", () => {
 			expect(result.isOk()).toBe(true)
 			expect(mockRepo.countMemberByIdCardHash).not.toHaveBeenCalled()
 			expect(mockRepo.countActiveHolderByPosition).not.toHaveBeenCalled()
-			expect(mockRepo.update).toHaveBeenCalledTimes(1)
-			// ADR-0023: the wholesale overwrite targets the SHARED business row the
-			// read model resolved — business.id from makeReadModel, not the member id.
-			expect(mockRepo.update.mock.calls[0]![0]).toBe(101)
-			expect(mockRepo.update.mock.calls[0]![2]).toBe(14)
+			expect(mockRepo.updateMember).toHaveBeenCalledTimes(1)
+			// ADR-0023/0024: the wholesale overwrite targets the SHARED business row
+			// the read model resolved — business.id from makeReadModel, not the
+			// member id.
+			expect(mockRepo.updateMember).toHaveBeenCalledWith(fakeTx, 101, expect.objectContaining({}))
+			expect(mockBusinessRepo.updateBusinessById).toHaveBeenCalledTimes(1)
+			expect(mockBusinessRepo.updateBusinessById.mock.calls[0]![1]).toBe(14)
 		})
 
 		test("resolves sticky null file paths to the stored values before update", async () => {
@@ -81,7 +98,7 @@ describe("UpdateMemberService", () => {
 			// Assert — the service called update with a Member whose sticky paths
 			// were substituted from the stored read model, never null.
 			expect(result.isOk()).toBe(true)
-			const updatedMember = mockRepo.update.mock.calls[0]![1]
+			const updatedMember = mockRepo.updateMember.mock.calls[0]![2]
 			expect(updatedMember.profileAvatar).toBe("members/profile_avatars/a.png")
 			expect(updatedMember.business.logoFilePath).toBe("members/business/logo.png")
 			expect(updatedMember.business.productFilePath).toBe("members/business/product.png")
@@ -102,7 +119,7 @@ describe("UpdateMemberService", () => {
 			// and the hash equals the stored hash so the conditional duplicate
 			// check sees "unchanged" and skips.
 			expect(result.isOk()).toBe(true)
-			const updatedMember = mockRepo.update.mock.calls[0]![1]
+			const updatedMember = mockRepo.updateMember.mock.calls[0]![2]
 			expect(updatedMember.idCardNo).toBe("encrypted-ciphertext")
 			expect(updatedMember.idCardNoHash).toBe("stored-hmac-hash")
 			expect(mockEncryption.encrypt).not.toHaveBeenCalled()
@@ -143,7 +160,7 @@ describe("UpdateMemberService", () => {
 			// Assert — the aggregate passed to the repository keeps the stored
 			// lifecycle fields rather than recomputing them (grilling Q4).
 			expect(result.isOk()).toBe(true)
-			const updatedMember = mockRepo.update.mock.calls[0]![1]
+			const updatedMember = mockRepo.updateMember.mock.calls[0]![2]
 			expect(updatedMember.status).toBe("EXPIRED") // from makeReadModel, NOT "ACTIVE"
 			expect(updatedMember.renewalSuccessfulCount).toBe(3) // from makeReadModel, NOT 0
 		})
@@ -155,9 +172,10 @@ describe("UpdateMemberService", () => {
 			// Act
 			const result = await service.execute(101, req)
 
-			// Assert — ID_CARD not in the replacement set → empty types list.
+			// Assert — ID_CARD not in the replacement set → no doc replacement.
 			expect(result.isOk()).toBe(true)
-			expect(mockRepo.update.mock.calls[0]![3]).toEqual([])
+			expect(mockDocsRepo.softDeleteByTypes).not.toHaveBeenCalled()
+			expect(mockDocsRepo.insertDocument).not.toHaveBeenCalled()
 		})
 	})
 
@@ -222,7 +240,7 @@ describe("UpdateMemberService", () => {
 			// Assert
 			expect(result.isErr()).toBe(true)
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
-			expect(mockRepo.update).not.toHaveBeenCalled()
+			expect(mockRepo.updateMember).not.toHaveBeenCalled()
 		})
 
 		test("returns MemberValidationError when the requested position code is unknown", async () => {
@@ -333,15 +351,16 @@ describe("UpdateMemberService", () => {
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
 		})
 
-		test("returns DatabaseError when repository.update fails", async () => {
-			// Arrange
-			mockRepo.update.mockResolvedValue(err(new DatabaseError("tx failed")))
+		test("returns DatabaseError when a transaction step fails", async () => {
+			// Arrange — a step throws inside the tx: the whole transaction rolls back.
+			mockRepo.updateMember.mockRejectedValue(new DatabaseError("tx failed"))
 
 			// Act
 			const result = await service.execute(101, makeRequest())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
 		})
 	})
 })

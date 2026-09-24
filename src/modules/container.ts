@@ -6,6 +6,8 @@ import { DashboardRepository } from "src/modules/dashboard/repository/dashboard.
 import { GetDashboardStatService } from "src/modules/dashboard/use-case/get-dashboard-stat/get-dashboard-stat.service"
 import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
 import { MemberFileService } from "src/modules/members/member-file.service"
+import { BusinessesRepository } from "src/modules/members/repository/businesses/businesses.repository"
+import { MemberDocumentsRepository } from "src/modules/members/repository/member-document/member-document.repository"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
@@ -160,6 +162,18 @@ container.register(
 // creation with crypto + position-cardinality checks. See docs/adr/0005-...
 container.register(REGISTER_KEY.MEMBERS_REPOSITORY, {
 	useClass: MembersRepository,
+})
+
+// 10a. Members module — per-table repositories (ADR-0024): the shared
+// businesses write-side + ADR-0023 cascade boundary, and the member_documents
+// mutations. Transient stateless wrappers around the singleton
+// DatabaseClient, matching MembersRepository; SERVICES own the multi-table
+// transactions and call these per table.
+container.register(REGISTER_KEY.BUSINESSES_REPOSITORY, {
+	useClass: BusinessesRepository,
+})
+container.register(REGISTER_KEY.MEMBER_DOCUMENTS_REPOSITORY, {
+	useClass: MemberDocumentsRepository,
 })
 
 container.register(

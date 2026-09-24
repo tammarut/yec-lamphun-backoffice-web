@@ -2,28 +2,18 @@ import { sql } from "bun"
 import { err, ok, type Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import { toPgDate } from "src/shared/lib/db/pg-serializers"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
 import type { Member } from "../domain/member"
-import type { MemberBusiness } from "../domain/member-business"
-import type { MemberDocument } from "../domain/member-document"
-import type {
-	MemberBusinessReadModel,
-	MemberDetailReadModel,
-	MemberLatestRenewalReadModel,
-	MemberDocumentType,
-	PositionCardinality,
-	PositionReadModel,
-} from "../domain/member-read-models"
+import type { MemberBusinessReadModel, MemberDetailReadModel, MemberLatestRenewalReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
 import type { IMemberRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-committee/get-executive-committee.types"
 import {
 	countActiveHolderByPosition,
-	countLiveMembersByBusinessId,
 	countMemberByIdCardHash,
-	findLiveBusinessIdForCascade,
 	findLiveContactConflicts,
 	getAllPositions,
 	getExecutiveCommitteeMembers,
@@ -31,33 +21,26 @@ import {
 	getMemberDocumentsByMemberId,
 	getMemberWithBusinessById,
 	getPositionByCode,
-	insertBusiness,
 	insertMember,
-	insertMemberDocument,
-	softDeleteBusinessById,
 	softDeleteMemberById,
-	softDeleteMemberDocumentsByMemberId,
-	softDeleteMemberDocumentsByMemberIdAndTypes,
 	softDeleteMembershipRenewalsByMemberId,
-	updateBusinessById,
 	updateMemberById,
 } from "./sql/sqlc-generated/queries_sql"
 
 /**
- * sqlc-generated repository for the members module.
+ * sqlc-backed repository for the `members` + `positions` tables (ADR-0024):
+ * member-row tx-scoped steps plus the member-centric reads. The shared
+ * `businesses` write side + delete-cascade boundary lives in
+ * BusinessesRepository and the `member_documents` mutations in
+ * MemberDocumentsRepository; the SERVICES own the multi-table transactions
+ * and call those repositories per table (ADR-0023/0024). The one deliberate
+ * cross-table leftover here is the membership_renewals soft-delete (ADR-0013).
  *
- * Wraps each generated query in {@link ResultAsync.fromPromise} and converts to
- * the AGENTS.md §2B `Promise<Result<T, DatabaseError>>` shape. The
- * {@link create} method owns the transaction and the multi-table insert
- * (businesses → members → member_documents) as a single atomic unit; the
- * individual inserts are private helpers, invisible to the service.
- *
- * The delete flow is the one exception (ADR-0023): {@link DeleteMemberService}
- * owns that transaction and the last-live-link cascade decision, calling this
- * repository's tx-scoped step methods (`findLiveBusinessIdForCascade` …
- * `softDeleteBusinessById`) inside its own `DatabaseClient.transaction`. Those
- * steps throw DatabaseError so a failure aborts + rolls the tx back — the
- * service maps that to `err()`.
+ * Wraps each generated query in {@link ResultAsync.fromPromise} and converts
+ * to the AGENTS.md §2B `Promise<Result<T, DatabaseError>>` shape; the
+ * tx-scoped step methods throw instead, so a failure inside the owning
+ * service's `DatabaseClient.transaction` auto-rollbacks and the service maps
+ * that to `err()`.
  */
 @injectable()
 export class MembersRepository implements IMemberRepository {
@@ -137,101 +120,109 @@ export class MembersRepository implements IMemberRepository {
 		return ok(row ? row.count : 0)
 	}
 
-	async create(member: Member) {
-		// The transaction is scoped to this method: insert business → member →
-		// documents. The shared businesses row is inserted FIRST because
-		// members.business_id is NOT NULL and consumes the generated id.
-		// bun:sql auto-commits on success, auto-rollbacks on any throw.
-		try {
-			const memberId = await this.dbClient.transaction(async (tx) => {
-				const sql = tx as unknown as Sql
-				const businessId = await this.doInsertBusiness(sql, member.business)
-				const memberId = await this.doInsertMember(sql, member, businessId)
-				if (member.documents.length > 0) {
-					await this.doInsertDocuments(sql, memberId, member.documents)
-				}
-
-				return memberId
-			})
-
-			return ok(memberId)
-		} catch (error) {
-			if (error instanceof DatabaseError) {
-				return err(error)
-			}
-			return err(new DatabaseError("Member creation transaction failed", error))
-		}
-	}
+	// --- Tx-scoped member-row steps (create / update / delete flows) ---------
+	// Called by the owning SERVICES inside their DatabaseClient transactions
+	// (ADR-0024: services own every multi-table transaction; this repository
+	// executes the members-table steps). Each method THROWS DatabaseError on
+	// failure so the service's transaction auto-rollbacks. Ids are stringified
+	// to match sqlc's bigint arg typing.
 
 	/**
-	 * Update an existing member atomically: UPDATE members → UPDATE
-	 * businesses (the SHARED row every linked member sees — ADR-0023) →
-	 * (per replaced type) soft-delete old docs + insert new, all inside one
-	 * transaction. Mirrors {@link create}'s transaction shape.
-	 *
-	 * The {@link documentTypesToReplace} policy is decided by the caller; this
-	 * method just executes it. For each type in the set, it soft-deletes the
-	 * member's live rows of that type, then inserts the matching new rows from
-	 * `updated.documents`. Types not in the set are left untouched.
+	 * Insert the member row (with its business link) and return the generated id
+	 * as a number. Runs INSIDE the create transaction, AFTER
+	 * BusinessesRepository.insertBusiness — `businessId` is that step's returned
+	 * id, consumed by the NOT NULL members.business_id column.
 	 */
-	async update(id: number, updated: Member, businessId: number, documentTypesToReplace: readonly MemberDocumentType[]): Promise<Result<void, DatabaseError>> {
-		try {
-			await this.dbClient.transaction(async (tx) => {
-				const sql = tx as unknown as Sql
-
-				await this.doUpdateMember(sql, id, updated)
-				await this.doUpdateBusiness(sql, businessId, updated.business)
-
-				if (documentTypesToReplace.length > 0) {
-					// Soft-delete the live rows of the replaced type(s) first.
-					await this.doSoftDeleteDocumentsByTypes(sql, id, documentTypesToReplace)
-					// Then insert the new rows from the updated member's documents,
-					// filtered to just the replaced types.
-					const newDocsToInsert = updated.documents.filter((doc) => documentTypesToReplace.includes(doc.type))
-					if (newDocsToInsert.length > 0) {
-						await this.doInsertDocuments(sql, id, newDocsToInsert)
-					}
-				}
-			})
-
-			return ok(undefined)
-		} catch (error) {
-			if (error instanceof DatabaseError) {
-				return err(error)
-			}
-			return err(new DatabaseError("Member update transaction failed", error))
-		}
-	}
-
-	// --- Delete-flow transaction steps (DELETE /api/v1/members/:id) ----------
-	// Tx-scoped steps of the ADR-0013 cascade, orchestrated by
-	// DeleteMemberService (which owns the transaction and the ADR-0023
-	// last-live-link decision). Each method THROWS DatabaseError on failure so
-	// the service's transaction auto-rollbacks. The member id / business id is
-	// stringified to match sqlc's bigint arg typing, same as {@link doUpdateMember}.
-
-	/**
-	 * Lock (SELECT ... FOR UPDATE) the member's linked LIVE business row and
-	 * return its id — the ADR-0023 cascade gate. Returns `null` when the
-	 * business is already soft-deleted/absent (re-delete → the service skips
-	 * the cascade decision; idempotent 204). BIGSERIAL arrives as a string and
-	 * is numbered here.
-	 */
-	async findLiveBusinessIdForCascade(sql: Sql, memberId: number): Promise<number | null> {
-		const result = await ResultAsync.fromPromise(findLiveBusinessIdForCascade(sql, { id: String(memberId) }), (error) => error as Error)
+	async insertMember(sql: Sql, member: Member, businessId: number): Promise<number> {
+		const result = await ResultAsync.fromPromise(
+			insertMember(sql, {
+				registrationType: member.registrationType,
+				titleNameTh: member.titleNameTh,
+				firstNameTh: member.firstNameTh,
+				lastNameTh: member.lastNameTh,
+				titleNameEn: member.titleNameEn,
+				firstNameEn: member.firstNameEn,
+				lastNameEn: member.lastNameEn,
+				nickname: member.nickname,
+				gender: member.gender,
+				// Bun.SQL serializes Date via toString() → "GMT+0700" which Postgres
+				// rejects; toISOString() → UTC ISO 8601 which Postgres accepts.
+				// Cast through unknown because the sqlc-generated type expects Date,
+				// but the driver actually wants a string here.
+				dateOfBirth: toPgDate(member.dateOfBirth) as unknown as Date,
+				nationality: member.nationality,
+				idCardNo: member.idCardNo,
+				idCardNoHash: member.idCardNoHash,
+				idCardExpiryDate: toPgDate(member.idCardExpiryDate) as unknown as Date,
+				memberSince: toPgDate(member.memberSince) as unknown as Date,
+				expiresAt: toPgDate(member.expiresAt) as unknown as Date,
+				profileAvatar: member.profileAvatar,
+				phoneNo: member.phoneNo,
+				email: member.email,
+				lineId: member.lineId,
+				shirtSize: member.shirtSize,
+				positionCode: member.positionCode,
+				// BIGSERIAL arg typing: sqlc wants the id as a string.
+				businessId: String(businessId),
+				status: member.status,
+			}),
+			(error) => error as Error
+		)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
 		const row = result.value[0]
 		if (!row) {
-			return null
+			throw new DatabaseError("insertMember returned no row")
 		}
-		return Number(row.businessId)
+		// postgres.js returns BIGSERIAL as a string; convert at this boundary.
+		return Number(row.id)
 	}
 
-	/** Soft-delete all of the member's live document rows. */
-	async softDeleteMemberDocuments(sql: Sql, memberId: number): Promise<void> {
-		const result = await ResultAsync.fromPromise(softDeleteMemberDocumentsByMemberId(sql, { memberId: String(memberId) }), (error) => error as Error)
+	/**
+	 * Update a non-deleted member's mutable columns. Lifecycle columns
+	 * (status/member_since/expires_at/renewal_successful_count) are omitted by
+	 * the UPDATE statement itself — they can never be clobbered (grilling Q4).
+	 * Runs INSIDE the update transaction, before the business overwrite.
+	 */
+	async updateMember(sql: Sql, id: number, member: Member): Promise<void> {
+		const result = await ResultAsync.fromPromise(
+			updateMemberById(sql, {
+				id: String(id),
+				registrationType: member.registrationType,
+				titleNameTh: member.titleNameTh,
+				firstNameTh: member.firstNameTh,
+				lastNameTh: member.lastNameTh,
+				titleNameEn: member.titleNameEn,
+				firstNameEn: member.firstNameEn,
+				lastNameEn: member.lastNameEn,
+				nickname: member.nickname,
+				gender: member.gender,
+				dateOfBirth: toPgDate(member.dateOfBirth) as unknown as Date,
+				nationality: member.nationality,
+				idCardNo: member.idCardNo,
+				idCardNoHash: member.idCardNoHash,
+				idCardExpiryDate: toPgDate(member.idCardExpiryDate) as unknown as Date,
+				profileAvatar: member.profileAvatar,
+				phoneNo: member.phoneNo,
+				email: member.email,
+				lineId: member.lineId,
+				shirtSize: member.shirtSize,
+				positionCode: member.positionCode,
+			}),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
+	// --- Delete-cascade member-row steps (ADR-0013, orchestrated by
+	//     DeleteMemberService — ADR-0024 moved the tx to the service) ----------
+
+	/** Soft-delete the member row itself. Idempotent (`deleted_at IS NULL` guard). */
+	async softDeleteMemberRow(sql: Sql, memberId: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(softDeleteMemberById(sql, { id: String(memberId) }), (error) => error as Error)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
@@ -240,39 +231,6 @@ export class MembersRepository implements IMemberRepository {
 	/** Soft-delete the member's live membership-renewal rows (ADR-0013 ownership). */
 	async softDeleteMembershipRenewals(sql: Sql, memberId: number): Promise<void> {
 		const result = await ResultAsync.fromPromise(softDeleteMembershipRenewalsByMemberId(sql, { memberId: String(memberId) }), (error) => error as Error)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-	}
-
-	/** Soft-delete the member row itself. */
-	async softDeleteMemberRow(sql: Sql, memberId: number): Promise<void> {
-		const result = await ResultAsync.fromPromise(softDeleteMemberById(sql, { id: String(memberId) }), (error) => error as Error)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-	}
-
-	/**
-	 * Count OTHER live members still linked to the business (`excludeMemberId`
-	 * = the deleting member, still live at count time). 0 ⇒ the service fires
-	 * {@link softDeleteBusinessById}.
-	 */
-	async countLiveMembersByBusinessId(sql: Sql, businessId: number, excludeMemberId: number): Promise<number> {
-		const result = await ResultAsync.fromPromise(countLiveMembersByBusinessId(sql, { businessId: String(businessId), id: String(excludeMemberId) }), (error) => error as Error)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-		const row = result.value[0]
-		if (!row) {
-			throw new DatabaseError("countLiveMembersByBusinessId returned no row")
-		}
-		return row.liveCount
-	}
-
-	/** Soft-delete the shared business row (ADR-0023 last-live-link rule). */
-	async softDeleteBusinessById(sql: Sql, businessId: number): Promise<void> {
-		const result = await ResultAsync.fromPromise(softDeleteBusinessById(sql, { id: String(businessId) }), (error) => error as Error)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
@@ -644,239 +602,7 @@ export class MembersRepository implements IMemberRepository {
 				return sql`ORDER BY m.expires_at ASC NULLS FIRST, m.id ASC`
 		}
 	}
-
-	// --- Private insert helpers (run inside create's transaction) ----------
-
-	/** Insert the member row (with its business link), return the generated id as a number. */
-	private async doInsertMember(sql: Sql, member: Member, businessId: number): Promise<number> {
-		const result = await ResultAsync.fromPromise(
-			insertMember(sql, {
-				registrationType: member.registrationType,
-				titleNameTh: member.titleNameTh,
-				firstNameTh: member.firstNameTh,
-				lastNameTh: member.lastNameTh,
-				titleNameEn: member.titleNameEn,
-				firstNameEn: member.firstNameEn,
-				lastNameEn: member.lastNameEn,
-				nickname: member.nickname,
-				gender: member.gender,
-				// Bun.SQL serializes Date via toString() → "GMT+0700" which Postgres
-				// rejects; toISOString() → UTC ISO 8601 which Postgres accepts.
-				// Cast through unknown because the sqlc-generated type expects Date,
-				// but the driver actually wants a string here.
-				dateOfBirth: toPgDate(member.dateOfBirth) as unknown as Date,
-				nationality: member.nationality,
-				idCardNo: member.idCardNo,
-				idCardNoHash: member.idCardNoHash,
-				idCardExpiryDate: toPgDate(member.idCardExpiryDate) as unknown as Date,
-				memberSince: toPgDate(member.memberSince) as unknown as Date,
-				expiresAt: toPgDate(member.expiresAt) as unknown as Date,
-				profileAvatar: member.profileAvatar,
-				phoneNo: member.phoneNo,
-				email: member.email,
-				lineId: member.lineId,
-				shirtSize: member.shirtSize,
-				positionCode: member.positionCode,
-				// BIGSERIAL arg typing: sqlc wants the id as a string.
-				businessId: String(businessId),
-				status: member.status,
-			}),
-			(error) => error as Error
-		)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-		const row = result.value[0]
-		if (!row) {
-			throw new DatabaseError("insertMember returned no row")
-		}
-		// postgres.js returns BIGSERIAL as a string; convert at this boundary.
-		return Number(row.id)
-	}
-
-	/** Insert one row per document value object. */
-	private async doInsertDocuments(sql: Sql, memberId: number, documents: readonly MemberDocument[]): Promise<void> {
-		for (const doc of documents) {
-			const result = await ResultAsync.fromPromise(
-				insertMemberDocument(sql, {
-					memberId: String(memberId),
-					type: doc.type,
-					filePath: doc.filePath,
-				}),
-				(error) => error as Error
-			)
-			if (result.isErr()) {
-				throw new DatabaseError(result.error.message, result.error.cause)
-			}
-		}
-	}
-
-	/**
-	 * Insert the shared business row (ADR-0023) and return the generated id as
-	 * a number. Runs FIRST in the create transaction — the member insert
-	 * consumes this id as its NOT NULL business_id.
-	 */
-	private async doInsertBusiness(sql: Sql, business: MemberBusiness): Promise<number> {
-		const result = await ResultAsync.fromPromise(
-			insertBusiness(sql, {
-				name: business.name,
-				description: business.description,
-				juristicRegistrationNo: business.juristicRegistrationNo,
-				categoryId: business.categoryId,
-				address: business.address,
-				// Bun.SQL serializes JS arrays via toString() → "100.5,13.7" which
-				// Postgres rejects as a malformed array literal. Convert to the
-				// Postgres array literal format "{100.5,13.7}".
-				location: toPgArray(business.location) as unknown as number[] | null,
-				coreBusiness: business.coreBusiness,
-				website: business.website,
-				logoFilePath: business.logoFilePath,
-				productFilePath: business.productFilePath,
-			}),
-			(error) => error as Error
-		)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-		const row = result.value[0]
-		if (!row) {
-			throw new DatabaseError("insertBusiness returned no row")
-		}
-		// postgres.js returns BIGSERIAL as a string; convert at this boundary.
-		return Number(row.id)
-	}
-
-	// --- Private update helpers (run inside update's transaction) ----------
-
-	/**
-	 * Update the member row's mutable columns. Lifecycle columns
-	 * (status/member_since/expires_at/renewal_successful_count) are omitted by
-	 * the UPDATE statement itself — they can never be clobbered here.
-	 */
-	private async doUpdateMember(sql: Sql, id: number, member: Member): Promise<void> {
-		const result = await ResultAsync.fromPromise(
-			updateMemberById(sql, {
-				id: String(id),
-				registrationType: member.registrationType,
-				titleNameTh: member.titleNameTh,
-				firstNameTh: member.firstNameTh,
-				lastNameTh: member.lastNameTh,
-				titleNameEn: member.titleNameEn,
-				firstNameEn: member.firstNameEn,
-				lastNameEn: member.lastNameEn,
-				nickname: member.nickname,
-				gender: member.gender,
-				dateOfBirth: toPgDate(member.dateOfBirth) as unknown as Date,
-				nationality: member.nationality,
-				idCardNo: member.idCardNo,
-				idCardNoHash: member.idCardNoHash,
-				idCardExpiryDate: toPgDate(member.idCardExpiryDate) as unknown as Date,
-				profileAvatar: member.profileAvatar,
-				phoneNo: member.phoneNo,
-				email: member.email,
-				lineId: member.lineId,
-				shirtSize: member.shirtSize,
-				positionCode: member.positionCode,
-			}),
-			(error) => error as Error
-		)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-	}
-
-	/** Wholesale-overwrite the member's shared business row. Location must already be swapped. */
-	private async doUpdateBusiness(sql: Sql, businessId: number, business: MemberBusiness): Promise<void> {
-		const result = await ResultAsync.fromPromise(
-			updateBusinessById(sql, {
-				id: String(businessId),
-				name: business.name,
-				description: business.description,
-				juristicRegistrationNo: business.juristicRegistrationNo,
-				categoryId: business.categoryId,
-				address: business.address,
-				location: toPgArray(business.location) as unknown as number[] | null,
-				coreBusiness: business.coreBusiness,
-				website: business.website,
-				logoFilePath: business.logoFilePath,
-				productFilePath: business.productFilePath,
-			}),
-			(error) => error as Error
-		)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-	}
-
-	/**
-	 * Soft-delete (set deleted_at) the member's live document rows of the given
-	 * type(s), in preparation for inserting replacement rows. The types list is
-	 * always non-empty here (the caller guards) and a subset of
-	 * {'ID_CARD', 'COMPANY_CERTIFICATE'}.
-	 */
-	private async doSoftDeleteDocumentsByTypes(sql: Sql, memberId: number, types: readonly MemberDocumentType[]): Promise<void> {
-		const result = await ResultAsync.fromPromise(
-			softDeleteMemberDocumentsByMemberIdAndTypes(sql, {
-				memberId: String(memberId),
-				// Bun.SQL serializes JS arrays via toString() → "ID_CARD,COMPANY_CERTIFICATE",
-				// which Postgres rejects as a malformed array literal. Convert to the
-				// Postgres array-literal form "{...}" — same fix as businesses.location.
-				// The sqlc-generated arg type is string[]; the driver actually wants the
-				// literal string here, hence the `as unknown as` cast.
-				types: toPgArray([...types]) as unknown as string[],
-			}),
-			(error) => error as Error
-		)
-		if (result.isErr()) {
-			throw new DatabaseError(result.error.message, result.error.cause)
-		}
-	}
 }
-
-/**
- * Convert a JS Date to a Postgres-safe ISO 8601 string.
- *
- * Bun.SQL serializes Date objects via Date.toString(), which produces a local-
- * timezone string like "2026-01-15 10:00:00 GMT+0700". Postgres does not
- * recognize the "GMT+0700" format and rejects it. Converting to ISO 8601
- * (UTC, "Z" suffix) makes Postgres accept it for both DATE and TIMESTAMPTZ
- * columns. Null passes through for nullable date columns.
- */
-function toPgDate(date: Date | null): string | null {
-	if (date === null) {
-		return null
-	}
-
-	return date.toISOString()
-}
-
-/**
- * Convert a JS array to a Postgres array literal string.
- *
- * Bun.SQL serializes JS arrays via Array.toString() → "100.5,13.7" (numbers)
- * or "ID_CARD,COMPANY_CERTIFICATE" (strings), which Postgres rejects as a
- * malformed array literal. The correct format is the Postgres array literal
- * "{100.5,13.7}" / "{ID_CARD,COMPANY_CERTIFICATE}". Null passes through for
- * nullable array columns.
- *
- * Used for both numeric arrays (businesses.location) and text arrays
- * (the soft-delete member_documents type list). String elements are wrapped in
- * double quotes per the Postgres array-literal grammar so a value containing a
- * comma or brace would still parse correctly.
- */
-function toPgArray(arr: readonly (number | string)[] | null): string | null {
-	if (arr === null) {
-		return null
-	}
-
-	// Postgres array-literal grammar: strings are double-quoted; numbers are bare.
-	// Double-quotes inside a string value are escaped by doubling (""). We
-	// always quote strings (correct for identifiers that could need it; harmless
-	// for plain values like 'ID_CARD').
-	const elements = arr.map((el) => (typeof el === "number" ? String(el) : `"${String(el).replace(/"/g, '""')}"`))
-	return `{${elements.join(",")}}`
-}
-
 /**
  * Map a validated {@link SortField} enum value to a static column-reference
  * `sql` fragment. The switch (not `sql.unsafe`) guarantees no user text reaches

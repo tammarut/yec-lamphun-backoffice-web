@@ -18,6 +18,12 @@ export const REGISTER_KEY = {
 	BLIND_INDEX_SERVICE: Symbol("IBlindIndexService"),
 	// Members module (create-member flow) — see docs/adr/0005-...
 	MEMBERS_REPOSITORY: Symbol("IMemberRepository"),
+	// Members module — per-table repositories split out of MembersRepository
+	// (ADR-0024): shared businesses write-side + ADR-0023 cascade boundary, and
+	// member_documents mutations. Member-centric READ JOINs stay on
+	// MEMBERS_REPOSITORY; SERVICES own the multi-table transactions.
+	BUSINESSES_REPOSITORY: Symbol("IBusinessesRepository"),
+	MEMBER_DOCUMENTS_REPOSITORY: Symbol("IMemberDocumentsRepository"),
 	CREATE_NEW_MEMBER_SERVICE: Symbol("CREATE_NEW_MEMBER_SERVICE"),
 	// Members module (get-member-by-id query) — ADR-0007/0008.
 	GET_MEMBER_BY_ID_SERVICE: Symbol("GET_MEMBER_BY_ID_SERVICE"),
