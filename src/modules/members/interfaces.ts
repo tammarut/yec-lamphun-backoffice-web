@@ -2,13 +2,26 @@ import type { Sql } from "postgres"
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { Member } from "./domain/member"
-import type { MemberDetailReadModel, MemberLatestRenewalReadModel, MemberDocumentType, PositionReadModel } from "./domain/member-read-models"
+import type { MemberDetailReadModel, MemberLatestRenewalReadModel, PositionReadModel } from "./domain/member-read-models"
 import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "./use-case/get-executive-committee/get-executive-committee.types"
 
+/**
+ * Repository contract for the `members` (and `positions`) tables: member-row
+ * persistence plus the member-centric reads (ADR-0024). The shared `businesses`
+ * write side + delete-cascade boundary lives in IBusinessesRepository and the
+ * `member_documents` mutations in IMemberDocumentsRepository — the SERVICES own
+ * the multi-table transactions and call these repositories per table
+ * (ADR-0023/0024). The one deliberate cross-table leftover is the
+ * membership_renewals soft-delete below (ADR-0013).
+ *
+ * Transaction-scoped step methods take the service's `tx` handle and THROW
+ * DatabaseError on failure so the service's `DatabaseClient.transaction`
+ * auto-rollbacks; the service maps that to `err()`.
+ */
 export interface IMemberRepository {
-	// --- Check queries (run OUTSIDE the create-member transaction) ----------
+	// --- Check queries (run OUTSIDE any transaction) -------------------------
 
 	/** Count non-deleted members matching the id_card blind index. >0 = duplicate. */
 	countMemberByIdCardHash(idCardNoHash: string): Promise<Result<number, DatabaseError>>
@@ -27,94 +40,41 @@ export interface IMemberRepository {
 	/** Count non-deleted members currently holding a position. */
 	countActiveHolderByPosition(positionCode: string): Promise<Result<number, DatabaseError>>
 
-	// --- Writes -------------------------------------------------------------
+	// --- Tx-scoped member-row steps ------------------------------------------
 
 	/**
-	 * Persist a new member atomically: inserts the shared business row
-	 * (ADR-0023), then the member row linking it via business_id, then its
-	 * documents — all inside a single database transaction. Returns the
-	 * generated member id. The transaction + multi-table insert is an internal
-	 * implementation detail — callers see one method.
+	 * Insert the member row (with its business link) and return the generated id
+	 * as a number (BIGSERIAL → number). Runs INSIDE the create transaction,
+	 * AFTER BusinessesRepository.insertBusiness — `businessId` is that step's
+	 * returned id, consumed by the NOT NULL members.business_id column.
 	 */
-	create(member: Member): Promise<Result<number, DatabaseError>>
+	insertMember(tx: Sql, member: Member, businessId: number): Promise<number>
 
 	/**
-	 * Update an existing member atomically inside a single transaction:
-	 *   1. UPDATE members SET ... (mutable columns only; lifecycle columns
-	 *      preserved — see ADR-0012 / grilling Q4)
-	 *   2. UPDATE businesses SET ... — wholesale overwrite of the SHARED row
-	 *      the member links to (ADR-0023): every linked member sees the edit.
-	 *      location must arrive already swapped to [long, lat] by the
-	 *      MemberBusiness VO
-	 *   3. For each type in {@link documentTypesToReplace}: soft-delete the
-	 *      member's existing live rows of that type, then insert the new row(s)
-	 *      from `updated.documents` of that type (grilling Q6).
-	 *
-	 * `businessId` is the shared businesses.id resolved from the read model by
-	 * the update use case (a live member always has a live business — the
-	 * corruption guard in getMemberDetailById runs upstream).
-	 *
-	 * The caller (update use case) computes {@link documentTypesToReplace} by
-	 * diffing the resolved request against the stored values — the repository
-	 * just executes the policy it's given. The set is a subset of
-	 * `{'ID_CARD', 'COMPANY_CERTIFICATE'}` and may be empty (no document
-	 * replacement this edit).
-	 *
-	 * `id` is the path-param member id; the UPDATE's `WHERE deleted_at IS NULL`
-	 * makes a soft-delete that races the read indistinguishable from not-found
-	 * (the row count is ignored — this endpoint accepts last-writer-wins per
-	 * grilling Q11).
+	 * Update a non-deleted member's mutable columns. Lifecycle columns (status,
+	 * member_since, expires_at, renewal_successful_count) are omitted by the
+	 * UPDATE statement itself — they can never be clobbered (grilling Q4).
+	 * Runs INSIDE the update transaction, before the business overwrite.
 	 */
-	update(id: number, updated: Member, businessId: number, documentTypesToReplace: readonly MemberDocumentType[]): Promise<Result<void, DatabaseError>>
-
-	// --- Delete-flow transaction steps (DELETE /api/v1/members/:id) ----------
+	updateMember(tx: Sql, id: number, member: Member): Promise<void>
 
 	/**
-	 * The ADR-0013 cascade steps, now tx-scoped: {@link DeleteMemberService}
-	 * owns the single DatabaseClient.transaction and the ADR-0023 cascade
-	 * decision, so the survive / soft-delete / idempotent behaviors are unit-
-	 * testable at the service seam (ADR-0023). Each method THROWS
-	 * DatabaseError on failure — throwing inside the transaction aborts and
-	 * rolls it back (same style as the create/update internals); the service
-	 * maps that to `err()`. `tx` is the transaction handle.
+	 * Soft-delete the member row itself — delete-cascade step. Idempotent
+	 * (`deleted_at IS NULL` guard): an already-deleted member is a 0-row no-op
+	 * (grilling Q2: the route returns 204 regardless, never 404).
 	 */
-
-	/**
-	 * Lock (SELECT ... FOR UPDATE) the member's linked LIVE business row and
-	 * return its id — the ADR-0023 cascade gate. Returns `null` when the
-	 * business is already soft-deleted/absent: a re-delete then skips the
-	 * cascade entirely (idempotent 204, never 404). The lock is held until the
-	 * transaction ends and serializes concurrent deletes of co-linked members.
-	 */
-	findLiveBusinessIdForCascade(tx: Sql, memberId: number): Promise<number | null>
-
-	/** Soft-delete all of the member's live document rows. */
-	softDeleteMemberDocuments(tx: Sql, memberId: number): Promise<void>
-
-	/**
-	 * Soft-delete the member's live membership-renewal rows. Generated in this
-	 * module's sqlc block (its schema is a parse-time DDL reference only) —
-	 * members still owns the renewals cascade (ADR-0013).
-	 */
-	softDeleteMembershipRenewals(tx: Sql, memberId: number): Promise<void>
-
-	/** Soft-delete the member row itself. */
 	softDeleteMemberRow(tx: Sql, memberId: number): Promise<void>
 
 	/**
-	 * Count live members still linked to the business, excluding
-	 * `excludeMemberId` (the deleting member). The exclusion is belt-and-braces:
-	 * the caller soft-deletes the member row BEFORE counting, so the
-	 * `deleted_at IS NULL` filter already excludes them — the id exclusion keeps
-	 * the count correct even if the step order is ever rearranged. 0 ⇒ the
-	 * caller fires {@link softDeleteBusinessById} (ADR-0023 last-live-link rule).
+	 * Soft-delete the member's live membership-renewal rows — delete-cascade
+	 * step. Generated in this module's sqlc block (its schema is a parse-time
+	 * DDL reference only): members still owns the renewals cascade (ADR-0013),
+	 * the one deliberate cross-table leftover after the ADR-0024 split.
 	 */
-	countLiveMembersByBusinessId(tx: Sql, businessId: number, excludeMemberId: number): Promise<number>
+	softDeleteMembershipRenewals(tx: Sql, memberId: number): Promise<void>
 
-	/** Soft-delete the shared business row (ADR-0023: businesses do not survive their last live member). */
-	softDeleteBusinessById(tx: Sql, businessId: number): Promise<void>
-
-	// --- Reads --------------------------------------------------------------
+	// --- Reads (member-centric projections; JOINed business columns stay here
+	//     per ADR-0024 — one round-trip per read) ------------------------------
 
 	/**
 	 * Fetch a non-deleted member's detail (member + linked shared business +
@@ -163,8 +123,6 @@ export interface IMemberRepository {
 	 * `getMemberDetailById` (grilling Q9).
 	 */
 	getListMembers(filter: ListMembersFilter): Promise<Result<MemberListPage, DatabaseError | InvalidCursorError>>
-
-	// --- Executive committee reads (GET /api/v1/members/executive-committee) --
 
 	/**
 	 * Fetch every position row ordered by `(display_order, code)`. The

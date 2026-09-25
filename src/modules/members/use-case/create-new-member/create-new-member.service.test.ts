@@ -1,9 +1,13 @@
+import { SQL } from "bun"
 import { err, ok } from "neverthrow"
 import { beforeEach, describe, expect, test } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
 
 import { CryptoError, type IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
+import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberConflictError, MemberValidationError } from "./create-member.errors"
 import type { CreateMemberRequest } from "./create-member.types"
@@ -12,15 +16,26 @@ import { CreateNewMemberService } from "./create-new-member.service"
 describe("CreateNewMemberService", () => {
 	let service: CreateNewMemberService
 	let mockRepo: MockProxy<IMemberRepository>
+	let mockBusinessRepo: MockProxy<IBusinessesRepository>
+	let mockDocsRepo: MockProxy<IMemberDocumentsRepository>
+	let mockDbClient: MockProxy<DatabaseClient>
 	let mockEncryption: MockProxy<IEncryptionService>
 	let mockBlindIndex: MockProxy<IBlindIndexService>
+	const fakeTx = Symbol("tx") as unknown as SQL
 
 	beforeEach(() => {
-		// Arrange (shared setup)
+		// Arrange (shared setup) — the service owns the create transaction
+		// (ADR-0024); the mock tx handle flows through every repository step.
 		mockRepo = mock<IMemberRepository>()
+		mockBusinessRepo = mock<IBusinessesRepository>()
+		mockDocsRepo = mock<IMemberDocumentsRepository>()
+		mockDbClient = mock<DatabaseClient>()
 		mockEncryption = mock<IEncryptionService>()
 		mockBlindIndex = mock<IBlindIndexService>()
 
+		mockDbClient.transaction.mockImplementation(async (callback) => {
+			return await callback(fakeTx)
+		})
 		mockEncryption.encrypt.mockReturnValue(ok("enc-base64"))
 		mockBlindIndex.hash.mockReturnValue(ok("hash-hex"))
 		mockRepo.getPositionByCode.mockResolvedValue(
@@ -37,9 +52,10 @@ describe("CreateNewMemberService", () => {
 		mockRepo.countMemberByIdCardHash.mockResolvedValue(ok(0))
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
 		mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: false, lineId: false }))
-		mockRepo.create.mockResolvedValue(ok(102))
+		mockBusinessRepo.insertBusiness.mockResolvedValue(7)
+		mockRepo.insertMember.mockResolvedValue(102)
 
-		service = new CreateNewMemberService(mockRepo, mockEncryption, mockBlindIndex)
+		service = new CreateNewMemberService(mockDbClient, mockRepo, mockBusinessRepo, mockDocsRepo, mockEncryption, mockBlindIndex)
 	})
 
 	describe("Happy cases", () => {
@@ -51,13 +67,17 @@ describe("CreateNewMemberService", () => {
 			expect(result._unsafeUnwrap()).toBe(102)
 		})
 
-		test("calls repository.create with the validated Member aggregate", async () => {
+		test("persists business → member(linked) → documents inside one transaction", async () => {
 			// Act
 			await service.execute(makeRequest())
 
-			// Assert — the repository owns the transaction + multi-table insert
-			expect(mockRepo.create).toHaveBeenCalledTimes(1)
-			expect(mockRepo.create).toHaveBeenCalledWith(expect.objectContaining({}))
+			// Assert — ADR-0024 step order: business first (id feeds the link),
+			// member with that id, then one document row per provided document.
+			expect(mockBusinessRepo.insertBusiness).toHaveBeenCalledTimes(1)
+			expect(mockRepo.insertMember).toHaveBeenCalledTimes(1)
+			expect(mockRepo.insertMember).toHaveBeenCalledWith(fakeTx, expect.objectContaining({}), 7)
+			// makeRequest provides id_card_image + company_certificate → 2 docs.
+			expect(mockDocsRepo.insertDocument).toHaveBeenCalledTimes(2)
 		})
 
 		test("allows MULTIPLE position even when holders already exist", async () => {
@@ -183,15 +203,16 @@ describe("CreateNewMemberService", () => {
 			}
 		})
 
-		test("returns DatabaseError when repository.create fails", async () => {
-			// Arrange
-			mockRepo.create.mockResolvedValue(err(new DatabaseError("insert failed")))
+		test("returns DatabaseError when a transaction step fails", async () => {
+			// Arrange — a step throws inside the tx: the whole transaction rolls back.
+			mockBusinessRepo.insertBusiness.mockRejectedValue(new DatabaseError("insert failed"))
 
 			// Act
 			const result = await service.execute(makeRequest())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+			expect(mockRepo.insertMember).not.toHaveBeenCalled()
 		})
 	})
 })
