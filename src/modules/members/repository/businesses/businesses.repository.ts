@@ -1,10 +1,19 @@
-import { ResultAsync } from "neverthrow"
+import { err, ok, ResultAsync, type Result } from "neverthrow"
 import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
+import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { toPgArray } from "src/shared/lib/db/pg-serializers"
-import { injectable } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { MemberBusiness } from "../../domain/member-business"
-import { countLiveMembersByBusinessId, findLiveBusinessIdForCascade, insertBusiness, softDeleteBusinessById, updateBusinessById } from "../sql/sqlc-generated/queries_sql"
+import {
+	countLiveMembersByBusinessId,
+	findLiveBusinessIdById,
+	findLiveJuristicConflictId,
+	insertBusiness,
+	lockLiveBusinessIdByMemberId,
+	softDeleteBusinessById,
+	updateBusinessById,
+} from "../sql/sqlc-generated/queries_sql"
 import type { IBusinessesRepository } from "./interfaces"
 
 /**
@@ -13,13 +22,44 @@ import type { IBusinessesRepository } from "./interfaces"
  * Wraps the generated queries from the members module's sqlc block (one block
  * per module — the split is at the repository layer, not the sqlc layer) in
  * {@link ResultAsync.fromPromise} and rethrows as DatabaseError so the owning
- * service's transaction auto-rollbacks. All methods are tx-scoped (they take
- * the service's transaction handle — this class holds no connection of its
- * own). See {@link IBusinessesRepository} for the per-method contracts.
+ * service's transaction auto-rollbacks. Check queries ({@link existsLiveBusiness},
+ * {@link findLiveJuristicConflict}) run OUTSIDE any transaction on the
+ * repository's own connection and return the §2B Result shape; all other
+ * methods are tx-scoped (they take the service's transaction handle).
  * BIGSERIAL ids arrive as strings and are numbered at this boundary.
  */
 @injectable()
 export class BusinessesRepository implements IBusinessesRepository {
+	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
+
+	/** Internal: the generated functions expect postgres.js's `Sql` type. */
+	private get sql(): Sql {
+		return this.dbClient.getRwConnection() as unknown as Sql
+	}
+
+	async existsLiveBusiness(businessId: number): Promise<Result<boolean, DatabaseError>> {
+		const result = await ResultAsync.fromPromise(findLiveBusinessIdById(this.sql, { id: String(businessId) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(result.value.length > 0)
+	}
+
+	async findLiveJuristicConflict(juristicRegistrationNo: string, excludeBusinessId: number | null): Promise<Result<number | null, DatabaseError>> {
+		const result = await ResultAsync.fromPromise(
+			findLiveJuristicConflictId(this.sql, { juristicRegistrationNo, excludeBusinessId: excludeBusinessId === null ? null : String(excludeBusinessId) }),
+			(error) => error as Error
+		)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value[0]
+		if (!row) {
+			return ok(null)
+		}
+		return ok(Number(row.id))
+	}
+
 	async insertBusiness(sql: Sql, business: MemberBusiness): Promise<number> {
 		const result = await ResultAsync.fromPromise(
 			insertBusiness(sql, {
@@ -72,8 +112,8 @@ export class BusinessesRepository implements IBusinessesRepository {
 		}
 	}
 
-	async findLiveBusinessIdForCascade(sql: Sql, memberId: number): Promise<number | null> {
-		const result = await ResultAsync.fromPromise(findLiveBusinessIdForCascade(sql, { id: String(memberId) }), (error) => error as Error)
+	async lockLiveBusinessIdByMemberId(sql: Sql, memberId: number): Promise<number | null> {
+		const result = await ResultAsync.fromPromise(lockLiveBusinessIdByMemberId(sql, { id: String(memberId) }), (error) => error as Error)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}

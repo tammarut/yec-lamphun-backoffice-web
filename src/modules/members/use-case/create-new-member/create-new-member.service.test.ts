@@ -52,6 +52,8 @@ describe("CreateNewMemberService", () => {
 		mockRepo.countMemberByIdCardHash.mockResolvedValue(ok(0))
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
 		mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: false, lineId: false }))
+		mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(true))
+		mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(null))
 		mockBusinessRepo.insertBusiness.mockResolvedValue(7)
 		mockRepo.insertMember.mockResolvedValue(102)
 
@@ -105,7 +107,63 @@ describe("CreateNewMemberService", () => {
 		})
 	})
 
+	describe("business intent (#62 D2/D5, #69)", () => {
+		test("link branch: attaches the member to the EXISTING live business without inserting a business row", async () => {
+			// Arrange
+			const linkReq = makeRequest({ business: { kind: "link", businessId: 42 } })
+
+			// Act
+			const result = await service.execute(linkReq)
+
+			// Assert — the target id flows straight into the member insert; no
+			// businesses-row write, no juristic check.
+			expect(result._unsafeUnwrap()).toBe(102)
+			expect(mockBusinessRepo.existsLiveBusiness).toHaveBeenCalledWith(42)
+			expect(mockBusinessRepo.findLiveJuristicConflict).not.toHaveBeenCalled()
+			expect(mockBusinessRepo.insertBusiness).not.toHaveBeenCalled()
+			expect(mockRepo.insertMember).toHaveBeenCalledWith(fakeTx, expect.objectContaining({}), 42)
+			expect(mockDocsRepo.insertDocument).toHaveBeenCalledTimes(2)
+		})
+
+		test("create branch: juristic collision check runs with no self-exclusion (POST never auto-links)", async () => {
+			// Act
+			await service.execute(makeRequest())
+
+			// Assert — exclude id is null on create: ANY live business with the
+			// same juristic number conflicts.
+			expect(mockBusinessRepo.findLiveJuristicConflict).toHaveBeenCalledWith("105557026729", null)
+			expect(mockBusinessRepo.insertBusiness).toHaveBeenCalledTimes(1)
+		})
+	})
+
 	describe("Unhappy cases", () => {
+		test("returns MemberValidationError when the link branch's business_id is unknown or soft-deleted", async () => {
+			// Arrange
+			mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(false))
+
+			// Act
+			const result = await service.execute(makeRequest({ business: { kind: "link", businessId: 999 } }))
+
+			// Assert — 400, not 409: the id simply matches no live row.
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
+			expect(mockRepo.insertMember).not.toHaveBeenCalled()
+		})
+
+		test("returns BUSINESS_JURISTIC_CONFLICT when a live business already holds the juristic number", async () => {
+			// Arrange — #62 D3: POST never silently auto-links.
+			mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(7))
+
+			// Act
+			const result = await service.execute(makeRequest())
+
+			// Assert
+			const error = result._unsafeUnwrapErr() as MemberConflictError
+			expect(error).toBeInstanceOf(MemberConflictError)
+			expect(error.reason).toBe("BUSINESS_JURISTIC_CONFLICT")
+			expect(error.message).toBe("A business with this registration number already exists")
+			expect(mockBusinessRepo.insertBusiness).not.toHaveBeenCalled()
+		})
+
 		test("returns MemberValidationError when the position code is unknown", async () => {
 			// Arrange
 			mockRepo.getPositionByCode.mockResolvedValue(ok(null))
@@ -241,16 +299,19 @@ function makeRequest(overrides: Partial<CreateMemberRequest> = {}): CreateMember
 		shirtSize: "M",
 		position: "GENERAL_MEMBER",
 		business: {
-			name: "V Foods",
-			juristicRegistrationNo: "105557026729",
-			categoryId: 1,
-			address: "Bangkok",
-			location: [13.72, 100.55],
-			description: "desc",
-			coreBusiness: "canned food",
-			website: "https://vfoods.co.th",
-			logo: "members/business/logo.jpg",
-			product: "members/business/product.jpg",
+			kind: "create",
+			business: {
+				name: "V Foods",
+				juristicRegistrationNo: "105557026729",
+				categoryId: 1,
+				address: "Bangkok",
+				location: [13.72, 100.55],
+				description: "desc",
+				coreBusiness: "canned food",
+				website: "https://vfoods.co.th",
+				logo: "members/business/logo.jpg",
+				product: "members/business/product.jpg",
+			},
 		},
 		...overrides,
 	}

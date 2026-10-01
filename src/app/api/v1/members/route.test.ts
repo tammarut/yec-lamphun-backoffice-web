@@ -115,6 +115,42 @@ describe("POST /api/v1/members", () => {
 			const json = await response.json()
 			expect(json).toEqual({ id: 102 })
 		})
+
+		it("resolves the LINK branch: { business_id } alone reaches the service as a link intent (#69)", async () => {
+			mockService.execute.mockResolvedValue(ok(102))
+
+			const response = await POST(makeRequest({ ...validBody, business: { business_id: 42 } }), undefined)
+
+			expect(response.status).toBe(201)
+			const req = mockService.execute.mock.calls[0]![0]
+			expect(req.business).toEqual({ kind: "link", businessId: 42 })
+		})
+
+		it("resolves the LINK branch when extra business fields ride along, stripping them (#62 D5)", async () => {
+			mockService.execute.mockResolvedValue(ok(102))
+
+			const response = await POST(
+				makeRequest({
+					...validBody,
+					business: { business_id: 42, name: "Sent by mistake", juristic_registration_no: "999" },
+				}),
+				undefined
+			)
+
+			expect(response.status).toBe(201)
+			const req = mockService.execute.mock.calls[0]![0]
+			expect(req.business).toEqual({ kind: "link", businessId: 42 })
+		})
+
+		it("resolves the CREATE branch for the full field set (#69)", async () => {
+			mockService.execute.mockResolvedValue(ok(102))
+
+			const response = await POST(makeRequest(validBody), undefined)
+
+			expect(response.status).toBe(201)
+			const req = mockService.execute.mock.calls[0]![0]
+			expect(req.business.kind).toBe("create")
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -150,6 +186,16 @@ describe("POST /api/v1/members", () => {
 
 		it("returns 400 when location is not a 2-element array", async () => {
 			const response = await POST(makeRequest({ ...validBody, business: { ...validBody.business, location: [1] } }), undefined)
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when business matches NEITHER union branch (no business_id, missing required fields) (#69)", async () => {
+			const response = await POST(makeRequest({ ...validBody, business: { name: "Half a create" } }), undefined)
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when business_id is not a positive integer", async () => {
+			const response = await POST(makeRequest({ ...validBody, business: { business_id: 0 } }), undefined)
 			expect(response.status).toBe(400)
 		})
 

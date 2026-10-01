@@ -58,6 +58,10 @@ describe("UpdateMemberService", () => {
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
 		mockRepo.countMemberByIdCardHash.mockResolvedValue(ok(0))
 		mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: false, lineId: false }))
+		mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(true))
+		mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(null))
+		mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(14)
+		mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(1)
 		// Same hash as stored → conditional dup check is skipped on happy path.
 		mockBlindIndex.hash.mockReturnValue(ok("stored-hmac-hash"))
 		mockEncryption.encrypt.mockReturnValue(ok("enc-base64"))
@@ -89,7 +93,7 @@ describe("UpdateMemberService", () => {
 				profileAvatar: null,
 				idCardImage: null,
 				companyCertificate: null,
-				business: { ...makeRequest().business, logo: null, product: null },
+				business: { kind: "create", business: { ...makeCreateBusiness(), logo: null, product: null } },
 			})
 
 			// Act
@@ -100,8 +104,8 @@ describe("UpdateMemberService", () => {
 			expect(result.isOk()).toBe(true)
 			const updatedMember = mockRepo.updateMember.mock.calls[0]![2]
 			expect(updatedMember.profileAvatar).toBe("members/profile_avatars/a.png")
-			expect(updatedMember.business.logoFilePath).toBe("members/business/logo.png")
-			expect(updatedMember.business.productFilePath).toBe("members/business/product.png")
+			expect(updatedMember.business!.logoFilePath).toBe("members/business/logo.png")
+			expect(updatedMember.business!.productFilePath).toBe("members/business/product.png")
 			// id_card_image / company_certificate resolve to stored doc paths.
 			expect(updatedMember.documents.some((d: { type: string; filePath: string }) => d.type === "ID_CARD")).toBe(true)
 			expect(updatedMember.documents.some((d: { type: string; filePath: string }) => d.type === "COMPANY_CERTIFICATE")).toBe(true)
@@ -179,7 +183,98 @@ describe("UpdateMemberService", () => {
 		})
 	})
 
+	describe("business intent: re-link (#62 D1, #69)", () => {
+		test("re-links to a different live business; member scalars still write through", async () => {
+			// Arrange — re-link target 55 ≠ current business 14. A re-link request
+			// carries business fields nowhere — the intent is the id alone.
+			const req = makeRequest({ business: { kind: "link", businessId: 55 } })
+
+			// Act
+			const result = await service.execute(101, req)
+
+			// Assert — member row updated AND link re-pointed; no business-row
+			// overwrite (fields follow the target business).
+			expect(result.isOk()).toBe(true)
+			expect(mockRepo.updateMember).toHaveBeenCalledTimes(1)
+			expect(mockBusinessRepo.lockLiveBusinessIdByMemberId).toHaveBeenCalledWith(fakeTx, 101)
+			expect(mockRepo.updateMemberBusinessLink).toHaveBeenCalledWith(fakeTx, 101, 55)
+			expect(mockBusinessRepo.countLiveMembersByBusinessId).toHaveBeenCalledWith(fakeTx, 14, 101)
+			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
+			expect(mockBusinessRepo.findLiveJuristicConflict).not.toHaveBeenCalled()
+		})
+
+		test("releases the old business when the re-linked member held its last live link (ADR-0023)", async () => {
+			// Arrange — 0 OTHER live members remain on the old business.
+			mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(0)
+
+			// Act
+			const result = await service.execute(101, makeRequest({ business: { kind: "link", businessId: 55 } }))
+
+			// Assert — the old business is soft-deleted inside the same tx.
+			expect(result.isOk()).toBe(true)
+			expect(mockBusinessRepo.softDeleteBusinessById).toHaveBeenCalledWith(fakeTx, 14)
+		})
+
+		test("keeps the old business alive when other live members still link to it", async () => {
+			// Arrange — 1 other live member remains.
+			mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(1)
+
+			// Act
+			const result = await service.execute(101, makeRequest({ business: { kind: "link", businessId: 55 } }))
+
+			// Assert
+			expect(result.isOk()).toBe(true)
+			expect(mockBusinessRepo.softDeleteBusinessById).not.toHaveBeenCalled()
+		})
+
+		test("re-linking to the member's CURRENT business is an allowed no-op", async () => {
+			// Act — target 14 = current business 14.
+			const result = await service.execute(101, makeRequest({ business: { kind: "link", businessId: 14 } }))
+
+			// Assert — member row still updates; no business writes at all.
+			expect(result.isOk()).toBe(true)
+			expect(mockRepo.updateMember).toHaveBeenCalledTimes(1)
+			expect(mockBusinessRepo.existsLiveBusiness).toHaveBeenCalledWith(14)
+			expect(mockBusinessRepo.lockLiveBusinessIdByMemberId).not.toHaveBeenCalled()
+			expect(mockRepo.updateMemberBusinessLink).not.toHaveBeenCalled()
+			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
+			expect(mockBusinessRepo.softDeleteBusinessById).not.toHaveBeenCalled()
+		})
+	})
+
 	describe("Unhappy cases", () => {
+		test("returns MemberValidationError when the link branch's business_id is unknown or soft-deleted", async () => {
+			// Arrange
+			mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(false))
+
+			// Act
+			const result = await service.execute(101, makeRequest({ business: { kind: "link", businessId: 999 } }))
+
+			// Assert — 400, not 409; nothing written.
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
+			expect(mockRepo.updateMember).not.toHaveBeenCalled()
+			expect(mockRepo.updateMemberBusinessLink).not.toHaveBeenCalled()
+		})
+
+		test("returns BUSINESS_JURISTIC_CONFLICT (self-excluding) when the edit's juristic number matches a DIFFERENT live business", async () => {
+			// Arrange — #62 D3: the member's own business (14) is excluded from the
+			// check; another live business (7) holding the number is a 409.
+			mockBusinessRepo.findLiveJuristicConflict.mockImplementation(async (_juristic: string, excludeBusinessId: number | null) => {
+				return excludeBusinessId === null ? err(new DatabaseError("unexpected call shape")) : ok(7)
+			})
+
+			// Act
+			const result = await service.execute(101, makeRequest())
+
+			// Assert
+			const error = result._unsafeUnwrapErr() as MemberConflictError
+			expect(error).toBeInstanceOf(MemberConflictError)
+			expect(error.reason).toBe("BUSINESS_JURISTIC_CONFLICT")
+			expect(error.message).toBe("A business with this registration number already exists")
+			expect(mockBusinessRepo.findLiveJuristicConflict).toHaveBeenCalledWith("105557026729", 14)
+			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
+		})
+
 		test("keeps own contacts conflict-free: the conflict query excludes the member being edited", async () => {
 			// Act — happy-path request keeps the stored phone/email/line.
 			const result = await service.execute(101, makeRequest())
@@ -407,12 +502,29 @@ function makeReadModel(overrides: Partial<MemberDetailReadModel> = {}): MemberDe
 			website: "https://vfoods.co.th",
 			logoFilePath: "members/business/logo.png",
 			productFilePath: "members/business/product.png",
+			memberCount: 1,
 			createdAt: new Date("2024-01-18T16:00:00.000Z"),
 			updatedAt: new Date("2024-01-18T16:00:00.000Z"),
 		},
 		idCardImagePath: "members/documents/idcard-stored.jpg",
 		companyCertificatePath: "members/documents/cert-stored.jpg",
 		...overrides,
+	}
+}
+
+/** The edit branch's business payload (camelCase, as the route mapper emits it). */
+function makeCreateBusiness() {
+	return {
+		name: "V Foods",
+		juristicRegistrationNo: "105557026729",
+		categoryId: 73,
+		address: "Bangkok",
+		location: [13.72, 100.55] as [number, number], // client sends [lat, long]
+		description: "desc",
+		coreBusiness: null,
+		website: "https://vfoods.co.th",
+		logo: "members/business/logo.png",
+		product: "members/business/product.png",
 	}
 }
 
@@ -439,18 +551,7 @@ function makeRequest(overrides: Partial<UpdateMemberRequest> = {}): UpdateMember
 		lineId: "prasert.line",
 		shirtSize: "L",
 		position: "GENERAL_MEMBER",
-		business: {
-			name: "V Foods",
-			juristicRegistrationNo: "105557026729",
-			categoryId: 73,
-			address: "Bangkok",
-			location: [13.72, 100.55], // client sends [lat, long]
-			description: "desc",
-			coreBusiness: null,
-			website: "https://vfoods.co.th",
-			logo: "members/business/logo.png",
-			product: "members/business/product.png",
-		},
+		business: { kind: "create", business: makeCreateBusiness() },
 		...overrides,
 	}
 }

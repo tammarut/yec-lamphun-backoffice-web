@@ -44,6 +44,12 @@ export interface MemberBusinessReadModel {
 	readonly website: string | null
 	readonly logoFilePath: string | null
 	readonly productFilePath: string | null
+	/**
+	 * Live members linked to this business (deleted_at IS NULL) — the #62 D4
+	 * shared-entity count for the warning banner. Surfaced on GET /:id as
+	 * business.member_count; the reading member is included in the count.
+	 */
+	readonly memberCount: number
 	readonly createdAt: Date
 	readonly updatedAt: Date
 }

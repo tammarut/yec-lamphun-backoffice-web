@@ -24,6 +24,7 @@ import {
 	insertMember,
 	softDeleteMemberById,
 	softDeleteMembershipRenewalsByMemberId,
+	updateMemberBusinessLinkById,
 	updateMemberById,
 } from "./sql/sqlc-generated/queries_sql"
 
@@ -217,6 +218,14 @@ export class MembersRepository implements IMemberRepository {
 		}
 	}
 
+	/** Re-point the member at a different live business (#69 re-link step). */
+	async updateMemberBusinessLink(sql: Sql, memberId: number, businessId: number): Promise<void> {
+		const result = await ResultAsync.fromPromise(updateMemberBusinessLinkById(sql, { id: String(memberId), businessId: String(businessId) }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+	}
+
 	// --- Delete-cascade member-row steps (ADR-0013, orchestrated by
 	//     DeleteMemberService — ADR-0024 moved the tx to the service) ----------
 
@@ -290,6 +299,7 @@ export class MembersRepository implements IMemberRepository {
 			website: memberRow.website,
 			logoFilePath: memberRow.logoFilePath,
 			productFilePath: memberRow.productFilePath,
+			memberCount: memberRow.businessMemberCount,
 			createdAt: memberRow.businessCreatedAt!,
 			updatedAt: memberRow.businessUpdatedAt!,
 		}

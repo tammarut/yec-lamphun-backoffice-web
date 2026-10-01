@@ -68,6 +68,7 @@ const memberResponse: MemberDetailResponse = {
 	updated_at: "2024-01-18T16:00:00.000Z",
 	business: {
 		id: 14,
+		member_count: 2,
 		name: "V Foods",
 		description: "desc",
 		juristic_registration_no: "105557026729",
@@ -264,6 +265,27 @@ describe("PATCH /api/v1/members/:id", () => {
 			expect(response.status).toBe(204)
 			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ idCardNo: null }))
 		})
+
+		it("resolves the RE-LINK branch: { business_id } alone reaches the service as a link intent (#69)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, business: { business_id: 42 } })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			const dto = mockUpdateService.execute.mock.calls[0]![1]
+			expect(dto.business).toEqual({ kind: "link", businessId: 42 })
+		})
+
+		it("strips extra business fields riding on the re-link branch (#62 D5)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", {
+				...validPatchBody,
+				business: { business_id: 42, name: "Not an edit" },
+			})
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			const dto = mockUpdateService.execute.mock.calls[0]![1]
+			expect(dto.business).toEqual({ kind: "link", businessId: 42 })
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -302,6 +324,12 @@ describe("PATCH /api/v1/members/:id", () => {
 
 		it("returns 400 when a required field is missing", async () => {
 			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, first_name_th: undefined })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when business matches NEITHER union branch (no business_id, missing required fields) (#69)", async () => {
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, business: { name: "Half an edit" } })
 			const response = await PATCH(req, ctx)
 			expect(response.status).toBe(400)
 		})

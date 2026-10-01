@@ -10,8 +10,13 @@ export { MemberValidationError } from "src/modules/members/domain/errors"
  * Why a create-member request conflicted with existing data. The contact
  * reasons (phone/email/line) are unique among LIVE members only — enforced by
  * the partial unique indexes uniq_members_*_live (WHERE deleted_at IS NULL).
+ * BUSINESS_JURISTIC_CONFLICT (#62 D3) is the same live-rows-only rule on the
+ * shared businesses table (uniq_businesses_juristic_live): a create/edit whose
+ * juristic_registration_no matches a DIFFERENT live business — POST never
+ * silent-auto-links; PATCH is self-excluding (the member's own linked business
+ * is excluded from the check).
  */
-export type MemberConflictReason = "DUPLICATE_ID_CARD" | "POSITION_OCCUPIED" | "DUPLICATE_PHONE_NO" | "DUPLICATE_EMAIL" | "DUPLICATE_LINE_ID"
+export type MemberConflictReason = "DUPLICATE_ID_CARD" | "POSITION_OCCUPIED" | "DUPLICATE_PHONE_NO" | "DUPLICATE_EMAIL" | "DUPLICATE_LINE_ID" | "BUSINESS_JURISTIC_CONFLICT"
 
 /**
  * Raised when a create-member request conflicts with existing data — a

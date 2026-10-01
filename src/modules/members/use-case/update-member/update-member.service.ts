@@ -6,8 +6,9 @@ import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, singleton } from "tsyringe"
 import { Member } from "../../domain/member"
+import { MemberBusiness } from "../../domain/member-business"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
-import type { MemberDocumentType } from "../../domain/member-read-models"
+import type { MemberDetailReadModel, MemberDocumentType } from "../../domain/member-read-models"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
@@ -22,21 +23,36 @@ import type { UpdateMemberRequest } from "./update-member.types"
  * Owns the cross-member rules that need DB queries, mirroring
  * {@link CreateNewMemberService} but with PATCH semantics (ADR-0012):
  *   - existence check (member id must resolve) → 404
+ *   - business intent resolution (#62 D1/D3): link branch → the target must be
+ *     a LIVE business, else 400; re-linking to the member's CURRENT business is
+ *     an allowed no-op. Edit branch → a live juristic_registration_no collision
+ *     with a DIFFERENT business is a 409, self-excluding (the member's own
+ *     linked business is excluded — the edit targets it).
  *   - conditional duplicate id_card: only when the new id_card hash differs
  *     from the stored one (spec pseudocode "opt" block) → 409
  *   - conditional position-occupied: only when the requested position differs
  *     from the stored one, with the member excluded from the holder count
  *     (grilling Q3) → 409
  *
- * Also owns the five sticky file-path fields (ADR-0012): when the request sends
- * `null` for any of profile_avatar, id_card_image, company_certificate,
- * business.logo, business.product, the stored value is substituted before
- * building the aggregate, so the UPDATE never nulls them out. From the
- * aggregate's perspective the request always carries concrete file paths.
- * id_card_no follows the same null-sticky rule (README §8 item 9) but is
+ * Also owns the sticky file-path fields (ADR-0012): when the request sends
+ * `null` for any of profile_avatar, id_card_image, company_certificate, the
+ * stored value is substituted before building the aggregate, so the UPDATE
+ * never nulls them out — these three are member-level and apply in BOTH
+ * branches. business.logo/product stickiness only exists in the edit branch
+ * (the link branch sends no business fields) and is resolved INTO the business
+ * VO. id_card_no follows the same null-sticky rule (README §8 item 9) but is
  * resolved differently — the stored value is ciphertext, not plaintext, so it
  * cannot be substituted into the request; Member.update carries it over via
  * the preserved cipher instead.
+ *
+ * The re-link runs INSIDE the update transaction with ADR-0023 lifecycle
+ * participation: lock the member's current (old) business row first
+ * (member→business lock order), re-point the member, then soft-delete the old
+ * business when it held the last live link — the member's logo/product display
+ * follows the target business (files live on the business row). The re-linked
+ * TARGET's liveness is only pre-checked outside the tx; a business
+ * soft-deleted between check and commit leaves a corrupt link — the same
+ * accepted pre-check race window as the create flow.
  *
  * Delegates the self-invariants (id_card expiry + format + encrypt, position
  * active, business VO with location swap, document collection) to
@@ -77,20 +93,27 @@ export class UpdateMemberService {
 			// Unreachable in practice — the repository's read already maps a live
 			// member with no live business to DatabaseError (corruption → 500).
 			// Kept as the type-honest mirror of that guard: this use case needs
-			// the shared business id to target the wholesale overwrite.
+			// the shared business id to target the wholesale overwrite / re-link.
 			return err(new DatabaseError(`Member ${id} has no live business row (violates the live-member⇒live-business invariant)`))
 		}
 		// Hoisted out of the transaction closure — TS property narrowing on
 		// `existing.business` does not survive into the callback below.
 		const businessId = existing.business.id
 
-		// 2. Resolve the five sticky file-path fields (ADR-0012): null in the
-		//    request → keep the stored value. Scalars write through unchanged.
+		// 2. Resolve the business intent (#62 D1/D3) — edit / re-link / no-op.
+		const businessWrite = await this.resolveBusinessWrite(req, businessId, existing)
+		if (businessWrite.isErr()) {
+			return err(businessWrite.error)
+		}
+
+		// 3. Resolve the member-level sticky file-path fields (ADR-0012): null in
+		//    the request → keep the stored value. Scalars write through unchanged.
+		//    (business.logo/product stickiness lives inside the edit branch's VO.)
 		const resolvedReq = resolveStickyFilePath(req, existing)
 
-		// 3. Fetch the requested position ONCE. It's needed both for the
-		//    conflict check (step 3a) and for Member.update's active-position
-		//    self-invariant (step 4). Unknown/inactive → 400.
+		// 4. Fetch the requested position ONCE. It's needed both for the
+		//    conflict check (step 4a) and for Member.update's active-position
+		//    self-invariant (step 5). Unknown/inactive → 400.
 		const positionResult = await this.repository.getPositionByCode(resolvedReq.position)
 		if (positionResult.isErr()) {
 			return err(positionResult.error)
@@ -100,7 +123,7 @@ export class UpdateMemberService {
 			return err(new MemberValidationError(`Unknown position code: ${resolvedReq.position}`))
 		}
 
-		// 3a. Position-cardinality conflict check — ONLY when the requested
+		// 4a. Position-cardinality conflict check — ONLY when the requested
 		//     position differs from the stored one. When the position is
 		//     unchanged the check is skipped entirely, which is how the member
 		//     is excluded from conflicting with themselves (grilling Q3): they
@@ -117,23 +140,32 @@ export class UpdateMemberService {
 			}
 		}
 
-		// 4. Validate + encrypt + build the updated aggregate, preserving the
+		// 5. Validate + encrypt + build the updated aggregate, preserving the
 		//    existing member's lifecycle fields (grilling Q4) and — when the
 		//    request sends null — the stored id-card cipher (null-sticky
 		//    id_card_no, README §8 item 9). Self-invariants live in
-		//    Member.update, same as Member.create.
-		const updatedMember = Member.update(resolvedReq, position, this.encryption, this.blindIndex, new Date(), {
-			memberSince: existing.memberSince,
-			expiresAt: existing.expiresAt,
-			status: existing.status,
-			renewalSuccessfulCount: existing.renewalSuccessfulCount,
-			idCardCipher: { idCardNo: existing.idCardNo, idCardNoHash: existing.idCardNoHash },
-		})
+		//    Member.update, same as Member.create. Link/no-op branches pass a
+		//    null business VO — no business columns are written.
+		const updatedMember = Member.update(
+			resolvedReq,
+			position,
+			this.encryption,
+			this.blindIndex,
+			new Date(),
+			{
+				memberSince: existing.memberSince,
+				expiresAt: existing.expiresAt,
+				status: existing.status,
+				renewalSuccessfulCount: existing.renewalSuccessfulCount,
+				idCardCipher: { idCardNo: existing.idCardNo, idCardNoHash: existing.idCardNoHash },
+			},
+			businessWrite.value.kind === "edit" ? businessWrite.value.business : null
+		)
 		if (updatedMember.isErr()) {
 			return err(updatedMember.error)
 		}
 
-		// 5. Conditional duplicate-id_card check — ONLY when the new id_card
+		// 6. Conditional duplicate-id_card check — ONLY when the new id_card
 		//    hash differs from the stored one (spec pseudocode "opt" block).
 		//    Re-running the check when the id_card is unchanged would count the
 		//    member themselves as a duplicate.
@@ -147,7 +179,7 @@ export class UpdateMemberService {
 			}
 		}
 
-		// 5b. Live-contact conflict check — phone/email/line_id unique among LIVE
+		// 6b. Live-contact conflict check — phone/email/line_id unique among LIVE
 		//     members (partial unique indexes uniq_members_*_live). Excluding $id
 		//     keeps a member's own unchanged contacts from conflicting with
 		//     themselves (unlike id_card, no changed-detection needed).
@@ -165,7 +197,7 @@ export class UpdateMemberService {
 			return err(this.conflict("DUPLICATE_LINE_ID", "A member with this Line ID already exists"))
 		}
 
-		// 6. Compute which document types are being replaced, for the
+		// 7. Compute which document types are being replaced, for the
 		//    repository's soft-delete+insert step. A type is "replaced" only
 		//    when the resolved path DIFFERS from the stored path — re-writing
 		//    identical rows would needlessly churn the soft-delete history.
@@ -175,16 +207,39 @@ export class UpdateMemberService {
 			companyCertificatePath: existing.companyCertificatePath,
 		})
 
-		// 7. Persist — the multi-table UPDATE transaction (ADR-0024): member row →
-		//    shared business wholesale overwrite → per replaced type, soft-delete
-		//    old docs + insert new. Auto-commit on success, auto-rollback on any
-		//    throw.
+		// 8. Persist — the multi-table UPDATE transaction (ADR-0024): member row →
+		//    business write (edit: wholesale overwrite of the shared row;
+		//    re-link: lock old business → re-point → release when last live link,
+		//    ADR-0023 lifecycle participation; no-op: nothing) → per replaced
+		//    type, soft-delete old docs + insert new. Auto-commit on success,
+		//    auto-rollback on any throw.
 		try {
 			await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
 
 				await this.repository.updateMember(sql, id, updatedMember.value)
-				await this.businessesRepository.updateBusinessById(sql, businessId, updatedMember.value.business)
+
+				if (businessWrite.value.kind === "edit") {
+					await this.businessesRepository.updateBusinessById(sql, businessId, businessWrite.value.business)
+				} else if (businessWrite.value.kind === "relink") {
+					// Lock the member's CURRENT (old) business row first — the
+					// fixed member→business lock order shared with the
+					// delete-cascade gate, so a concurrent re-link/delete of the
+					// same member or old business serializes instead of deadlocking.
+					const oldBusinessId = await this.businessesRepository.lockLiveBusinessIdByMemberId(sql, id)
+					if (oldBusinessId === null) {
+						throw new DatabaseError(`Member ${id} has no live business row (violates the live-member⇒live-business invariant)`)
+					}
+					await this.repository.updateMemberBusinessLink(sql, id, businessWrite.value.targetId)
+					// ADR-0023: the old business does not survive its last live
+					// link. The member was re-pointed above, so the business_id
+					// filter already excludes them; the id exclusion is
+					// belt-and-braces, same as the delete cascade.
+					const remainingLiveMembers = await this.businessesRepository.countLiveMembersByBusinessId(sql, oldBusinessId, id)
+					if (remainingLiveMembers === 0) {
+						await this.businessesRepository.softDeleteBusinessById(sql, oldBusinessId)
+					}
+				}
 
 				if (documentTypesToReplace.length > 0) {
 					// Soft-delete the live rows of the replaced type(s) first.
@@ -207,6 +262,67 @@ export class UpdateMemberService {
 		}
 	}
 
+	/**
+	 * Resolve the request's business intent against the DB into the tx's business
+	 * write (#62 D1/D3):
+	 *   - link branch: the target must be a LIVE business (unknown/soft-deleted
+	 *     → 400). Re-linking to the member's CURRENT business is an allowed
+	 *     no-op; anything else is a re-link (field edits are never mixed with a
+	 *     re-link — re-link first, then PATCH fields if needed).
+	 *   - edit branch: build the VO with logo/product null-sticky resolution
+	 *     (ADR-0012, resolved against the SHARED row), then a live juristic-no
+	 *     collision with a DIFFERENT business → 409, self-excluding
+	 *     (excludes this member's own linked business — the edit's target).
+	 */
+	private async resolveBusinessWrite(
+		req: UpdateMemberRequest,
+		currentBusinessId: number,
+		existing: MemberDetailReadModel
+	): Promise<Result<{ kind: "edit"; business: MemberBusiness } | { kind: "relink"; targetId: number } | { kind: "none" }, UpdateMemberError>> {
+		if (req.business.kind === "link") {
+			const live = await this.businessesRepository.existsLiveBusiness(req.business.businessId)
+			if (live.isErr()) {
+				return err(live.error)
+			}
+			if (!live.value) {
+				return err(new MemberValidationError(`business.business_id ${req.business.businessId} does not match a live business`))
+			}
+			return ok(req.business.businessId === currentBusinessId ? { kind: "none" } : { kind: "relink", targetId: req.business.businessId })
+		}
+
+		// Edit branch — business.logo/product null-sticky (ADR-0012): null in the
+		// request → keep the stored value on the shared row.
+		const businessVo = MemberBusiness.create({
+			name: req.business.business.name,
+			description: req.business.business.description,
+			juristicRegistrationNo: req.business.business.juristicRegistrationNo,
+			categoryId: req.business.business.categoryId,
+			address: req.business.business.address,
+			location: req.business.business.location,
+			coreBusiness: req.business.business.coreBusiness,
+			website: req.business.business.website,
+			logo: req.business.business.logo ?? existing.business?.logoFilePath ?? null,
+			product: req.business.business.product ?? existing.business?.productFilePath ?? null,
+		})
+		if (businessVo.isErr()) {
+			return err(businessVo.error)
+		}
+
+		// Self-excluding juristic collision (#62 D3): a DIFFERENT live business
+		// already holds this number. The member's own linked business is excluded
+		// — the edit targets it. Mirrors FindLiveContactConflicts; the partial
+		// unique index uniq_businesses_juristic_live is the DB-side guard.
+		const juristicConflict = await this.businessesRepository.findLiveJuristicConflict(businessVo.value.juristicRegistrationNo, currentBusinessId)
+		if (juristicConflict.isErr()) {
+			return err(juristicConflict.error)
+		}
+		if (juristicConflict.value !== null) {
+			return err(this.conflict("BUSINESS_JURISTIC_CONFLICT", "A business with this registration number already exists"))
+		}
+
+		return ok({ kind: "edit", business: businessVo.value })
+	}
+
 	/** Construct a MemberConflictError with a stable message. */
 	private conflict(reason: MemberConflictReason, message: string): MemberConflictError {
 		return new MemberConflictError(reason, message)
@@ -214,15 +330,15 @@ export class UpdateMemberService {
 }
 
 /**
- * Resolve the five sticky file-path fields (ADR-0012): when the request sends
- * `null` for any of them, substitute the existing stored value so the aggregate
- * and UPDATE see a concrete path and never null it out. All other fields pass
- * through verbatim (scalars write through, including nulls that clear columns;
- * a null idCardNo passes through unresolved — Member.update handles it via the
- * preserved cipher).
+ * Resolve the three member-level sticky file-path fields (ADR-0012): when the
+ * request sends `null` for any of them, substitute the existing stored value so
+ * the aggregate and UPDATE see a concrete path and never null it out. All other
+ * fields pass through verbatim (scalars write through, including nulls that
+ * clear columns; a null idCardNo passes through unresolved — Member.update
+ * handles it via the preserved cipher).
  *
- * The five sticky fields: profile_avatar, id_card_image, company_certificate,
- * business.logo, business.product.
+ * business.logo/product are NOT resolved here — they only exist in the edit
+ * branch and are resolved into the business VO by {@link resolveBusinessWrite}.
  */
 function resolveStickyFilePath(
 	req: UpdateMemberRequest,
@@ -230,7 +346,6 @@ function resolveStickyFilePath(
 		profileAvatar: string | null
 		idCardImagePath: string | null
 		companyCertificatePath: string | null
-		business: { logoFilePath: string | null; productFilePath: string | null } | null
 	}
 ): UpdateMemberRequest {
 	return {
@@ -238,11 +353,6 @@ function resolveStickyFilePath(
 		profileAvatar: req.profileAvatar ?? existing.profileAvatar,
 		idCardImage: req.idCardImage ?? existing.idCardImagePath,
 		companyCertificate: req.companyCertificate ?? existing.companyCertificatePath,
-		business: {
-			...req.business,
-			logo: req.business.logo ?? existing.business?.logoFilePath ?? null,
-			product: req.business.product ?? existing.business?.productFilePath ?? null,
-		},
 	}
 }
 

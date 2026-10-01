@@ -17,7 +17,7 @@ import { CryptoError } from "src/modules/shared/crypto"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { createLogger } from "src/shared/lib/logger/logger"
 import { GetListMembersQuerySchema } from "./list-schema"
-import { CreateMemberSchema, type CreateMemberSchemaOutput } from "./schema"
+import { CreateMemberSchema, toBusinessIntent, type CreateMemberSchemaOutput } from "./schema"
 
 export const dynamic = "force-dynamic"
 
@@ -194,18 +194,7 @@ function toServiceRequest(o: CreateMemberSchemaOutput): CreateMemberRequest {
 		lineId: o.line_id ?? null,
 		shirtSize: o.shirt_size ?? null,
 		position: o.position,
-		business: {
-			name: o.business.name,
-			juristicRegistrationNo: o.business.juristic_registration_no,
-			categoryId: o.business.category_id,
-			address: o.business.address ?? null,
-			location: o.business.location ?? null,
-			description: o.business.description,
-			coreBusiness: o.business.core_business ?? null,
-			website: o.business.website ?? null,
-			logo: o.business.logo ?? null,
-			product: o.business.product ?? null,
-		},
+		business: toBusinessIntent(o.business),
 	}
 }
 

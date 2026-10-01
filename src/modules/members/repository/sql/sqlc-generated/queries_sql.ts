@@ -219,6 +219,49 @@ export async function insertBusiness(sql: Sql, args: InsertBusinessArgs): Promis
 	}))
 }
 
+export const findLiveBusinessIdByIdQuery = `-- name: FindLiveBusinessIdById :many
+
+SELECT id
+FROM businesses
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface FindLiveBusinessIdByIdArgs {
+	id: string
+}
+
+export interface FindLiveBusinessIdByIdRow {
+	id: string
+}
+
+export async function findLiveBusinessIdById(sql: Sql, args: FindLiveBusinessIdByIdArgs): Promise<FindLiveBusinessIdByIdRow[]> {
+	return (await sql.unsafe(findLiveBusinessIdByIdQuery, [args.id]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
+
+export const findLiveJuristicConflictIdQuery = `-- name: FindLiveJuristicConflictId :many
+SELECT id
+FROM businesses
+WHERE juristic_registration_no = $1
+  AND ($2::BIGINT IS NULL OR id <> $2::BIGINT)
+  AND deleted_at IS NULL`
+
+export interface FindLiveJuristicConflictIdArgs {
+	juristicRegistrationNo: string
+	excludeBusinessId: string | null
+}
+
+export interface FindLiveJuristicConflictIdRow {
+	id: string
+}
+
+export async function findLiveJuristicConflictId(sql: Sql, args: FindLiveJuristicConflictIdArgs): Promise<FindLiveJuristicConflictIdRow[]> {
+	return (await sql.unsafe(findLiveJuristicConflictIdQuery, [args.juristicRegistrationNo, args.excludeBusinessId]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
+
 export const getMemberWithBusinessByIdQuery = `-- name: GetMemberWithBusinessById :many
 
 SELECT m.id,
@@ -248,7 +291,8 @@ SELECT m.id,
        b.logo_file_path,
        b.product_file_path,
        b.created_at    AS business_created_at,
-       b.updated_at    AS business_updated_at
+       b.updated_at    AS business_updated_at,
+       (SELECT count(*)::int FROM members mc WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS business_member_count
 FROM members m
 LEFT JOIN businesses b
        ON b.id = m.business_id
@@ -301,6 +345,7 @@ export interface GetMemberWithBusinessByIdRow {
 	productFilePath: string | null
 	businessCreatedAt: Date | null
 	businessUpdatedAt: Date | null
+	businessMemberCount: number
 }
 
 export async function getMemberWithBusinessById(sql: Sql, args: GetMemberWithBusinessByIdArgs): Promise<GetMemberWithBusinessByIdRow[]> {
@@ -345,6 +390,7 @@ export async function getMemberWithBusinessById(sql: Sql, args: GetMemberWithBus
 		productFilePath: row[37],
 		businessCreatedAt: row[38],
 		businessUpdatedAt: row[39],
+		businessMemberCount: row[40],
 	}))
 }
 
@@ -487,6 +533,22 @@ export async function updateBusinessById(sql: Sql, args: UpdateBusinessByIdArgs)
 	])
 }
 
+export const updateMemberBusinessLinkByIdQuery = `-- name: UpdateMemberBusinessLinkById :exec
+UPDATE members SET
+    business_id = $2,
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface UpdateMemberBusinessLinkByIdArgs {
+	id: string
+	businessId: string
+}
+
+export async function updateMemberBusinessLinkById(sql: Sql, args: UpdateMemberBusinessLinkByIdArgs): Promise<void> {
+	await sql.unsafe(updateMemberBusinessLinkByIdQuery, [args.id, args.businessId])
+}
+
 export const softDeleteMemberDocumentsByMemberIdAndTypesQuery = `-- name: SoftDeleteMemberDocumentsByMemberIdAndTypes :exec
 UPDATE member_documents
 SET deleted_at = NOW(), updated_at = NOW()
@@ -503,24 +565,24 @@ export async function softDeleteMemberDocumentsByMemberIdAndTypes(sql: Sql, args
 	await sql.unsafe(softDeleteMemberDocumentsByMemberIdAndTypesQuery, [args.memberId, args.types])
 }
 
-export const findLiveBusinessIdForCascadeQuery = `-- name: FindLiveBusinessIdForCascade :many
+export const lockLiveBusinessIdByMemberIdQuery = `-- name: LockLiveBusinessIdByMemberId :many
 
 SELECT b.id AS business_id
 FROM businesses b
-WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1)
+WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1 FOR UPDATE)
   AND b.deleted_at IS NULL
 FOR UPDATE`
 
-export interface FindLiveBusinessIdForCascadeArgs {
+export interface LockLiveBusinessIdByMemberIdArgs {
 	id: string
 }
 
-export interface FindLiveBusinessIdForCascadeRow {
+export interface LockLiveBusinessIdByMemberIdRow {
 	businessId: string
 }
 
-export async function findLiveBusinessIdForCascade(sql: Sql, args: FindLiveBusinessIdForCascadeArgs): Promise<FindLiveBusinessIdForCascadeRow[]> {
-	return (await sql.unsafe(findLiveBusinessIdForCascadeQuery, [args.id]).values()).map((row) => ({
+export async function lockLiveBusinessIdByMemberId(sql: Sql, args: LockLiveBusinessIdByMemberIdArgs): Promise<LockLiveBusinessIdByMemberIdRow[]> {
+	return (await sql.unsafe(lockLiveBusinessIdByMemberIdQuery, [args.id]).values()).map((row) => ({
 		businessId: row[0],
 	}))
 }
