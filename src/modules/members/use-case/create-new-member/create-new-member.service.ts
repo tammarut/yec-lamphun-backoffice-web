@@ -130,15 +130,27 @@ export class CreateNewMemberService {
 
 		// 6. Persist — the multi-table CREATE transaction (ADR-0024): create
 		//    branch: businesses → member (with the link) → documents; link
-		//    branch: member (pointing at the EXISTING business id) → documents.
-		//    Auto-commit on success, auto-rollback on any throw.
+		//    branch: re-check + lock the target business, then member (pointing
+		//    at the EXISTING id) → documents. Auto-commit on success,
+		//    auto-rollback on any throw.
 		try {
 			const memberId = await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
-				const businessId =
-					resolvedBusiness.value.kind === "link"
-						? resolvedBusiness.value.businessId
-						: await this.businessesRepository.insertBusiness(sql, resolvedBusiness.value.business)
+				let businessId: number
+				if (resolvedBusiness.value.kind === "link") {
+					// Tx-scoped liveness re-check (LockLiveBusinessIdById): the FOR
+					// UPDATE serializes against a concurrent ADR-0023 delete-cascade
+					// of the target, so the pre-check race cannot write a live
+					// member onto a soft-deleted business. null = target died in the
+					// window (or never existed) → abort as a DatabaseError → 500.
+					const lockedTarget = await this.businessesRepository.lockLiveBusinessById(sql, resolvedBusiness.value.businessId)
+					if (lockedTarget === null) {
+						throw new DatabaseError(`business_id ${resolvedBusiness.value.businessId} does not match a live business`)
+					}
+					businessId = lockedTarget
+				} else {
+					businessId = await this.businessesRepository.insertBusiness(sql, resolvedBusiness.value.business)
+				}
 				const memberId = await this.repository.insertMember(sql, member.value, businessId)
 				for (const doc of member.value.documents) {
 					await this.documentsRepository.insertDocument(sql, memberId, doc)
@@ -159,13 +171,14 @@ export class CreateNewMemberService {
 	/**
 	 * Resolve the request's business intent against the DB (#62 D2/D5):
 	 *   - link: the business_id must match a LIVE business (unknown/soft-deleted
-	 *     → 400). No juristic check — the target row is untouched.
+	 *     → 400). No juristic check — the target row is untouched. The tx's
+	 *     lockLiveBusinessById re-checks with a lock before the write.
 	 *   - create: build the VO (validates + owns the [lat,long]→[long,lat]
 	 *     swap), then a live juristic-no collision with a DIFFERENT business →
 	 *     409. The DB-side guard is the partial unique index
-	 *     uniq_businesses_juristic_live; this pre-check converts it into a
-	 *     precise 409 instead of a 23505 → 500 (same accepted race window as
-	 *     every other pre-check here).
+	 *     idx_businesses_juristic_registration_no; this pre-check converts it
+	 *     into a precise 409 instead of a 23505 → 500 (same accepted race
+	 *     window as every other pre-check here).
 	 */
 	private async resolveBusinessIntent(
 		req: CreateMemberRequest
@@ -181,18 +194,7 @@ export class CreateNewMemberService {
 			return ok({ kind: "link", businessId: req.business.businessId })
 		}
 
-		const businessVo = MemberBusiness.create({
-			name: req.business.business.name,
-			description: req.business.business.description,
-			juristicRegistrationNo: req.business.business.juristicRegistrationNo,
-			categoryId: req.business.business.categoryId,
-			address: req.business.business.address,
-			location: req.business.business.location,
-			coreBusiness: req.business.business.coreBusiness,
-			website: req.business.business.website,
-			logo: req.business.business.logo,
-			product: req.business.business.product,
-		})
+		const businessVo = MemberBusiness.fromRequest(req.business.business)
 		if (businessVo.isErr()) {
 			return err(businessVo.error)
 		}

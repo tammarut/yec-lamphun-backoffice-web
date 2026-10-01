@@ -240,6 +240,27 @@ export async function findLiveBusinessIdById(sql: Sql, args: FindLiveBusinessIdB
 	}))
 }
 
+export const lockLiveBusinessIdByIdQuery = `-- name: LockLiveBusinessIdById :many
+SELECT id
+FROM businesses
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE`
+
+export interface LockLiveBusinessIdByIdArgs {
+	id: string
+}
+
+export interface LockLiveBusinessIdByIdRow {
+	id: string
+}
+
+export async function lockLiveBusinessIdById(sql: Sql, args: LockLiveBusinessIdByIdArgs): Promise<LockLiveBusinessIdByIdRow[]> {
+	return (await sql.unsafe(lockLiveBusinessIdByIdQuery, [args.id]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
+
 export const findLiveJuristicConflictIdQuery = `-- name: FindLiveJuristicConflictId :many
 SELECT id
 FROM businesses

@@ -10,6 +10,7 @@ import {
 	findLiveBusinessIdById,
 	findLiveJuristicConflictId,
 	insertBusiness,
+	lockLiveBusinessIdById,
 	lockLiveBusinessIdByMemberId,
 	softDeleteBusinessById,
 	updateBusinessById,
@@ -43,6 +44,18 @@ export class BusinessesRepository implements IBusinessesRepository {
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}
 		return ok(result.value.length > 0)
+	}
+
+	async lockLiveBusinessById(sql: Sql, businessId: number): Promise<number | null> {
+		const result = await ResultAsync.fromPromise(lockLiveBusinessIdById(sql, { id: String(businessId) }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+		const row = result.value[0]
+		if (!row) {
+			return null
+		}
+		return Number(row.id)
 	}
 
 	async findLiveJuristicConflict(juristicRegistrationNo: string, excludeBusinessId: number | null): Promise<Result<number | null, DatabaseError>> {

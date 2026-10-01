@@ -47,12 +47,12 @@ import type { UpdateMemberRequest } from "./update-member.types"
  *
  * The re-link runs INSIDE the update transaction with ADR-0023 lifecycle
  * participation: lock the member's current (old) business row first
- * (member→business lock order), re-point the member, then soft-delete the old
- * business when it held the last live link — the member's logo/product display
- * follows the target business (files live on the business row). The re-linked
- * TARGET's liveness is only pre-checked outside the tx; a business
- * soft-deleted between check and commit leaves a corrupt link — the same
- * accepted pre-check race window as the create flow.
+ * (member→business lock order), re-check + lock the TARGET business, re-point
+ * the member, then soft-delete the old business when it held the last live
+ * link — the member's logo/product display follows the target business (files
+ * live on the business row). The target lock closes the liveness pre-check
+ * race; a target that dies in the window aborts the tx as a DatabaseError →
+ * 500 (a rare lost race, never a corrupted link).
  *
  * Delegates the self-invariants (id_card expiry + format + encrypt, position
  * active, business VO with location swap, document collection) to
@@ -230,6 +230,18 @@ export class UpdateMemberService {
 					if (oldBusinessId === null) {
 						throw new DatabaseError(`Member ${id} has no live business row (violates the live-member⇒live-business invariant)`)
 					}
+					// Tx-scoped liveness re-check of the TARGET (LockLiveBusinessIdById):
+					// closes the pre-check race — a concurrent ADR-0023 delete-cascade
+					// of the target takes the same row lock, so it cannot soft-delete
+					// the target between our check and our commit. null = the target
+					// died in the window → abort (DatabaseError → 500) instead of
+					// writing a live member onto a dead business. Opposite re-links
+					// can still deadlock on the two row locks; Postgres aborts one
+					// victim → a retriable 500, never a corrupted state.
+					const lockedTarget = await this.businessesRepository.lockLiveBusinessById(sql, businessWrite.value.targetId)
+					if (lockedTarget === null) {
+						throw new DatabaseError(`business_id ${businessWrite.value.targetId} does not match a live business`)
+					}
 					await this.repository.updateMemberBusinessLink(sql, id, businessWrite.value.targetId)
 					// ADR-0023: the old business does not survive its last live
 					// link. The member was re-pointed above, so the business_id
@@ -292,15 +304,8 @@ export class UpdateMemberService {
 
 		// Edit branch — business.logo/product null-sticky (ADR-0012): null in the
 		// request → keep the stored value on the shared row.
-		const businessVo = MemberBusiness.create({
-			name: req.business.business.name,
-			description: req.business.business.description,
-			juristicRegistrationNo: req.business.business.juristicRegistrationNo,
-			categoryId: req.business.business.categoryId,
-			address: req.business.business.address,
-			location: req.business.business.location,
-			coreBusiness: req.business.business.coreBusiness,
-			website: req.business.business.website,
+		const businessVo = MemberBusiness.fromRequest({
+			...req.business.business,
 			logo: req.business.business.logo ?? existing.business?.logoFilePath ?? null,
 			product: req.business.business.product ?? existing.business?.productFilePath ?? null,
 		})

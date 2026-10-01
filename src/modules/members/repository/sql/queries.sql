@@ -73,7 +73,7 @@ RETURNING id;
 -- Business link/re-link checks (#62 D2/D3, #69) — run OUTSIDE any transaction,
 -- same as the member duplicate/contact pre-checks above: they exist for a
 -- precise 4xx instead of a raw constraint failure → 500. The live-rows-only
--- partial unique index uniq_businesses_juristic_live is the real guard.
+-- partial unique index idx_businesses_juristic_registration_no is the real guard.
 -- ============================================================================
 
 -- name: FindLiveBusinessIdById :many
@@ -86,13 +86,29 @@ FROM businesses
 WHERE id = $1
   AND deleted_at IS NULL;
 
+-- name: LockLiveBusinessIdById :many
+-- Tx-scoped re-check + lock of the link/re-link TARGET business (#69). Runs
+-- INSIDE the create/update transaction, after the outside-tx pre-check: the
+-- FOR UPDATE serializes against a concurrent ADR-0023 delete-cascade of this
+-- business (its LockLiveBusinessIdByMemberId takes the same row lock), so the
+-- target cannot be soft-deleted between our check and our commit. No row ⇒
+-- the target was soft-deleted in that window (or is absent) ⇒ the caller
+-- aborts with DatabaseError instead of writing a live member onto a dead
+-- business — keeps the live-member ⇔ live-business invariant instead of
+-- accepting a corruption race. `:many` per ADR-0001.
+SELECT id
+FROM businesses
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: FindLiveJuristicConflictId :many
 -- Juristic-no collision check for the create/edit branch (#62 D3): a LIVE
 -- business already holding this juristic_registration_no. exclude_business_id
 -- NULL = create flow (any live business conflicts); a value = PATCH edit flow,
 -- excluding the member's own linked business (self-excluding, mirrors
 -- FindLiveContactConflicts). Soft-deleted predecessors never conflict — the
--- partial unique index uniq_businesses_juristic_live is the DB-side guard.
+-- partial unique index idx_businesses_juristic_registration_no is the DB-side guard.
 -- `:many` per ADR-0001.
 SELECT id
 FROM businesses

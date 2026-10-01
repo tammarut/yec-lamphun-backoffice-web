@@ -53,6 +53,7 @@ describe("CreateNewMemberService", () => {
 		mockRepo.countActiveHolderByPosition.mockResolvedValue(ok(0))
 		mockRepo.findLiveContactConflicts.mockResolvedValue(ok({ phoneNo: false, email: false, lineId: false }))
 		mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(true))
+		mockBusinessRepo.lockLiveBusinessById.mockResolvedValue(42)
 		mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(null))
 		mockBusinessRepo.insertBusiness.mockResolvedValue(7)
 		mockRepo.insertMember.mockResolvedValue(102)
@@ -108,62 +109,82 @@ describe("CreateNewMemberService", () => {
 	})
 
 	describe("business intent (#62 D2/D5, #69)", () => {
-		test("link branch: attaches the member to the EXISTING live business without inserting a business row", async () => {
-			// Arrange
-			const linkReq = makeRequest({ business: { kind: "link", businessId: 42 } })
+		describe("Happy cases", () => {
+			test("link branch: attaches the member to the EXISTING live business without inserting a business row", async () => {
+				// Arrange
+				const linkReq = makeRequest({ business: { kind: "link", businessId: 42 } })
 
-			// Act
-			const result = await service.execute(linkReq)
+				// Act
+				const result = await service.execute(linkReq)
 
-			// Assert — the target id flows straight into the member insert; no
-			// businesses-row write, no juristic check.
-			expect(result._unsafeUnwrap()).toBe(102)
-			expect(mockBusinessRepo.existsLiveBusiness).toHaveBeenCalledWith(42)
-			expect(mockBusinessRepo.findLiveJuristicConflict).not.toHaveBeenCalled()
-			expect(mockBusinessRepo.insertBusiness).not.toHaveBeenCalled()
-			expect(mockRepo.insertMember).toHaveBeenCalledWith(fakeTx, expect.objectContaining({}), 42)
-			expect(mockDocsRepo.insertDocument).toHaveBeenCalledTimes(2)
+				// Assert — the target is locked + re-checked inside the tx, then its
+				// id flows straight into the member insert; no businesses-row write,
+				// no juristic check.
+				expect(result._unsafeUnwrap()).toBe(102)
+				expect(mockBusinessRepo.existsLiveBusiness).toHaveBeenCalledWith(42)
+				expect(mockBusinessRepo.lockLiveBusinessById).toHaveBeenCalledWith(fakeTx, 42)
+				expect(mockBusinessRepo.findLiveJuristicConflict).not.toHaveBeenCalled()
+				expect(mockBusinessRepo.insertBusiness).not.toHaveBeenCalled()
+				expect(mockRepo.insertMember).toHaveBeenCalledWith(fakeTx, expect.objectContaining({ positionCode: "GENERAL_MEMBER" }), 42)
+				expect(mockDocsRepo.insertDocument).toHaveBeenCalledTimes(2)
+			})
+
+			test("create branch: juristic collision check runs with no self-exclusion (POST never auto-links)", async () => {
+				// Act
+				await service.execute(makeRequest())
+
+				// Assert — exclude id is null on create: ANY live business with the
+				// same juristic number conflicts.
+				expect(mockBusinessRepo.findLiveJuristicConflict).toHaveBeenCalledWith("105557026729", null)
+				expect(mockBusinessRepo.insertBusiness).toHaveBeenCalledTimes(1)
+			})
 		})
 
-		test("create branch: juristic collision check runs with no self-exclusion (POST never auto-links)", async () => {
-			// Act
-			await service.execute(makeRequest())
+		describe("Unhappy cases", () => {
+			test("returns MemberValidationError when the link branch's business_id is unknown or soft-deleted", async () => {
+				// Arrange
+				mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(false))
 
-			// Assert — exclude id is null on create: ANY live business with the
-			// same juristic number conflicts.
-			expect(mockBusinessRepo.findLiveJuristicConflict).toHaveBeenCalledWith("105557026729", null)
-			expect(mockBusinessRepo.insertBusiness).toHaveBeenCalledTimes(1)
+				// Act
+				const result = await service.execute(makeRequest({ business: { kind: "link", businessId: 999 } }))
+
+				// Assert — 400, not 409: the id simply matches no live row.
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
+				expect(mockRepo.insertMember).not.toHaveBeenCalled()
+			})
+
+			test("returns BUSINESS_JURISTIC_CONFLICT when a live business already holds the juristic number", async () => {
+				// Arrange — #62 D3: POST never silently auto-links.
+				mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(7))
+
+				// Act
+				const result = await service.execute(makeRequest())
+
+				// Assert
+				const error = result._unsafeUnwrapErr() as MemberConflictError
+				expect(error).toBeInstanceOf(MemberConflictError)
+				expect(error.reason).toBe("BUSINESS_JURISTIC_CONFLICT")
+				expect(error.message).toBe("A business with this registration number already exists")
+				expect(mockBusinessRepo.insertBusiness).not.toHaveBeenCalled()
+			})
+
+			test("returns DatabaseError when the link target dies between the pre-check and the tx lock", async () => {
+				// Arrange — soft-delete isolation safety net: the outside-tx
+				// pre-check passed, but the tx-scoped FOR UPDATE re-check finds the
+				// target already soft-deleted (a concurrent ADR-0023 cascade won).
+				mockBusinessRepo.lockLiveBusinessById.mockResolvedValue(null)
+
+				// Act
+				const result = await service.execute(makeRequest({ business: { kind: "link", businessId: 42 } }))
+
+				// Assert — the tx aborts; no member is written onto a dead business.
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+				expect(mockRepo.insertMember).not.toHaveBeenCalled()
+			})
 		})
 	})
 
 	describe("Unhappy cases", () => {
-		test("returns MemberValidationError when the link branch's business_id is unknown or soft-deleted", async () => {
-			// Arrange
-			mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(false))
-
-			// Act
-			const result = await service.execute(makeRequest({ business: { kind: "link", businessId: 999 } }))
-
-			// Assert — 400, not 409: the id simply matches no live row.
-			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
-			expect(mockRepo.insertMember).not.toHaveBeenCalled()
-		})
-
-		test("returns BUSINESS_JURISTIC_CONFLICT when a live business already holds the juristic number", async () => {
-			// Arrange — #62 D3: POST never silently auto-links.
-			mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(7))
-
-			// Act
-			const result = await service.execute(makeRequest())
-
-			// Assert
-			const error = result._unsafeUnwrapErr() as MemberConflictError
-			expect(error).toBeInstanceOf(MemberConflictError)
-			expect(error.reason).toBe("BUSINESS_JURISTIC_CONFLICT")
-			expect(error.message).toBe("A business with this registration number already exists")
-			expect(mockBusinessRepo.insertBusiness).not.toHaveBeenCalled()
-		})
-
 		test("returns MemberValidationError when the position code is unknown", async () => {
 			// Arrange
 			mockRepo.getPositionByCode.mockResolvedValue(ok(null))

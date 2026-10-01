@@ -356,6 +356,15 @@ describe("PATCH /api/v1/members/:id", () => {
 			expect(response.status).toBe(409)
 		})
 
+		it("returns 409 on the self-excluding juristic collision (#62 D3, #69) with the same contract message as POST", async () => {
+			mockUpdateService.execute.mockResolvedValue(err(new MemberConflictError("BUSINESS_JURISTIC_CONFLICT", "A business with this registration number already exists")))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(409)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("A business with this registration number already exists")
+		})
+
 		it("returns 409 on a position-occupied conflict", async () => {
 			mockUpdateService.execute.mockResolvedValue(err(new MemberConflictError("POSITION_OCCUPIED", "occupied")))
 			const { req, ctx } = makePatchRequest("101", validPatchBody)

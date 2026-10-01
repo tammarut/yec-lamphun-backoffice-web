@@ -61,6 +61,7 @@ describe("UpdateMemberService", () => {
 		mockBusinessRepo.existsLiveBusiness.mockResolvedValue(ok(true))
 		mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(null))
 		mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(14)
+		mockBusinessRepo.lockLiveBusinessById.mockResolvedValue(55)
 		mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(1)
 		// Same hash as stored → conditional dup check is skipped on happy path.
 		mockBlindIndex.hash.mockReturnValue(ok("stored-hmac-hash"))
@@ -192,11 +193,13 @@ describe("UpdateMemberService", () => {
 			// Act
 			const result = await service.execute(101, req)
 
-			// Assert — member row updated AND link re-pointed; no business-row
-			// overwrite (fields follow the target business).
+			// Assert — member row updated AND link re-pointed; the target is
+			// re-checked + locked inside the tx; no business-row overwrite (fields
+			// follow the target business).
 			expect(result.isOk()).toBe(true)
 			expect(mockRepo.updateMember).toHaveBeenCalledTimes(1)
 			expect(mockBusinessRepo.lockLiveBusinessIdByMemberId).toHaveBeenCalledWith(fakeTx, 101)
+			expect(mockBusinessRepo.lockLiveBusinessById).toHaveBeenCalledWith(fakeTx, 55)
 			expect(mockRepo.updateMemberBusinessLink).toHaveBeenCalledWith(fakeTx, 101, 55)
 			expect(mockBusinessRepo.countLiveMembersByBusinessId).toHaveBeenCalledWith(fakeTx, 14, 101)
 			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
@@ -239,6 +242,23 @@ describe("UpdateMemberService", () => {
 			expect(mockRepo.updateMemberBusinessLink).not.toHaveBeenCalled()
 			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
 			expect(mockBusinessRepo.softDeleteBusinessById).not.toHaveBeenCalled()
+		})
+
+		describe("Unhappy cases", () => {
+			test("returns DatabaseError when the re-link target dies between the pre-check and the tx lock", async () => {
+				// Arrange — soft-delete isolation safety net: the outside-tx
+				// pre-check passed, but the tx-scoped FOR UPDATE re-check finds the
+				// target already soft-deleted (a concurrent ADR-0023 cascade won).
+				mockBusinessRepo.lockLiveBusinessById.mockResolvedValue(null)
+
+				// Act
+				const result = await service.execute(101, makeRequest({ business: { kind: "link", businessId: 55 } }))
+
+				// Assert — the tx aborts; the member is never re-pointed onto a
+				// dead business.
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+				expect(mockRepo.updateMemberBusinessLink).not.toHaveBeenCalled()
+			})
 		})
 	})
 

@@ -26,10 +26,21 @@ export interface IBusinessesRepository {
 	/**
 	 * Whether a LIVE (non-deleted) business row exists with this id — the
 	 * link/re-link branch's business_id validation (#69): unknown or
-	 * soft-deleted → the service maps to a 400. Pre-check only; the create/edit
-	 * flows' other pre-checks share the same accepted race window.
+	 * soft-deleted → the service maps to a 400. Pre-check only; the tx-scoped
+	 * {@link lockLiveBusinessById} re-checks with a lock before any write.
 	 */
 	existsLiveBusiness(businessId: number): Promise<Result<boolean, DatabaseError>>
+
+	/**
+	 * Lock (SELECT ... FOR UPDATE) a LIVE business row by id and return it —
+	 * the tx-scoped liveness re-check for the link/re-link TARGET (#69). Runs
+	 * INSIDE the owning service's transaction, after the outside-tx pre-check:
+	 * the lock serializes against a concurrent ADR-0023 delete-cascade of this
+	 * business, closing the pre-check race. `null` ⇒ the target was
+	 * soft-deleted between check and lock (or is absent) ⇒ the caller aborts
+	 * with DatabaseError instead of writing a live member onto a dead business.
+	 */
+	lockLiveBusinessById(tx: Sql, businessId: number): Promise<number | null>
 
 	/**
 	 * The id of a LIVE business holding this juristic_registration_no, or null —
@@ -37,7 +48,7 @@ export interface IBusinessesRepository {
 	 * null = create flow (any live business conflicts); a value = PATCH edit
 	 * flow, excluding the member's own linked business (self-excluding). This is
 	 * the businesses-side mirror of FindLiveContactConflicts; the partial unique
-	 * index uniq_businesses_juristic_live is the DB-side guard.
+	 * index idx_businesses_juristic_registration_no is the DB-side guard.
 	 */
 	findLiveJuristicConflict(juristicRegistrationNo: string, excludeBusinessId: number | null): Promise<Result<number | null, DatabaseError>>
 
