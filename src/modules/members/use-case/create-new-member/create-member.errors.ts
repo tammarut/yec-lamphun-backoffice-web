@@ -11,7 +11,7 @@ export { MemberValidationError } from "src/modules/members/domain/errors"
  * reasons (phone/email/line) are unique among LIVE members only — enforced by
  * the partial unique indexes uniq_members_*_live (WHERE deleted_at IS NULL).
  * BUSINESS_JURISTIC_CONFLICT (#62 D3) is the same live-rows-only rule on the
- * shared businesses table (uniq_businesses_juristic_live): a create/edit whose
+ * shared businesses table (idx_businesses_juristic_registration_no): a create/edit whose
  * juristic_registration_no matches a DIFFERENT live business — POST never
  * silent-auto-links; PATCH is self-excluding (the member's own linked business
  * is excluded from the check).

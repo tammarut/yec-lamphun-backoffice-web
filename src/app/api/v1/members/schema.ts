@@ -119,6 +119,14 @@ export type MemberBusinessRequestOutput = InferOutput<typeof MemberBusinessReque
  * shared primitives, no drift between POST and PATCH). The link branch's extra
  * client fields never reach the service: valibot's `object` already stripped
  * them during validation.
+ *
+ * INVARIANT: `"business_id" in o` is the SOLE branch discriminant — the valibot
+ * union is untagged, so the check relies on `business_id` existing in
+ * {@link MemberBusinessLinkSchema} and NOT existing in
+ * {@link MemberBusinessCreateSchema}. NEVER add a `business_id` field to the
+ * create schema (not even optional): every create payload would silently
+ * re-route to the link branch. A test in members/route.test.ts pins the
+ * create-branch resolution as the drift detector.
  */
 export function toBusinessIntent(o: MemberBusinessRequestOutput): MemberBusinessIntent {
 	if ("business_id" in o) {

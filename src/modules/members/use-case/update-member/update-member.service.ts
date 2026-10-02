@@ -8,7 +8,7 @@ import { inject, singleton } from "tsyringe"
 import { Member } from "../../domain/member"
 import { MemberBusiness } from "../../domain/member-business"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
-import type { MemberDetailReadModel, MemberDocumentType } from "../../domain/member-read-models"
+import type { MemberBusinessReadModel, MemberDocumentType } from "../../domain/member-read-models"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
@@ -101,7 +101,9 @@ export class UpdateMemberService {
 		const businessId = existing.business.id
 
 		// 2. Resolve the business intent (#62 D1/D3) — edit / re-link / no-op.
-		const businessWrite = await this.resolveBusinessWrite(req, businessId, existing)
+		//     The non-null guard above narrowed existing.business; passing it
+		//     here keeps resolveBusinessWrite's parameter honestly non-nullable.
+		const businessWrite = await this.resolveBusinessWrite(req, businessId, existing.business)
 		if (businessWrite.isErr()) {
 			return err(businessWrite.error)
 		}
@@ -218,6 +220,15 @@ export class UpdateMemberService {
 				const sql = tx as unknown as Sql
 
 				await this.repository.updateMember(sql, id, updatedMember.value)
+				// NOTE: on the re-link path the member's scalar columns are written
+				// BEFORE the old/target business locks below (UpdateMemberById never
+				// touches business_id, so the link itself is not yet changed). This is
+				// a rollback-saves-us design, not lock-prevents-it: if the target
+				// business died between the pre-check and the lock, the throw below
+				// rolls back these scalar writes too — the client gets a retriable
+				// 500 on an otherwise valid request (rare lost race), never a
+				// half-applied edit. Reordering locks first would not remove the
+				// race, only move it; the tx boundary is the mitigation.
 
 				if (businessWrite.value.kind === "edit") {
 					await this.businessesRepository.updateBusinessById(sql, businessId, businessWrite.value.business)
@@ -285,11 +296,14 @@ export class UpdateMemberService {
 	 *     (ADR-0012, resolved against the SHARED row), then a live juristic-no
 	 *     collision with a DIFFERENT business → 409, self-excluding
 	 *     (excludes this member's own linked business — the edit's target).
+	 *
+	 * `currentBusiness` is the member's linked business read model — the caller
+	 * passes it only after the non-null guard, so it is non-nullable here.
 	 */
 	private async resolveBusinessWrite(
 		req: UpdateMemberRequest,
 		currentBusinessId: number,
-		existing: MemberDetailReadModel
+		currentBusiness: MemberBusinessReadModel
 	): Promise<Result<{ kind: "edit"; business: MemberBusiness } | { kind: "relink"; targetId: number } | { kind: "none" }, UpdateMemberError>> {
 		if (req.business.kind === "link") {
 			const live = await this.businessesRepository.existsLiveBusiness(req.business.businessId)
@@ -306,8 +320,8 @@ export class UpdateMemberService {
 		// request → keep the stored value on the shared row.
 		const businessVo = MemberBusiness.fromRequest({
 			...req.business.business,
-			logo: req.business.business.logo ?? existing.business?.logoFilePath ?? null,
-			product: req.business.business.product ?? existing.business?.productFilePath ?? null,
+			logo: req.business.business.logo ?? currentBusiness.logoFilePath,
+			product: req.business.business.product ?? currentBusiness.productFilePath,
 		})
 		if (businessVo.isErr()) {
 			return err(businessVo.error)
@@ -316,7 +330,7 @@ export class UpdateMemberService {
 		// Self-excluding juristic collision (#62 D3): a DIFFERENT live business
 		// already holds this number. The member's own linked business is excluded
 		// — the edit targets it. Mirrors FindLiveContactConflicts; the partial
-		// unique index uniq_businesses_juristic_live is the DB-side guard.
+		// unique index idx_businesses_juristic_registration_no is the DB-side guard.
 		const juristicConflict = await this.businessesRepository.findLiveJuristicConflict(businessVo.value.juristicRegistrationNo, currentBusinessId)
 		if (juristicConflict.isErr()) {
 			return err(juristicConflict.error)

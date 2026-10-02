@@ -159,6 +159,10 @@ SELECT m.id,
        b.product_file_path,
        b.created_at    AS business_created_at,
        b.updated_at    AS business_updated_at,
+-- business_member_count (#62 D4): live members linked to the business — SELF
+-- INCLUDED (no m.id exclusion; a future reader must not "fix" this), powering
+-- the shared-entity warning banner (business.member_count in GET /:id;
+-- member_count ≥ 2 = shared).
        (SELECT count(*)::int FROM members mc WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS business_member_count
 FROM members m
 LEFT JOIN businesses b

@@ -357,6 +357,11 @@ describe("PATCH /api/v1/members/:id", () => {
 		})
 
 		it("returns 409 on the self-excluding juristic collision (#62 D3, #69) with the same contract message as POST", async () => {
+			// Route tests mock the service and pin the HTTP CONTRACT only (status +
+			// body shape). The self-exclusion CALL SHAPE — findLiveJuristicConflict
+			// receiving the member's own business id as the exclusion argument — is
+			// verified at the service level in update-member.service.test.ts
+			// ("returns BUSINESS_JURISTIC_CONFLICT (self-excluding)…").
 			mockUpdateService.execute.mockResolvedValue(err(new MemberConflictError("BUSINESS_JURISTIC_CONFLICT", "A business with this registration number already exists")))
 			const { req, ctx } = makePatchRequest("101", validPatchBody)
 			const response = await PATCH(req, ctx)
