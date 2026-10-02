@@ -1,6 +1,7 @@
 import { MemberValidationError } from "./errors"
 import type { Result } from "neverthrow"
 import { err, ok } from "neverthrow"
+import type { CreateMemberBusinessRequest } from "../use-case/create-new-member/create-member.types"
 
 /**
  * The business record associated with a member (1:1).
@@ -61,6 +62,26 @@ export class MemberBusiness {
 				input.product
 			)
 		)
+	}
+
+	/**
+	 * Build the VO straight from the route mapper's `create` intent payload —
+	 * the one field-by-field mapping shared by BOTH the create and update use
+	 * cases (#69). Every business invariant lives in {@link create}.
+	 */
+	static fromRequest(req: CreateMemberBusinessRequest): Result<MemberBusiness, MemberValidationError> {
+		return MemberBusiness.create({
+			name: req.name,
+			description: req.description,
+			juristicRegistrationNo: req.juristicRegistrationNo,
+			categoryId: req.categoryId,
+			address: req.address,
+			location: req.location,
+			coreBusiness: req.coreBusiness,
+			website: req.website,
+			logo: req.logo,
+			product: req.product,
+		})
 	}
 
 	/** Trust persisted data (already in [long, lat] order or null). Used by Repository. */

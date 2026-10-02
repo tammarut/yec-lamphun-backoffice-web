@@ -59,6 +59,16 @@ export interface IMemberRepository {
 	updateMember(tx: Sql, id: number, member: Member): Promise<void>
 
 	/**
+	 * Re-point a non-deleted member at a different live business — the #69
+	 * re-link step. The ONLY query allowed to mutate members.business_id.
+	 * Runs INSIDE the update transaction AFTER
+	 * {@link IBusinessesRepository.lockLiveBusinessIdByMemberId} has locked the
+	 * member's current (old) business row; the caller releases the old business
+	 * when it held the last live link (ADR-0023 lifecycle participation).
+	 */
+	updateMemberBusinessLink(tx: Sql, memberId: number, businessId: number): Promise<void>
+
+	/**
 	 * Soft-delete the member row itself — delete-cascade step. Idempotent
 	 * (`deleted_at IS NULL` guard): an already-deleted member is a 0-row no-op
 	 * (grilling Q2: the route returns 204 regardless, never 404).

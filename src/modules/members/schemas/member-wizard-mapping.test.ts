@@ -213,6 +213,7 @@ function makeDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetail
 		updated_at: "2024-01-18T16:00:00.000Z",
 		business: {
 			id: 14,
+			member_count: 2,
 			name: "V Foods",
 			description: "desc",
 			juristic_registration_no: "105557026729",

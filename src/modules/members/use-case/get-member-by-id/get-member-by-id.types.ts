@@ -10,6 +10,11 @@
 
 export interface MemberBusinessResponse {
 	readonly id: number
+	/**
+	 * Live members linked to this shared business (#62 D4) — powers the
+	 * shared-entity warning banner. The reading member is included in the count.
+	 */
+	readonly member_count: number
 	readonly name: string
 	readonly description: string
 	readonly juristic_registration_no: string
