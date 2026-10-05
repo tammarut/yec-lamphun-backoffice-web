@@ -308,7 +308,7 @@ container.register(REGISTER_KEY.GET_DASHBOARD_STAT_SERVICE, { useClass: GetDashb
 container.register(REGISTER_KEY.GET_EXECUTIVE_COMMITTEE_SERVICE, { useClass: GetExecutiveCommitteeService }, { lifecycle: Lifecycle.Singleton })
 
 // 13. Register Members Module (search-businesses query) — #68. The GET
-// /api/v1/business search: a read-only single-query delegation over its own
+// /api/v1/business/search: a read-only single-query delegation over its own
 // BusinessSearchRepository (escaped prefix-ILIKE over live businesses with the
 // live-member count + Thai owner names rollup, split from
 // BUSINESSES_REPOSITORY per responsibility). The repository is Transient

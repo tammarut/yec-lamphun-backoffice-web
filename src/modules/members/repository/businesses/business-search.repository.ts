@@ -5,11 +5,11 @@ import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
 import { searchLiveBusinesses } from "../sql/sqlc-generated/queries_sql"
 import type { IBusinessSearchRepository } from "./interfaces"
-import type { BusinessSearchFilter, BusinessSearchItem } from "../../use-case/search-businesses/search-businesses.types"
+import type { BusinessSearchFilter, BusinessSearchItem } from "src/modules/members/use-case/search-businesses/search-businesses.types"
 
 /**
  * sqlc-backed repository for the #68 business search read (GET
- * /api/v1/business). Wraps the generated {@link searchLiveBusinesses} query —
+ * /api/v1/business/search). Wraps the generated {@link searchLiveBusinesses} query —
  * an escaped prefix-ILIKE over LIVE businesses with their live-member rollup —
  * and rethrows failures as DatabaseError. Runs OUTSIDE any transaction on the
  * repository's own connection and returns the AGENTS.md §2B Result shape,
@@ -62,11 +62,14 @@ export class BusinessSearchRepository implements IBusinessSearchRepository {
 	 * LIKE wildcards in the user input (`%`, `_`) and the escape char (`\`)
 	 * itself are escaped before appending the trailing prefix `%`, so a search
 	 * for a literal `%` or `_` matches itself rather than "anything" / "any one
-	 * char". `ESCAPE '\'` declares the escape char to Postgres (in the SQL
-	 * query). The value is still a bound parameter — this is semantic escaping
-	 * (controlling wildcard meaning inside the pattern), not SQL-injection
-	 * protection. Escape chain copied verbatim from
-	 * MembersRepository.buildSearchFragment.
+	 * char". No explicit ESCAPE clause is declared in the SQL on purpose:
+	 * PostgreSQL's default LIKE escape character is the backslash, and an
+	 * `ESCAPE '\'` clause inside the generated template literal collapses to a
+	 * zero-length escape that Postgres rejects (see the note on
+	 * SearchLiveBusinesses in queries.sql). The value is still a bound
+	 * parameter — this is semantic escaping (controlling wildcard meaning
+	 * inside the pattern), not SQL-injection protection. Escape chain copied
+	 * verbatim from MembersRepository.buildSearchFragment.
 	 */
 	private buildSearchPattern(search: string): string {
 		const escaped = search.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")

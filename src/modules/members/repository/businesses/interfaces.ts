@@ -2,7 +2,7 @@ import type { Sql } from "postgres"
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { MemberBusiness } from "../../domain/member-business"
-import type { BusinessSearchFilter, BusinessSearchItem } from "../../use-case/search-businesses/search-businesses.types"
+import type { BusinessSearchFilter, BusinessSearchItem } from "src/modules/members/use-case/search-businesses/search-businesses.types"
 
 /**
  * Repository contract for the shared `businesses` table (ADR-0024): its

@@ -1,5 +1,5 @@
 /**
- * Types for the GET /api/v1/business search endpoint (#68): the prefix-search
+ * Types for the GET /api/v1/business/search endpoint (#68): the prefix-search
  * picker over LIVE businesses (soft-deleted rows never surface).
  *
  * `BusinessSearchFilter` is the internal filter the service consumes;

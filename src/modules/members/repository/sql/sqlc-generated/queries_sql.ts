@@ -890,8 +890,8 @@ FROM businesses b
 INNER JOIN business_categories bc ON bc.id = b.category_id
 WHERE b.deleted_at IS NULL
   AND ($1::TEXT IS NULL
-       OR b.name ILIKE $1::TEXT ESCAPE '\'
-       OR b.juristic_registration_no ILIKE $1::TEXT ESCAPE '\')
+       OR b.name ILIKE $1::TEXT
+       OR b.juristic_registration_no ILIKE $1::TEXT)
 ORDER BY b.name ASC, b.id ASC
 LIMIT $2::INT`
 
