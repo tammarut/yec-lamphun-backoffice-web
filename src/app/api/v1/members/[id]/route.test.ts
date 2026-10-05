@@ -68,6 +68,7 @@ const memberResponse: MemberDetailResponse = {
 	updated_at: "2024-01-18T16:00:00.000Z",
 	business: {
 		id: 14,
+		member_count: 2,
 		name: "V Foods",
 		description: "desc",
 		juristic_registration_no: "105557026729",
@@ -264,6 +265,27 @@ describe("PATCH /api/v1/members/:id", () => {
 			expect(response.status).toBe(204)
 			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ idCardNo: null }))
 		})
+
+		it("resolves the RE-LINK branch: { business_id } alone reaches the service as a link intent (#69)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, business: { business_id: 42 } })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			const dto = mockUpdateService.execute.mock.calls[0]![1]
+			expect(dto.business).toEqual({ kind: "link", businessId: 42 })
+		})
+
+		it("strips extra business fields riding on the re-link branch (#62 D5)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", {
+				...validPatchBody,
+				business: { business_id: 42, name: "Not an edit" },
+			})
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			const dto = mockUpdateService.execute.mock.calls[0]![1]
+			expect(dto.business).toEqual({ kind: "link", businessId: 42 })
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -306,6 +328,12 @@ describe("PATCH /api/v1/members/:id", () => {
 			expect(response.status).toBe(400)
 		})
 
+		it("returns 400 when business matches NEITHER union branch (no business_id, missing required fields) (#69)", async () => {
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, business: { name: "Half an edit" } })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+		})
+
 		it("returns 400 when id_card_no is an empty string (null-sticky accepts null, not blank)", async () => {
 			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, id_card_no: "" })
 			const response = await PATCH(req, ctx)
@@ -326,6 +354,20 @@ describe("PATCH /api/v1/members/:id", () => {
 			const { req, ctx } = makePatchRequest("101", validPatchBody)
 			const response = await PATCH(req, ctx)
 			expect(response.status).toBe(409)
+		})
+
+		it("returns 409 on the self-excluding juristic collision (#62 D3, #69) with the same contract message as POST", async () => {
+			// Route tests mock the service and pin the HTTP CONTRACT only (status +
+			// body shape). The self-exclusion CALL SHAPE — findLiveJuristicConflict
+			// receiving the member's own business id as the exclusion argument — is
+			// verified at the service level in update-member.service.test.ts
+			// ("returns BUSINESS_JURISTIC_CONFLICT (self-excluding)…").
+			mockUpdateService.execute.mockResolvedValue(err(new MemberConflictError("BUSINESS_JURISTIC_CONFLICT", "A business with this registration number already exists")))
+			const { req, ctx } = makePatchRequest("101", validPatchBody)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(409)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("A business with this registration number already exists")
 		})
 
 		it("returns 409 on a position-occupied conflict", async () => {

@@ -1,5 +1,7 @@
 import { array, check, integer, isoDate, minLength, null_, number, object, optional, picklist, pipe, string, transform, union, type InferOutput } from "valibot"
 
+import type { MemberBusinessIntent } from "src/modules/members/use-case/create-new-member/create-member.types"
+
 /**
  * Structural request schema for POST /api/v1/members.
  *
@@ -65,6 +67,88 @@ export const categoryIdSchema = pipe(
 	check((n) => n > 0, "category_id must be a positive integer")
 )
 
+export const businessIdSchema = pipe(
+	number(),
+	integer(),
+	check((n) => n > 0, "business.business_id must be a positive integer")
+)
+
+// --- Business request: ordered union (#62 D2/D5, #69) -----------------------
+//
+// LINK branch first: `{ business_id }` alone (or business_id + any extra
+// fields, which are optional and ignored) = link/re-link to an existing shared
+// business. Valibot's `object` strips unknown keys, so `{ business_id: 42,
+// name: "..." }` validates as the link branch with the extras dropped.
+//
+// CREATE branch: today's full 10-field set with today's requiredness.
+//
+// Link intent is NEVER inferred from a juristic-number match (#62 D2) — a
+// payload without business_id that carries fields is a create, and a create
+// whose juristic number collides with a different live business is a 409, not
+// a silent link.
+//
+// The union is ORDERED (link first) so a payload carrying both business_id and
+// a full field set resolves as link. A payload matching neither branch (no
+// business_id + missing required create fields) fails the union → 400.
+export const MemberBusinessLinkSchema = object({
+	business_id: businessIdSchema,
+})
+
+export const MemberBusinessCreateSchema = object({
+	name: pipe(string(), minLength(1, "business.name is required")),
+	juristic_registration_no: pipe(string(), minLength(1, "business.juristic_registration_no is required")),
+	category_id: categoryIdSchema,
+	address: optional(nullableString),
+	location: optional(union([locationSchema, null_()])),
+	description: pipe(string(), minLength(1, "business.description is required")),
+	core_business: optional(nullableString),
+	website: optional(nullableString),
+	logo: optional(nullableString),
+	product: optional(nullableString),
+})
+
+export const MemberBusinessRequestSchema = union([MemberBusinessLinkSchema, MemberBusinessCreateSchema])
+
+export type MemberBusinessLinkOutput = InferOutput<typeof MemberBusinessLinkSchema>
+export type MemberBusinessCreateOutput = InferOutput<typeof MemberBusinessCreateSchema>
+export type MemberBusinessRequestOutput = InferOutput<typeof MemberBusinessRequestSchema>
+
+/**
+ * Map the parsed `business` union output to the service DTO's intent union —
+ * the ONE place that decides which branch the client expressed (grilling Q9:
+ * shared primitives, no drift between POST and PATCH). The link branch's extra
+ * client fields never reach the service: valibot's `object` already stripped
+ * them during validation.
+ *
+ * INVARIANT: `"business_id" in o` is the SOLE branch discriminant — the valibot
+ * union is untagged, so the check relies on `business_id` existing in
+ * {@link MemberBusinessLinkSchema} and NOT existing in
+ * {@link MemberBusinessCreateSchema}. NEVER add a `business_id` field to the
+ * create schema (not even optional): every create payload would silently
+ * re-route to the link branch. A test in members/route.test.ts pins the
+ * create-branch resolution as the drift detector.
+ */
+export function toBusinessIntent(o: MemberBusinessRequestOutput): MemberBusinessIntent {
+	if ("business_id" in o) {
+		return { kind: "link", businessId: o.business_id }
+	}
+	return {
+		kind: "create",
+		business: {
+			name: o.name,
+			juristicRegistrationNo: o.juristic_registration_no,
+			categoryId: o.category_id,
+			address: o.address ?? null,
+			location: o.location ?? null,
+			description: o.description,
+			coreBusiness: o.core_business ?? null,
+			website: o.website ?? null,
+			logo: o.logo ?? null,
+			product: o.product ?? null,
+		},
+	}
+}
+
 export const CreateMemberSchema = object({
 	registration_type: RegistrationTypeSchema,
 	company_certificate: nullableString,
@@ -87,18 +171,7 @@ export const CreateMemberSchema = object({
 	line_id: optional(nullableString),
 	shirt_size: optional(ShirtSizeSchema),
 	position: PositionSchema,
-	business: object({
-		name: pipe(string(), minLength(1, "business.name is required")),
-		juristic_registration_no: pipe(string(), minLength(1, "business.juristic_registration_no is required")),
-		category_id: categoryIdSchema,
-		address: optional(nullableString),
-		location: optional(union([locationSchema, null_()])),
-		description: pipe(string(), minLength(1, "business.description is required")),
-		core_business: optional(nullableString),
-		website: optional(nullableString),
-		logo: optional(nullableString),
-		product: optional(nullableString),
-	}),
+	business: MemberBusinessRequestSchema,
 })
 
 export type CreateMemberSchemaOutput = InferOutput<typeof CreateMemberSchema>
@@ -145,18 +218,7 @@ export const PatchMemberSchema = object({
 	line_id: optional(nullableString),
 	shirt_size: optional(ShirtSizeSchema),
 	position: PositionSchema,
-	business: object({
-		name: pipe(string(), minLength(1, "business.name is required")),
-		juristic_registration_no: pipe(string(), minLength(1, "business.juristic_registration_no is required")),
-		category_id: categoryIdSchema,
-		address: optional(nullableString),
-		location: optional(union([locationSchema, null_()])),
-		description: pipe(string(), minLength(1, "business.description is required")),
-		core_business: optional(nullableString),
-		website: optional(nullableString),
-		logo: optional(nullableString),
-		product: optional(nullableString),
-	}),
+	business: MemberBusinessRequestSchema,
 })
 
 export type PatchMemberSchemaOutput = InferOutput<typeof PatchMemberSchema>

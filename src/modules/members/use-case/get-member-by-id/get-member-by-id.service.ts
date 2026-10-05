@@ -107,6 +107,7 @@ export class GetMemberByIdService {
 		const location = business.location === null ? null : ([business.location[1], business.location[0]] as readonly [number, number])
 		const businessResponse: MemberBusinessResponse = {
 			id: business.id,
+			member_count: business.memberCount,
 			name: business.name,
 			description: business.description,
 			juristic_registration_no: business.juristicRegistrationNo,

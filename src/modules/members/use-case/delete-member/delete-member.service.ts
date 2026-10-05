@@ -49,7 +49,7 @@ export class DeleteMemberService {
 				// 1. Lock the linked live business (gate for the ADR-0023 cascade).
 				//    null ⇒ business already gone ⇒ re-delete: still run the member's
 				//    own idempotent soft-deletes, skip the cascade decision.
-				const businessId = await this.businessesRepository.findLiveBusinessIdForCascade(sql, id)
+				const businessId = await this.businessesRepository.lockLiveBusinessIdByMemberId(sql, id)
 
 				// 2-4. The member's dependent rows, then the member row. By the count
 				//      below the member row is already soft-deleted, so it can never

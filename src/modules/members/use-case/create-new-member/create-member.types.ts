@@ -21,6 +21,21 @@ export type CreateMemberBusinessRequest = {
 	readonly product: string | null
 }
 
+/**
+ * What the request wants done with the shared business row (#62 D1/D2/D5).
+ *
+ * The route's ordered valibot union resolves `business` to exactly one of:
+ *   - link: `{ business_id }` alone (any extra business fields the client sent
+ *     are stripped) — attach the member to an EXISTING live business; on PATCH
+ *     this re-links. Never inferred from a juristic-number match.
+ *   - create: the full 10-field set — create (POST) or wholesale-edit (PATCH,
+ *     ADR-0012 sticky files) of the member's linked shared business.
+ *
+ * The service resolves the intent against the DB (400 unknown/soft-deleted
+ * business_id; 409 juristic collision) and owns the transaction shape for each.
+ */
+export type MemberBusinessIntent = { readonly kind: "link"; readonly businessId: number } | { readonly kind: "create"; readonly business: CreateMemberBusinessRequest }
+
 export type CreateMemberRequest = {
 	readonly registrationType: "INDIVIDUAL" | "JURISTIC_PERSON"
 	readonly companyCertificate: string | null
@@ -43,5 +58,5 @@ export type CreateMemberRequest = {
 	readonly lineId: string | null
 	readonly shirtSize: string | null
 	readonly position: string
-	readonly business: CreateMemberBusinessRequest
+	readonly business: MemberBusinessIntent
 }

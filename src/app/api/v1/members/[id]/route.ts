@@ -18,7 +18,7 @@ import type { UpdateMemberError } from "src/modules/members/use-case/update-memb
 import type { UpdateMemberRequest } from "src/modules/members/use-case/update-member/update-member.types"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { createLogger } from "src/shared/lib/logger/logger"
-import { PatchMemberSchema, type PatchMemberSchemaOutput } from "../schema"
+import { PatchMemberSchema, toBusinessIntent, type PatchMemberSchemaOutput } from "../schema"
 
 export const dynamic = "force-dynamic"
 
@@ -216,17 +216,6 @@ function toServiceRequest(o: PatchMemberSchemaOutput): UpdateMemberRequest {
 		lineId: o.line_id ?? null,
 		shirtSize: o.shirt_size ?? null,
 		position: o.position,
-		business: {
-			name: o.business.name,
-			juristicRegistrationNo: o.business.juristic_registration_no,
-			categoryId: o.business.category_id,
-			address: o.business.address ?? null,
-			location: o.business.location ?? null,
-			description: o.business.description,
-			coreBusiness: o.business.core_business ?? null,
-			website: o.business.website ?? null,
-			logo: o.business.logo ?? null,
-			product: o.business.product ?? null,
-		},
+		business: toBusinessIntent(o.business),
 	}
 }

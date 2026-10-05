@@ -53,7 +53,14 @@ export type MemberProps = {
 	 */
 	readonly renewalSuccessfulCount: number
 	readonly documents: readonly MemberDocument[]
-	readonly business: MemberBusiness
+	/**
+	 * The business value the member carries in THIS request flow:
+	 * a fully-built {@link MemberBusiness} VO when the business is created/edited
+	 * with the member (create branch), or `null` when the member links/re-links
+	 * to an EXISTING shared business (link branch) — the service carries the
+	 * target business id separately and never writes business columns.
+	 */
+	readonly business: MemberBusiness | null
 }
 
 /**
@@ -163,18 +170,24 @@ export class Member {
 	 *   - position must be active
 	 *   - id_card is encrypted + hashed
 	 *   - membership defaults are computed (status, member_since, expires_at, count)
-	 *   - business VO is created (owns the [lat,long]→[long,lat] swap)
 	 *   - documents are collected from the request file paths
 	 *
+	 * `business` is the pre-built {@link MemberBusiness} VO (the caller resolves
+	 * the #69 business intent against the DB first: link → null, create/edit →
+	 * VO; the VO owns the [lat,long]→[long,lat] swap) — or `null` when the
+	 * member links to an existing shared business.
+	 *
 	 * Does NOT own cross-member rules (duplicate id_card, occupied SINGLE
-	 * position) — those require DB queries and live in the use case.
+	 * position, live juristic collision) — those require DB queries and live in
+	 * the use case.
 	 */
 	static create(
 		req: CreateMemberRequest,
 		position: PositionReadModel,
 		encryption: IEncryptionService,
 		blindIndex: IBlindIndexService,
-		now: Date
+		now: Date,
+		business: MemberBusiness | null
 	): Result<Member, MemberValidationError | CryptoError> {
 		// Self-invariant: id_card must not already be expired.
 		const expiryCheck = validateIdCardExpiry(req.idCardExpiryDate, now)
@@ -195,23 +208,6 @@ export class Member {
 		const cipherIdCardNoResult = idCardResult.value.toCipher(encryption, blindIndex)
 		if (cipherIdCardNoResult.isErr()) {
 			return err(cipherIdCardNoResult.error)
-		}
-
-		// Self-invariant: business VO (owns the location swap).
-		const businessResult = MemberBusiness.create({
-			name: req.business.name,
-			description: req.business.description,
-			juristicRegistrationNo: req.business.juristicRegistrationNo,
-			categoryId: req.business.categoryId,
-			address: req.business.address,
-			location: req.business.location,
-			coreBusiness: req.business.coreBusiness,
-			website: req.business.website,
-			logo: req.business.logo,
-			product: req.business.product,
-		})
-		if (businessResult.isErr()) {
-			return err(businessResult.error)
 		}
 
 		// Collect documents: ID_CARD (from id_card_image) + COMPANY_CERTIFICATE.
@@ -247,7 +243,7 @@ export class Member {
 				status: "ACTIVE",
 				renewalSuccessfulCount: 0,
 				documents: documents,
-				business: businessResult.value,
+				business: business,
 			})
 		)
 	}
@@ -283,20 +279,22 @@ export class Member {
 	 *     verbatim (null-sticky id_card_no, README §8 item 9; GET /:id exposes
 	 *     only the masked value, so "keep" cannot be re-derived from plaintext)
 	 *   - position must be active
-	 *   - business VO is created (owns the [lat,long]→[long,lat] swap)
 	 *   - documents are collected from the request file paths
 	 *
 	 * Does NOT own cross-member rules (duplicate id_card, occupied SINGLE
-	 * position) — those live in the update use case, same as create. A carried-
-	 * over cipher hashes identically to the stored one, so the use case's
-	 * conditional duplicate-id_card check skips it without special-casing.
+	 * position, live juristic collision) — those live in the update use case,
+	 * same as create. A carried-over cipher hashes identically to the stored
+	 * one, so the use case's conditional duplicate-id_card check skips it
+	 * without special-casing.
 	 *
 	 * The caller (update use case) is responsible for the PATCH-semantics
-	 * resolution: by the time `req` reaches here, the five sticky file-path
-	 * fields (profileAvatar, idCardImage, companyCertificate, business.logo,
-	 * business.product) must already be resolved to concrete non-null strings
-	 * (null in the request has been substituted with the existing stored value,
-	 * ADR-0012). This factory treats them as ordinary values.
+	 * resolution: by the time `req` reaches here, the four sticky file-path
+	 * fields (profileAvatar, idCardImage, companyCertificate) must already be
+	 * resolved to concrete non-null strings (null in the request has been
+	 * substituted with the existing stored value, ADR-0012). This factory treats
+	 * them as ordinary values. The business logo/product stickiness is resolved
+	 * by the caller INTO the `business` VO (edit branch only) — link branches
+	 * pass `null` and never touch business columns.
 	 *
 	 * `preserved` carries the lifecycle fields copied verbatim from the existing
 	 * member; everything else is taken from `req`.
@@ -313,7 +311,8 @@ export class Member {
 			status: MemberProps["status"]
 			renewalSuccessfulCount: number
 			idCardCipher: IdCardCipher
-		}
+		},
+		business: MemberBusiness | null
 	): Result<Member, MemberValidationError | CryptoError> {
 		// Self-invariant: id_card must not already be expired.
 		const expiryCheck = validateIdCardExpiry(req.idCardExpiryDate, now)
@@ -334,23 +333,6 @@ export class Member {
 			req.idCardNo === null ? ok(preserved.idCardCipher) : IdCard.fromPlaintext(req.idCardNo).andThen((idCard) => idCard.toCipher(encryption, blindIndex))
 		if (cipherIdCardNoResult.isErr()) {
 			return err(cipherIdCardNoResult.error)
-		}
-
-		// Self-invariant: business VO (owns the location swap).
-		const businessResult = MemberBusiness.create({
-			name: req.business.name,
-			description: req.business.description,
-			juristicRegistrationNo: req.business.juristicRegistrationNo,
-			categoryId: req.business.categoryId,
-			address: req.business.address,
-			location: req.business.location,
-			coreBusiness: req.business.coreBusiness,
-			website: req.business.website,
-			logo: req.business.logo,
-			product: req.business.product,
-		})
-		if (businessResult.isErr()) {
-			return err(businessResult.error)
 		}
 
 		// Collect documents: ID_CARD (from id_card_image) + COMPANY_CERTIFICATE.
@@ -383,7 +365,7 @@ export class Member {
 				status: preserved.status,
 				renewalSuccessfulCount: preserved.renewalSuccessfulCount,
 				documents: documents,
-				business: businessResult.value,
+				business: business,
 			})
 		)
 	}

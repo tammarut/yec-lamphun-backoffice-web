@@ -55,6 +55,7 @@ function makeReadModel(overrides: Partial<MemberDetailReadModel> = {}): MemberDe
 			website: "https://vfoods.co.th",
 			logoFilePath: "members/business/logo.png",
 			productFilePath: null,
+			memberCount: 2,
 			createdAt: new Date("2025-12-26T16:22:49.216Z"),
 			updatedAt: new Date("2025-05-06T00:00:00.000Z"),
 		},
@@ -103,6 +104,9 @@ describe("GetMemberByIdService", () => {
 			expect(res.profile_avatar).toBe("https://public/a.png")
 			expect(res.business.logo).toBe("https://public/logo.png")
 			expect(res.business.product).toBeNull()
+			// #62 D4: the shared business's live linked-member count + id ride on business.
+			expect(res.business.member_count).toBe(2)
+			expect(res.business.id).toBe(14)
 			// position ships the raw code, not a display name.
 			expect(res.position).toBe("GENERAL_MEMBER")
 			// Dates serialize as ISO strings.

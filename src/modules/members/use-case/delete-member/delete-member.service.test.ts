@@ -36,7 +36,7 @@ describe("DeleteMemberService", () => {
 		describe("Happy cases", () => {
 			test("locks the business first, then runs the cascade steps inside one transaction", async () => {
 				// Arrange — business has other live members; count wins.
-				mockBusinessRepo.findLiveBusinessIdForCascade.mockResolvedValue(7)
+				mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(7)
 				mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(2)
 
 				// Act
@@ -45,18 +45,18 @@ describe("DeleteMemberService", () => {
 				// Assert
 				expect(result.isOk()).toBe(true)
 				expect(mockDbClient.transaction).toHaveBeenCalledTimes(1)
-				expect(mockBusinessRepo.findLiveBusinessIdForCascade).toHaveBeenCalledWith(fakeTx, 101)
+				expect(mockBusinessRepo.lockLiveBusinessIdByMemberId).toHaveBeenCalledWith(fakeTx, 101)
 				expect(mockDocsRepo.softDeleteByMemberId).toHaveBeenCalledWith(fakeTx, 101)
 				expect(mockRepo.softDeleteMembershipRenewals).toHaveBeenCalledWith(fakeTx, 101)
 				expect(mockRepo.softDeleteMemberRow).toHaveBeenCalledWith(fakeTx, 101)
 				// Lock precedes the soft-deletes: the cascade gate must observe the
 				// live business before anything in the transaction changes.
-				expect(mockBusinessRepo.findLiveBusinessIdForCascade.mock.invocationCallOrder[0]).toBeLessThan(mockDocsRepo.softDeleteByMemberId.mock.invocationCallOrder[0]!)
+				expect(mockBusinessRepo.lockLiveBusinessIdByMemberId.mock.invocationCallOrder[0]).toBeLessThan(mockDocsRepo.softDeleteByMemberId.mock.invocationCallOrder[0]!)
 			})
 
 			test("keeps the business when other live members remain linked", async () => {
 				// Arrange — 2 OTHER live members still link to business 7.
-				mockBusinessRepo.findLiveBusinessIdForCascade.mockResolvedValue(7)
+				mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(7)
 				mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(2)
 
 				// Act
@@ -70,7 +70,7 @@ describe("DeleteMemberService", () => {
 
 			test("soft-deletes the business when the deleted member held the last live link", async () => {
 				// Arrange — no other live member links to business 7.
-				mockBusinessRepo.findLiveBusinessIdForCascade.mockResolvedValue(7)
+				mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(7)
 				mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(0)
 
 				// Act
@@ -86,7 +86,7 @@ describe("DeleteMemberService", () => {
 				// Arrange — business already soft-deleted (or absent): the lock finds
 				// nothing, so the member's own rows are still (no-op) soft-deleted but
 				// the count and business delete never run.
-				mockBusinessRepo.findLiveBusinessIdForCascade.mockResolvedValue(null)
+				mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(null)
 
 				// Act
 				const result = await service.execute(101)
@@ -104,7 +104,7 @@ describe("DeleteMemberService", () => {
 		describe("Unhappy cases", () => {
 			test("propagates the DatabaseError when a cascade step fails inside the transaction", async () => {
 				// Arrange — a step throws inside the tx: the whole transaction rolls back.
-				mockBusinessRepo.findLiveBusinessIdForCascade.mockResolvedValue(7)
+				mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(7)
 				mockDocsRepo.softDeleteByMemberId.mockRejectedValue(new DatabaseError("documents soft-delete failed"))
 
 				// Act

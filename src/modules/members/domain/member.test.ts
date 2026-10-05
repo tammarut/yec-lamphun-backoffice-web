@@ -3,9 +3,31 @@ import { mock, type MockProxy } from "vitest-mock-extended"
 import { err, ok } from "neverthrow"
 import { CryptoError, type IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
 import { MemberValidationError } from "./errors"
-import type { CreateMemberRequest } from "../use-case/create-new-member/create-member.types"
+import type { CreateMemberBusinessRequest, CreateMemberRequest } from "../use-case/create-new-member/create-member.types"
 import type { PositionReadModel } from "./member-read-models"
 import { Member } from "./member"
+import { MemberBusiness } from "./member-business"
+
+function makeBusinessPayload(overrides: Partial<CreateMemberBusinessRequest> = {}): CreateMemberBusinessRequest {
+	return {
+		name: "V Foods",
+		juristicRegistrationNo: "105557026729",
+		categoryId: 1,
+		address: null,
+		location: [13.72, 100.55],
+		description: "desc",
+		coreBusiness: null,
+		website: null,
+		logo: null,
+		product: null,
+		...overrides,
+	}
+}
+
+/** The create branch's business VO, built the way the use case builds it. */
+function makeBusinessVo(overrides: Partial<CreateMemberBusinessRequest> = {}): MemberBusiness {
+	return MemberBusiness.create(makeBusinessPayload(overrides))._unsafeUnwrap()
+}
 
 function makeRequest(overrides: Partial<CreateMemberRequest> = {}): CreateMemberRequest {
 	return {
@@ -30,18 +52,7 @@ function makeRequest(overrides: Partial<CreateMemberRequest> = {}): CreateMember
 		lineId: null,
 		shirtSize: null,
 		position: "GENERAL_MEMBER",
-		business: {
-			name: "V Foods",
-			juristicRegistrationNo: "105557026729",
-			categoryId: 1,
-			address: null,
-			location: [13.72, 100.55],
-			description: "desc",
-			coreBusiness: null,
-			website: null,
-			logo: null,
-			product: null,
-		},
+		business: { kind: "create", business: makeBusinessPayload() },
 		...overrides,
 	}
 }
@@ -73,7 +84,7 @@ describe("Member.create", () => {
 			const now = new Date("2026-07-13T10:00:00Z")
 
 			// Act
-			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())._unsafeUnwrap()
 
 			// Assert
 			expect(member.idCardNo).toBe("enc-base64")
@@ -83,15 +94,28 @@ describe("Member.create", () => {
 			expect(member.renewalSuccessfulCount).toBe(0)
 		})
 
-		test("builds the business VO with location swapped to [long, lat]", () => {
-			// Arrange — input location is [lat, long]
+		test("carries the business VO with location swapped to [long, lat]", () => {
+			// Arrange — the VO input location is [lat, long]; the VO owns the swap.
 			const now = new Date()
 
 			// Act
-			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())._unsafeUnwrap()
 
 			// Assert — VO stores [long, lat]
-			expect(member.business.location).toEqual([100.55, 13.72])
+			expect(member.business!.location).toEqual([100.55, 13.72])
+		})
+
+		test("link branch: business VO is null (no business columns to write)", () => {
+			// Arrange — #69: the link branch resolves the intent in the service and
+			// carries only the target business id; the aggregate holds no VO.
+			const now = new Date()
+
+			// Act
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now, null)._unsafeUnwrap()
+
+			// Assert
+			expect(member.business).toBeNull()
+			expect(member.idCardNo).toBe("enc-base64")
 		})
 
 		test("collects documents from id_card_image + company_certificate", () => {
@@ -107,7 +131,8 @@ describe("Member.create", () => {
 				activePosition,
 				mockEncryption,
 				mockBlindIndex,
-				now
+				now,
+				makeBusinessVo()
 			)._unsafeUnwrap()
 
 			// Assert
@@ -123,7 +148,7 @@ describe("Member.create", () => {
 			const now = new Date(Date.UTC(2026, 5, 15, 10, 0, 0))
 
 			// Act
-			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())._unsafeUnwrap()
 
 			// Assert — exact instant, not just year/hours (the prior loose assertions
 			// passed coincidentally under both the old and new formulas).
@@ -136,7 +161,7 @@ describe("Member.create", () => {
 			const now = new Date(Date.UTC(2026, 11, 31, 23, 0, 0))
 
 			// Act
-			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)._unsafeUnwrap()
+			const member = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())._unsafeUnwrap()
 
 			// Assert
 			expect(member.expiresAt!.toISOString()).toBe("2027-12-31T23:59:59.999Z")
@@ -149,7 +174,7 @@ describe("Member.create", () => {
 			const now = new Date()
 
 			// Act
-			const result = Member.create(makeRequest({ idCardExpiryDate: new Date("2020-01-01") }), activePosition, mockEncryption, mockBlindIndex, now)
+			const result = Member.create(makeRequest({ idCardExpiryDate: new Date("2020-01-01") }), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
@@ -161,7 +186,7 @@ describe("Member.create", () => {
 			const now = new Date()
 
 			// Act
-			const result = Member.create(makeRequest(), inactive, mockEncryption, mockBlindIndex, now)
+			const result = Member.create(makeRequest(), inactive, mockEncryption, mockBlindIndex, now, makeBusinessVo())
 
 			// Assert
 			const error = result._unsafeUnwrapErr()
@@ -174,7 +199,7 @@ describe("Member.create", () => {
 			const now = new Date()
 
 			// Act
-			const result = Member.create(makeRequest({ idCardNo: "123" }), activePosition, mockEncryption, mockBlindIndex, now)
+			const result = Member.create(makeRequest({ idCardNo: "123" }), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(MemberValidationError)
@@ -186,7 +211,7 @@ describe("Member.create", () => {
 			const now = new Date()
 
 			// Act
-			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now)
+			const result = Member.create(makeRequest(), activePosition, mockEncryption, mockBlindIndex, now, makeBusinessVo())
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(CryptoError)

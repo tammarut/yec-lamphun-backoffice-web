@@ -70,6 +70,53 @@ INSERT INTO businesses (
 RETURNING id;
 
 -- ============================================================================
+-- Business link/re-link checks (#62 D2/D3, #69) — run OUTSIDE any transaction,
+-- same as the member duplicate/contact pre-checks above: they exist for a
+-- precise 4xx instead of a raw constraint failure → 500. The live-rows-only
+-- partial unique index idx_businesses_juristic_registration_no is the real guard.
+-- ============================================================================
+
+-- name: FindLiveBusinessIdById :many
+-- Liveness check for the link/re-link branch's business_id (#69): the id must
+-- match a NON-deleted business row, else the route maps it to a 400. Returns
+-- the matched id (empty when absent/soft-deleted); the repository narrows it
+-- to a boolean. `:many` per ADR-0001.
+SELECT id
+FROM businesses
+WHERE id = $1
+  AND deleted_at IS NULL;
+
+-- name: LockLiveBusinessIdById :many
+-- Tx-scoped re-check + lock of the link/re-link TARGET business (#69). Runs
+-- INSIDE the create/update transaction, after the outside-tx pre-check: the
+-- FOR UPDATE serializes against a concurrent ADR-0023 delete-cascade of this
+-- business (its LockLiveBusinessIdByMemberId takes the same row lock), so the
+-- target cannot be soft-deleted between our check and our commit. No row ⇒
+-- the target was soft-deleted in that window (or is absent) ⇒ the caller
+-- aborts with DatabaseError instead of writing a live member onto a dead
+-- business — keeps the live-member ⇔ live-business invariant instead of
+-- accepting a corruption race. `:many` per ADR-0001.
+SELECT id
+FROM businesses
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: FindLiveJuristicConflictId :many
+-- Juristic-no collision check for the create/edit branch (#62 D3): a LIVE
+-- business already holding this juristic_registration_no. exclude_business_id
+-- NULL = create flow (any live business conflicts); a value = PATCH edit flow,
+-- excluding the member's own linked business (self-excluding, mirrors
+-- FindLiveContactConflicts). Soft-deleted predecessors never conflict — the
+-- partial unique index idx_businesses_juristic_registration_no is the DB-side guard.
+-- `:many` per ADR-0001.
+SELECT id
+FROM businesses
+WHERE juristic_registration_no = $1
+  AND (sqlc.narg('exclude_business_id')::BIGINT IS NULL OR id <> sqlc.narg('exclude_business_id')::BIGINT)
+  AND deleted_at IS NULL;
+
+-- ============================================================================
 -- Read queries (GET /api/v1/members/:id)
 -- ============================================================================
 
@@ -82,6 +129,8 @@ RETURNING id;
 -- member with no business row as corruption → DatabaseError → 500 (grilling
 -- Q6/iii-a). Post-cutover (#72) the invariant makes this unreachable — a live
 -- member always has a live business — but the guard stays loud.
+-- business_member_count (#62 D4): live members linked to the business,
+-- powering the shared-entity warning banner (business.member_count in GET /:id).
 SELECT m.id,
        m.registration_type,
        m.title_name_th, m.first_name_th, m.last_name_th,
@@ -109,7 +158,12 @@ SELECT m.id,
        b.logo_file_path,
        b.product_file_path,
        b.created_at    AS business_created_at,
-       b.updated_at    AS business_updated_at
+       b.updated_at    AS business_updated_at,
+-- business_member_count (#62 D4): live members linked to the business — SELF
+-- INCLUDED (no m.id exclusion; a future reader must not "fix" this), powering
+-- the shared-entity warning banner (business.member_count in GET /:id;
+-- member_count ≥ 2 = shared).
+       (SELECT count(*)::int FROM members mc WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS business_member_count
 FROM members m
 LEFT JOIN businesses b
        ON b.id = m.business_id
@@ -173,6 +227,20 @@ UPDATE businesses SET
 WHERE id = $1
   AND deleted_at IS NULL;
 
+-- name: UpdateMemberBusinessLinkById :exec
+-- Re-link step (#62 D1/#69): point a non-deleted member at a different LIVE
+-- business. This is the ONE query allowed to mutate members.business_id
+-- (immutable before #69 — see the locking note on
+-- LockLiveBusinessIdByMemberId). Runs INSIDE the update transaction AFTER
+-- LockLiveBusinessIdByMemberId has locked the member's current (old) business
+-- row; the caller then releases the old business when it held the last live
+-- link (ADR-0023 lifecycle participation).
+UPDATE members SET
+    business_id = $2,
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;
+
 -- name: SoftDeleteMemberDocumentsByMemberIdAndTypes :exec
 -- Soft-delete (set deleted_at) the member's non-deleted document rows of the
 -- given type(s), in preparation for inserting replacement rows. Used when a
@@ -201,24 +269,31 @@ WHERE member_id = $1
 --      non-deleted business ⇔ ≥1 live member)
 -- ============================================================================
 
--- name: FindLiveBusinessIdForCascade :many
--- 1. The member's linked LIVE business id, locking the businesses row against
--- concurrent cascades until this transaction ends. The scalar subquery reads
--- members.business_id even for an already-soft-deleted member (re-delete) —
--- the deleted_at filter on businesses is what makes this return no row and
--- the whole cascade skip. `:many` per ADR-0001; narrowed by hand.
+-- name: LockLiveBusinessIdByMemberId :many
+-- Lock (SELECT ... FOR UPDATE) the member's linked LIVE business row and
+-- return its id. Two callers, one guarantee — the businesses row lock is held
+-- until the transaction ends:
+--   1. the ADR-0023 delete-cascade gate (serializes concurrent deletes of
+--      co-linked members; NULL ⇒ business already gone ⇒ re-delete skips the
+--      cascade entirely, idempotent 204, never 404)
+--   2. the #69 re-link release step (serializes against concurrent
+--      delete-cascades and other re-links releasing the same old business, so
+--      the count-and-soft-delete below can't miss each other)
+-- The scalar subquery reads members.business_id even for an already-
+-- soft-deleted member (re-delete) — the deleted_at filter on businesses is
+-- what makes this return no row and the delete cascade skip.
+-- `:many` per ADR-0001; narrowed by hand.
 --
--- Locking note: FOR UPDATE locks only the businesses row, NOT the members row
--- the subquery reads. That is safe because business_id is immutable after
--- creation — set once by InsertMember, never touched by UpdateMemberById — so
--- no concurrent transaction can re-point the link mid-read. If a future
--- ticket ever makes business_id mutable, this gate must lock the member row
--- FIRST (SELECT business_id FROM members WHERE id = $1 FOR UPDATE) before
--- locking the business, or the cascade can phantom-read a concurrently
--- re-pointed link.
+-- Locking note: the subquery's FOR UPDATE locks the members row FIRST, the
+-- outer FOR UPDATE locks the businesses row second — a fixed member→business
+-- lock order. This matters since #69 made business_id MUTABLE
+-- (UpdateMemberBusinessLinkById): without the member-row lock, a concurrent
+-- re-link could re-point the link between this read and the caller's writes,
+-- and the two transactions could deadlock (each holding the lock the other
+-- needs). With it, re-link and delete-cascade serialize on the member row.
 SELECT b.id AS business_id
 FROM businesses b
-WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1)
+WHERE b.id = (SELECT m.business_id FROM members m WHERE m.id = $1 FOR UPDATE)
   AND b.deleted_at IS NULL
 FOR UPDATE;
 
