@@ -458,3 +458,23 @@ SELECT
     EXISTS (SELECT 1 FROM members m
             WHERE m.deleted_at IS NULL AND m.line_id = @line_id
               AND (sqlc.narg('exclude_member_id')::BIGINT IS NULL OR m.id <> sqlc.narg('exclude_member_id')::BIGINT)) AS line_id_conflict;
+
+-- name: SearchLiveBusinesses :many
+SELECT b.id,
+       b.name,
+       b.juristic_registration_no,
+       bc.name AS category_name,
+       b.address,
+       (SELECT count(*)::int FROM members mc
+         WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS member_count,
+       (SELECT array_agg(mc.title_name_th || ' ' || mc.first_name_th || ' ' || mc.last_name_th ORDER BY mc.id)
+          FROM members mc
+         WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS owner_names
+FROM businesses b
+INNER JOIN business_categories bc ON bc.id = b.category_id
+WHERE b.deleted_at IS NULL
+  AND (sqlc.narg('search_pattern')::TEXT IS NULL
+       OR b.name ILIKE sqlc.narg('search_pattern')::TEXT ESCAPE '\'
+       OR b.juristic_registration_no ILIKE sqlc.narg('search_pattern')::TEXT ESCAPE '\')
+ORDER BY b.name ASC, b.id ASC
+LIMIT sqlc.arg('row_limit')::INT;

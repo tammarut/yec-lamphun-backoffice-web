@@ -2,6 +2,7 @@ import type { Sql } from "postgres"
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { MemberBusiness } from "../../domain/member-business"
+import type { BusinessSearchFilter, BusinessSearchItem } from "../../use-case/search-businesses/search-businesses.types"
 
 /**
  * Repository contract for the shared `businesses` table (ADR-0024): its
@@ -104,4 +105,24 @@ export interface IBusinessesRepository {
 
 	/** Soft-delete the shared business row (ADR-0023: businesses do not survive their last live member). */
 	softDeleteBusinessById(tx: Sql, businessId: number): Promise<void>
+}
+
+/**
+ * Repository contract for the #68 business search read: the prefix-search
+ * picker over LIVE businesses. Split out of {@link IBusinessesRepository}
+ * (one repository per responsibility, ADR-0024) so the write-side + cascade
+ * boundary stays untouched. Runs OUTSIDE any transaction on its own
+ * connection and returns the AGENTS.md §2B `Promise<Result<...>>` shape, same
+ * as the check queries above.
+ */
+export interface IBusinessSearchRepository {
+	/**
+	 * Live businesses matching the filter, ordered by name then id, capped at
+	 * `filter.limit` (already defaulted by the route). `search` null = no
+	 * filter; a non-empty value is an escaped prefix-ILIKE over the business
+	 * name AND juristic_registration_no (escaping happens app-side in the
+	 * repository, never in SQL). Each row carries its live-member rollup —
+	 * see {@link BusinessSearchItem}.
+	 */
+	searchLiveBusinesses(filter: BusinessSearchFilter): Promise<Result<readonly BusinessSearchItem[], DatabaseError>>
 }
