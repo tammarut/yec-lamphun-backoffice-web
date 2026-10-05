@@ -5,14 +5,7 @@
 		"description": "API for managing members.",
 		"version": "1.0.0"
 	},
-	"tags": [
-		{
-			"name": "module_member"
-		},
-		{
-			"name": "dashboard"
-		}
-	],
+	"tags": [{ "name": "module_member" }, { "name": "dashboard" }],
 	"paths": {
 		"/api/v1/members/executive-committee": {
 			"get": {
@@ -156,7 +149,7 @@
 			"get": {
 				"summary": "Get a member by id (/api/v1/members/{id})",
 				"deprecated": false,
-				"description": "# GET a member's details by id for a detail view/edit form\n\n## ✍️Pseudocode\n1. **Auth** — `withAuth` middleware validates the `session_id` cookie.\n      - missing/invalid → **401** `{ error_message: \"Unauthorized\" }`\n\n2. **Validate path param `id`** — Valibot `pipe(string(), transform(Number), integer(), minValue(1))`.\n      - non-integer / ≤ 0 → **400** `{ error_message: \"id parameter must be a valid integer\" }`\n\n3. **Query 1 — member + business** (one `LEFT JOIN`, both filtered `deleted_at IS NULL`):\n      ```sql\n      SELECT m.*, b.*\n      FROM members m\n      LEFT JOIN member_business b\n             ON b.member_id = m.id AND b.deleted_at IS NULL\n      WHERE m.id = $1 AND m.deleted_at IS NULL;\n      ```\n\n      - 0 rows (not found / soft-deleted) → **404** `{ error_message: \"not found this member id\" }`\n      - member row present but `business_id IS NULL` → treated as **data corruption** → **500** `{ error_message: \"Internal Server Error\" }`\n\n4. **Query 2 — documents** (latest-wins per type; `PAYMENT_SLIP` excluded):\n      ```sql\n      SELECT type, file_path, created_at\n      FROM member_documents\n      WHERE member_id = $1 AND deleted_at IS NULL\n        AND type IN ('ID_CARD','COMPANY_CERTIFICATE')\n      ORDER BY type, created_at DESC\n      ```\n      - first row per `type` is the newest (latest-wins, Q5/A)\n\n5. **Decrypt + mask `id_card_no`** (AES-256-GCM ciphertext → 13-digit plaintext → mask).\n\n      - mask format: `###XXXXXX####` (first 3 + six `X` + last 4), e.g. `632XXXXXX1483`\n      - **decrypt or mask failure is non-fatal** → `id_card_no: null` in the response, request stays **200** (logged server-side; data-level failure, not infra — ADR-0008)\n\n6. **Resolve file URLs** — two modes, run separately:\n\n      - **Public bucket** (`profile_avatar`, `logo`, `product`) → concatenated permanent URL `${R2_PUBLIC_BASE_URL}/${key}` (synchronous, infallible). Null paths pass through as `null`.\n      - **Private bucket** (`id_card_image`, `company_certificate`) → presigned URL via `@aws-sdk/s3-request-presigner`, TTL = `PRESIGNED_URL_EXPIRES_IN`. The two presigns run in parallel (`ResultAsync.combine`); **a presign failure is infra-level and propagates** → **500** (not degraded to `null` — that would silently lie that the member has no documents).\n\n7. **Assemble response**\n    - snake_case; serialize `date_of_birth`/`id_card_expiry_date` as date-only `YYYY-MM-DD`, timestamps as ISO datetime\n    - Swap `business.location` from DB order `[long, lat]` → `[lat, long]` (round-trip symmetry with the create request body)\n    - `position` ships the raw code (e.g. `GENERAL_MEMBER`) — the frontend maps it to a Thai display name.\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n    participant R2 as Cloudflare R2\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members/:id (Cookie: session_id=...)\n\n    nextjsapi->>nextjsapi: withAuth — validate session_id cookie\n\n    break no/invalid session\n        nextjsapi-->>browser: 401 Unauthorized\n    end\n\n    nextjsapi->>nextjsapi: Validate id (integer > 0)\n\n    break invalid id\n        nextjsapi-->>browser: 400 { error_message: \"id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: Q1: SELECT member LEFT JOIN business WHERE id=? AND deleted_at IS NULL\n    database-->>-nextjsapi: member+business row (or null)\n\n    break member not found / soft-deleted\n        nextjsapi-->>browser: 404 { error_message: \"not found this member id\" }\n    end\n\n    break member found but business_id IS NULL (corruption)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>+database: Q2: SELECT documents WHERE member_id=? AND type IN (ID_CARD, COMPANY_CERTIFICATE) ORDER BY type, created_at DESC\n    database-->>-nextjsapi: document rows (latest-wins per type)\n\n    nextjsapi->>nextjsapi: Decrypt id_card_no (AES-GCM)\n\n    alt decrypt ok\n        nextjsapi->>nextjsapi: Mask plaintext → \"632XXXXXX1483\"\n    else decrypt/mask failed (data-level)\n        nextjsapi->>nextjsapi: Log + set id_card_no = null (request continues, 200)\n    end\n\n    par public bucket (sync concat)\n        nextjsapi->>nextjsapi: publicUrl(profile_avatar), publicUrl(logo), publicUrl(product)\n    and private bucket (parallel presign)\n        nextjsapi->>+R2: presign(id_card_image) + presign(company_certificate)\n        R2-->>-nextjsapi: 2× pre-signed URLs\n    end\n\n    break presign failed (infra-level — R2/creds/network)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>nextjsapi: Assemble response (location swapped [long,lat]→[lat,long], dates serialized)\n\n    nextjsapi-->>browser: 200 OK (member detail)\n```",
+				"description": "# GET a member's details by id for a detail view/edit form\n\n## Business object (shared entity, #62 D4)\n\n`business.id` = the **shared `businesses.id`** — stable and identical across ALL members linked to the same business.\n`business.member_count` = count of **LIVE members linked to this business** (deleted_at IS NULL, **the reading member included**). Powers the shared-business warning banner: `member_count ≥ 2` = the business is shared — field edits propagate to every linked member.\n\n## ✍️Pseudocode\n1. **Auth** — `withAuth` middleware validates the `session_id` cookie.\n      - missing/invalid → **401** `{ error_message: \"Unauthorized\" }`\n\n2. **Validate path param `id`** — Valibot `pipe(string(), transform(Number), integer(), minValue(1))`.\n      - non-integer / ≤ 0 → **400** `{ error_message: \"id parameter must be a valid integer\" }`\n\n3. **Query 1 — member + shared business** (one `LEFT JOIN` + live-count scalar subquery):\n      ```sql\n      SELECT m.*, b.*,\n             (SELECT count(*)::int FROM members mc\n              WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS business_member_count\n      FROM members m\n      LEFT JOIN businesses b\n             ON b.id = m.business_id AND b.deleted_at IS NULL\n      WHERE m.id = $1 AND m.deleted_at IS NULL;\n      ```\n\n      - 0 rows (not found / soft-deleted) → **404** `{ error_message: \"not found this member id\" }`\n      - member row present but business row soft-deleted/absent → treated as **data corruption** → **500** `{ error_message: \"Internal Server Error\" }`\n      - `business_member_count` is **self included** (member_count ≥ 2 = shared business)\n\n4. **Query 2 — documents** (latest-wins per type; `PAYMENT_SLIP` excluded):\n      ```sql\n      SELECT type, file_path, created_at\n      FROM member_documents\n      WHERE member_id = $1 AND deleted_at IS NULL\n        AND type IN ('ID_CARD','COMPANY_CERTIFICATE')\n      ORDER BY type, created_at DESC\n      ```\n      - first row per `type` is the newest (latest-wins)\n\n5. **Decrypt + mask `id_card_no`** (AES-256-GCM ciphertext → 13-digit plaintext → mask).\n      - mask format: `###XXXXXX####` (first 3 + six `X` + last 4), e.g. `632XXXXXX1483`\n      - **decrypt or mask failure is non-fatal** → `id_card_no: null`, request stays **200** (ADR-0008)\n\n6. **Resolve file URLs** — two modes:\n      - **Public bucket** (`profile_avatar`, `logo`, `product`) → concatenated permanent URL `${R2_PUBLIC_BASE_URL}/${key}`. Null paths pass through as `null`.\n      - **Private bucket** (`id_card_image`, `company_certificate`) → presigned URL, TTL = `PRESIGNED_URL_EXPIRES_IN`, run in parallel. **A presign failure is infra-level and propagates** → **500**.\n\n7. **Assemble response**\n    - snake_case; `date_of_birth`/`id_card_expiry_date` as `YYYY-MM-DD`, timestamps as ISO datetime\n    - Swap `business.location` from DB order `[long, lat]` → `[lat, long]` (round-trip symmetry)\n    - `business.member_count` from Query 1; `position` ships the raw code (e.g. `GENERAL_MEMBER`)\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n    participant R2 as Cloudflare R2\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members/:id (Cookie: session_id=...)\n\n    nextjsapi->>nextjsapi: withAuth — validate session_id cookie\n\n    break no/invalid session\n        nextjsapi-->>browser: 401 Unauthorized\n    end\n\n    nextjsapi->>nextjsapi: Validate id (integer > 0)\n\n    break invalid id\n        nextjsapi-->>browser: 400 { error_message: \"id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: Q1: SELECT member LEFT JOIN businesses + member_count subquery WHERE id=? AND deleted_at IS NULL\n    database-->>-nextjsapi: member + business row incl. business_member_count (or null)\n\n    break member not found / soft-deleted\n        nextjsapi-->>browser: 404 { error_message: \"not found this member id\" }\n    end\n\n    break member found but business row missing/soft-deleted (corruption)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>+database: Q2: SELECT documents WHERE member_id=? AND type IN (ID_CARD, COMPANY_CERTIFICATE) ORDER BY type, created_at DESC\n    database-->>-nextjsapi: document rows (latest-wins per type)\n\n    nextjsapi->>nextjsapi: Decrypt id_card_no (AES-GCM)\n\n    alt decrypt ok\n        nextjsapi->>nextjsapi: Mask plaintext → \"632XXXXXX1483\"\n    else decrypt/mask failed (data-level)\n        nextjsapi->>nextjsapi: Log + set id_card_no = null (request continues, 200)\n    end\n\n    par public bucket (sync concat)\n        nextjsapi->>nextjsapi: publicUrl(profile_avatar), publicUrl(logo), publicUrl(product)\n    and private bucket (parallel presign)\n        nextjsapi->>+R2: presign(id_card_image) + presign(company_certificate)\n        R2-->>-nextjsapi: 2× pre-signed URLs\n    end\n\n    break presign failed (infra-level — R2/creds/network)\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>nextjsapi: Assemble response (member_count, location swapped [long,lat]→[lat,long], dates serialized)\n\n    nextjsapi-->>browser: 200 OK (member detail)\n```",
 				"tags": ["module_member"],
 				"parameters": [
 					{
@@ -307,7 +300,7 @@
 			"patch": {
 				"summary": "Update a member by id (/api/v1/members/:id)",
 				"deprecated": false,
-				"description": "# Update a member by id record from a UI form submission\n> Execute under the same DB transaction\n\nStaff-only endpoint (validates `session_id` cookie via `withAuth`).\nReceives already-uploaded R2 file paths from `POST /api/v1/members/file/upload`.\n\n## PATCH semantics (hybrid, ADR-0012)\n\nThe body is the **full** `UpdateMemberRequest` object — identical structure to `POST /api/v1/members` (`CreateNewMemberRequest`) except `id_card_no`, which is nullable and optional here.\n\n- **Scalar fields** (names, phone, email, etc.): always overwritten. A JSON `null` on a nullable scalar **clears** the column (e.g. `email: null` removes the email).\n- The member being edited is EXCLUDED from the check: re-saving their own unchanged phone/email/line_id is not a conflict\n- **File-path fields are sticky on `null`**: the following five fields treat JSON `null` as **\"leave the existing stored value unchanged\"** — sending `null` does NOT clear them:\n  - `profile_avatar`\n  - `id_card_image`\n  - `company_certificate`\n  - `business.logo`\n  - `business.product`\n- **`id_card_no` is sticky on `null` (or absent)**: keeps the stored id card. `GET /:id` returns only the Masked ID Card, so the edit form cannot echo the plaintext back — null-stickiness lets an edit save without re-typing the 13-digit number. A non-null value must be 13 digits and replaces the stored card (re-encrypted + re-hashed).\n\nThis prevents a form that doesn't re-upload a file from accidentally wiping an avatar / orphaning an uploaded R2 object. Lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) are **never** modified by PATCH.\n\n## ✍️ Pseudocode\n\n1. Authenticate via `session_id` cookie (`withAuth`) — 401 on failure\n2. Parse path `id` → integer > 0 (400 on invalid)\n3. Parse JSON body; structural-validate via Valibot `PatchMemberSchema` (types, enums, formats, required-ness) — 400 on failure\n4. **Resolve the five sticky file-path fields**: for each of `profile_avatar`, `id_card_image`, `company_certificate`, `business.logo`, `business.product`, if the request sent `null`, substitute the existing stored value\n5. Fetch the existing member by id (`getMemberDetailById`)\n    - Not found / soft-deleted → **404 Not Found** (indistinguishable)\n6. Fetch the requested position by code\n    - Unknown code → **400** (`Unknown position code`)\n7. **Conditional position-conflict check — only if the requested position differs from the stored one**\n    - If unchanged → skip (the member holding their own position is not a conflict)\n    - If changed → count active holders of the target position; if it is a `SINGLE`-cardinality position and someone already holds it → **409 Conflict** (`Position <code> is already held`)\n8. Re-validate self-invariants and rebuild the aggregate (`Member.update`):\n    - `id_card_expiry_date` must not be before today → **400**\n    - `id_card_no` must be 13 digits → **400**\n    - position must be active → **400**\n    - Encrypt `id_card_no` (AES-256-GCM, base64) + hash (HMAC-SHA256, hex)\n    - Swap business `location` `[lat, long]` → `[long, lat]`\n    - Preserve lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) from the existing member\n9. **Conditional duplicate-id_card check — only if the new id_card hash differs from the stored hash**\n    - If unchanged → skip (otherwise the member would conflict with themselves)\n    - If changed → query for an existing member with the new hash; if found → **409 Conflict** (`A member with this ID card already exists`)\n10. **Begin DB transaction** (single transaction for all writes below)\n11. `UPDATE members SET <mutable columns>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`\n    - Omits lifecycle columns (status, member_since, expires_at, renewal_successful_count) — they are preserved\n    - On failure → ROLLBACK → **500**\n12. `UPDATE member_business SET <columns>, updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL`\n    - `location` written in `[long, lat]` order\n    - On failure → ROLLBACK → **500**\n13. **Only for document types whose resolved path DIFFERED from the stored path** (`id_card_image` and/or `company_certificate`):\n    - Soft-delete existing rows: `UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL`\n    - Insert the new row(s) of the replaced type(s)\n    - On failure → ROLLBACK → **500**\n14. **Commit** DB transaction\n15. No response body — **204 No Content**\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/members/:id { payload }\n\n    nextjsapi ->> nextjsapi: withAuth: validate session_id cookie\n    break Unauthorized (missing/invalid session)\n        nextjsapi-->>browser: 401 Unauthorized\n    end\n\n    nextjsapi ->> nextjsapi: Validate id path param (integer > 0) + body (PatchMemberSchema)\n    break Invalid id or body (missing fields, invalid types, bad enums/formats)\n        nextjsapi-->>browser: 400 Bad Request\n    end\n\n    nextjsapi ->> nextjsapi: Resolve 5 sticky file-path fields<br/>(null -> keep stored value)\n\n    nextjsapi->>+database: SELECT member + business + docs WHERE id = ?\n    database-->>-nextjsapi: Return member row or null\n\n    break Member id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found\n    end\n\n    nextjsapi->>+database: SELECT position WHERE code = ?\n    database-->>-nextjsapi: Return position row or null\n\n    break Unknown position code\n        nextjsapi-->>browser: 400 Bad Request\n    end\n\n    opt Requested position != stored position\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE position_code = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return holder count\n        break SINGLE position already held by another member\n            nextjsapi-->>browser: 409 Conflict\n        end\n    end\n\n    Note over nextjsapi: Validate self-invariants (Member.update):<br/>- id_card_expiry_date >= today<br/>- id_card_no 13 digits (non-null only null keeps stored cipher)<br/>- position active<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Swap location [lat,long] -> [long,lat]<br/>- Preserve lifecycle fields (status, member_since, expires_at, renewal_successful_count)\n    break Past expiry / bad id_card / inactive position\n        nextjsapi-->>browser: 400 Bad Request\n    end\n\n    opt New id_card hash != stored id_card hash\n        nextjsapi ->> nextjsapi: Hash input id_card_no (HMAC-SHA256)\n        nextjsapi->>+database: SELECT count(*) FROM members WHERE id_card_no_hash = ?\n        database-->>-nextjsapi: Return count\n        break Found duplicate id_card\n            nextjsapi-->>browser: 409 Conflict\n        end\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction\n\n        nextjsapi->>database: BEGIN TRANSACTION\n\n        nextjsapi->>+database: UPDATE members SET mutable, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        Note over nextjsapi: location already swapped to [long, lat]\n        nextjsapi->>+database: UPDATE member_business SET ..., updated_at = NOW() WHERE member_id = ? AND deleted_at IS NULL\n        database-->>-nextjsapi: Return result\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        opt id_card_image and/or company_certificate path CHANGED\n            Note over nextjsapi: Soft-delete ONLY the replaced type(s)\n            nextjsapi->>+database: UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL\n            database-->>-nextjsapi: Return result\n            break Soft-delete fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n            nextjsapi->>+database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n            database-->>-nextjsapi: Return result\n            break Insert fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n        end\n\n        nextjsapi->>+database: COMMIT\n        database-->>-nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 204 No Content\n```\n",
+				"description": "# Update a member by id record from a UI form submission\n> Execute under the same DB transaction\n\nStaff-only endpoint (validates `session_id` cookie via `withAuth`).\nReceives already-uploaded R2 file paths from `POST /api/v1/members/file/upload`.\n\n## PATCH semantics (hybrid, ADR-0012)\n\nThe body is the **full** member object; the `business` property is an **ordered union** (#62 D1/D5):\n\n| `business` shape | Meaning |\n|---|---|\n| `{ \"business_id\": 42 }` (extra fields optional and ignored) | **RE-LINK** the member to that LIVE business — no field edits in the same request (re-link first, then PATCH fields if needed). Files follow the target business. Re-link to the member's **current** business = allowed **no-op**. |\n| Full 10-field set | **EDIT** — wholesale overwrite of the member's linked **shared** business row (every co-linked member sees the edit) |\n\n- Scalar fields: always overwritten; JSON `null` on a nullable scalar **clears** the column.\n- **Member file-path fields are sticky on `null`**: `profile_avatar`, `id_card_image`, `company_certificate` — null = keep stored value.\n- **`business.logo` / `business.product` are sticky on `null` (edit branch only)**: null = keep the value on the shared row.\n- **`id_card_no` is sticky on `null` (or absent)**: keeps the stored id card (GET /:id returns only the masked value).\n- The member is **excluded** from its own contact-conflict checks (re-saving own phone/email/line_id is not a conflict).\n- Juristic collision (edit branch): the member's **own linked business is excluded** from the check (self-excluding); a **different** live business holding the number → **409** `A business with this registration number already exists`.\n- Lifecycle fields (`status`, `member_since`, `expires_at`, `renewal_successful_count`) are **never** modified by PATCH.\n\n\n## ✍️Pseudocode\n\n1. Authenticate via `session_id` cookie (`withAuth`) — 401 on failure\n2. Parse path `id` → integer > 0 (400 on invalid)\n3. Parse JSON body; structural-validate via Valibot `PatchMemberSchema` — `business` must resolve to one union branch — 400 on failure\n4. Fetch the existing member by id (member + linked shared business + docs)\n    - Not found / soft-deleted → **404 Not Found** (indistinguishable)\n5. **Resolve the business intent (ordered union):**\n    - **Link branch** (`business_id` present): query live business by id — no live row (unknown/soft-deleted) → **400**\n        - `business_id` = member's current business → **no-op** (no business writes)\n        - else → **RE-LINK** intent\n    - **Edit branch** (full field set): resolve `business.logo`/`business.product` sticky null → keep stored values on the shared row; build business VO (swap location [lat, long] ➞ [long, lat])\n        - Query live juristic conflict **excluding the member's own linked business** → found ➞ **409** `A business with this registration number already exists`\n6. Resolve member-level sticky file-path fields: `profile_avatar`, `id_card_image`, `company_certificate` — null → keep stored value\n7. Fetch the requested position by code — unknown → **400**\n8. Conditional position-conflict check — only if position CHANGED: SINGLE already held → **409 Conflict**\n9. Re-validate self-invariants and rebuild the aggregate (`Member.update`):\n    - `id_card_expiry_date` not before today → **400**; `id_card_no` 13 digits (non-null only) → **400**; position active → **400**\n    - Encrypt `AES-256-GCM` + hash `HMAC-SHA256` id_card_no (null id_card_no keeps the stored cipher)\n    - Preserve lifecycle fields from the existing member\n10. Conditional duplicate-id_card check — only if the new hash differs from stored → found → **409 Conflict**\n11. Live-contact conflict check (phone_no / email / line_id, excluding this member) → per-column **409 Conflict**\n12. Compute replaced document types — only those whose resolved path DIFFERS from stored\n13. Begin DB transaction (single transaction for all writes below; any failure → ROLLBACK → **500**)\n14. `UPDATE members SET <mutable columns>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL` (lifecycle columns omitted — preserved)\n15. **Branch by business intent:**\n    - **Edit:** `UPDATE businesses SET <columns>, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL` (location in [long, lat])\n    - **Re-link:** (a) `SELECT b.id FROM businesses b WHERE b.id = (SELECT business_id FROM members WHERE id = ? FOR UPDATE) AND b.deleted_at IS NULL FOR UPDATE` — lock the OLD business, member row locked first (fixed member→business order shared with the delete cascade); (b) lock the TARGET business `FOR UPDATE` (tx-scoped liveness re-check; gone → ROLLBACK → **500**); (c) `UPDATE members SET business_id = <target>, updated_at = NOW() WHERE id = ?`; (d) count OTHER live members linked to the OLD business — **0 → soft-delete the old business row** (ADR-0023: a business does not survive its last live link; a soft-deleted old business releases its juristic no for re-registration)\n    - **No-op:** nothing\n16. For each replaced document type: soft-delete old rows of that type, insert the new row\n17. Commit DB transaction\n18. No response body — **204 No Content**\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: PATCH /api/v1/members/:id { payload }\n\n    nextjsapi->>nextjsapi: withAuth: validate session_id cookie\n    break Unauthorized (missing/invalid session)\n        nextjsapi-->>browser: 401 Unauthorized\n    end\n\n    nextjsapi->>nextjsapi: Validate id path param + body (PatchMemberSchema,<br/>business = ordered union: re-link first)\n    break Invalid id or body / neither business branch\n        nextjsapi-->>browser: 400 Bad Request\n    end\n\n    nextjsapi->>+database: SELECT member + shared business + docs WHERE id = ?\n    database-->>-nextjsapi: Return member row or null\n    break Member id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found\n    end\n\n    alt business = RE-LINK (business_id present)\n        nextjsapi->>database: SELECT id FROM businesses WHERE id = ? AND deleted_at IS NULL\n        database-->>nextjsapi: live row or empty\n        break Unknown / soft-deleted business_id\n            nextjsapi-->>browser: 400 Bad Request\n        end\n        Note over nextjsapi: business_id == current business?<br/>YES -> no-op branch (no business writes)\n    else business = EDIT (full field set)\n        Note over nextjsapi: Resolve business.logo/product sticky null<br/>Build VO (location [lat,long] ➞ [long,lat])\n        nextjsapi->>database: SELECT id FROM businesses WHERE juristic_registration_no = ?<br/>AND id <> <member's own business> AND deleted_at IS NULL\n        database-->>nextjsapi: conflicting id or null (self-excluding)\n        break DIFFERENT live business already holds this juristic no\n            nextjsapi-->>browser: 409 Conflict { error_message: \"A business with this registration number already exists\" }\n        end\n    end\n\n    nextjsapi->>nextjsapi: Resolve sticky member file paths<br/>(profile_avatar / id_card_image / company_certificate: null -> keep stored)\n\n    nextjsapi->>database: SELECT position WHERE code = ?\n    break Unknown position code\n        nextjsapi-->>browser: 400 Bad Request\n    end\n\n    opt Requested position != stored position\n        nextjsapi->>database: SELECT count(*) FROM members WHERE position_code = ? AND deleted_at IS NULL\n        break SINGLE position already held\n            nextjsapi-->>browser: 409 Conflict\n        end\n    end\n\n    Note over nextjsapi: Member.update self-invariants:<br/>- expiry >= today, id_card 13 digits, position active<br/>- Encrypt + hash id_card_no (null keeps stored cipher)<br/>- Preserve lifecycle fields\n\n    opt New id_card hash != stored hash\n        nextjsapi->>database: SELECT count(*) FROM members WHERE id_card_no_hash = ?\n        break Found duplicate id_card\n            nextjsapi-->>browser: 409 Conflict\n        end\n    end\n\n    nextjsapi->>database: Check live-contact conflicts (phone/email/line, excluding this member)\n    break Contact held by another LIVE member\n        nextjsapi-->>browser: 409 Conflict\n    end\n\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under Database Transaction\n        nextjsapi->>database: BEGIN TRANSACTION\n\n        nextjsapi->>database: UPDATE members SET mutable, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL\n        break Update fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n\n        alt EDIT branch\n            nextjsapi->>database: UPDATE businesses SET ..., updated_at = NOW() WHERE id = ? AND deleted_at IS NULL\n            break Update fails\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n        else RE-LINK branch\n            nextjsapi->>database: Lock OLD business:<br/>SELECT b.id FROM businesses b WHERE b.id = (SELECT business_id FROM members WHERE id = ? FOR UPDATE) AND b.deleted_at IS NULL FOR UPDATE\n            database-->>nextjsapi: old business id\n            nextjsapi->>database: Lock TARGET business: SELECT id FROM businesses WHERE id = ? AND deleted_at IS NULL FOR UPDATE\n            break Target gone in the window (lost race)\n                nextjsapi->>database: ROLLBACK\n                nextjsapi-->>browser: 500 Internal Server Error\n            end\n            nextjsapi->>database: UPDATE members SET business_id = <target>, updated_at = NOW() WHERE id = ?\n            nextjsapi->>database: SELECT count(*) FROM members WHERE business_id = <old> AND id <> ? AND deleted_at IS NULL\n            opt count = 0 (member held the last live link)\n                nextjsapi->>database: UPDATE businesses SET deleted_at = NOW() WHERE id = <old> AND deleted_at IS NULL\n            end\n        else NO-OP (re-link to current business)\n            Note over nextjsapi: no business writes\n        end\n\n        opt id_card_image and/or company_certificate path CHANGED\n            nextjsapi->>database: UPDATE member_documents SET deleted_at = NOW() WHERE member_id = ? AND type IN (...) AND deleted_at IS NULL\n            nextjsapi->>database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n        end\n\n        nextjsapi->>database: COMMIT\n        database-->>nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 204 No Content\n```",
 				"tags": ["module_member"],
 				"parameters": [
 					{
@@ -338,39 +331,73 @@
 							"schema": {
 								"$ref": "#/components/schemas/UpdateMemberRequest"
 							},
-							"example": {
-								"registration_type": "JURISTIC_PERSON",
-								"company_certificate": "members/documents/company_cert_01KYM0R5YPR5ZJVPQPX0Q0TKMH.webp",
-								"id_card_image": "members/documents/id_card_image_01KYM0R6BQ6YFGKVY7HM5GMH1Q.webp",
-								"profile_avatar": "members/profile_avatars/profile_avatar_01KYM0RWR7KZCYEGBRWQ1BJXBD.webp",
-								"title_name_th": "นาย",
-								"first_name_th": "เอกนิติ",
-								"last_name_th": "อัพเดท",
-								"title_name_en": "Mr.",
-								"first_name_en": "Aekniti",
-								"last_name_en": "Update",
-								"nickname": "aek",
-								"gender": "MALE",
-								"date_of_birth": "1980-10-19",
-								"nationality": "Thai",
-								"id_card_no": null,
-								"id_card_expiry_date": "2036-07-13",
-								"phone_no": "0952532000",
-								"email": "aek_update@airsworld.net",
-								"line_id": "aek.line_id",
-								"shirt_size": "M",
-								"position": "GENERAL_MEMBER",
-								"business": {
-									"name": "บริษัท 28 ไลฟ์มาร์เก็ต จำกัด",
-									"juristic_registration_no": "0105566165566",
-									"category_id": 2,
-									"address": "54/3 ซอยลาดปลาเค้า 60 แขวงอนุสาวรีย์ เขตบางเขน กรุงเทพมหานคร 10220",
-									"location": [13.8513, 100.6077],
-									"description": "ประกอบกิจการให้บริการ ร้านจำหน่ายอาหารและเครื่องดื่ม",
-									"core_business": "อาหารตามสั่ง",
-									"website": "https://www.28life.co.th/th",
-									"logo": "members/business/logo_01KYM18Z3QWGRAPNM5BA2TRSZ4.webp",
-									"product": "members/business/product_01KYM18Z3RPN29DHBWT8RNMDR7.webp"
+							"examples": {
+								"1": {
+									"value": {
+										"registration_type": "JURISTIC_PERSON",
+										"company_certificate": "members/documents/company_cert_01KYM0R5YPR5ZJVPQPX0Q0TKMH.webp",
+										"id_card_image": "members/documents/id_card_image_01KYM0R6BQ6YFGKVY7HM5GMH1Q.webp",
+										"profile_avatar": "members/profile_avatars/profile_avatar_01KYM0RWR7KZCYEGBRWQ1BJXBD.webp",
+										"title_name_th": "นาย",
+										"first_name_th": "เอกนิติ",
+										"last_name_th": "อัพเดท",
+										"title_name_en": "Mr.",
+										"first_name_en": "Aekniti",
+										"last_name_en": "Update",
+										"nickname": "aek",
+										"gender": "MALE",
+										"date_of_birth": "1980-10-19",
+										"nationality": "Thai",
+										"id_card_no": null,
+										"id_card_expiry_date": "2036-07-13",
+										"phone_no": "0952532000",
+										"email": "aek_update@airsworld.net",
+										"line_id": "aek.line_id",
+										"shirt_size": "M",
+										"position": "GENERAL_MEMBER",
+										"business": {
+											"name": "บริษัท 28 ไลฟ์มาร์เก็ต จำกัด",
+											"juristic_registration_no": "0105566165566",
+											"category_id": 2,
+											"address": "54/3 ซอยลาดปลาเค้า 60 แขวงอนุสาวรีย์ เขตบางเขน กรุงเทพมหานคร 10220",
+											"location": [13.8513, 100.6077],
+											"description": "ประกอบกิจการให้บริการ ร้านจำหน่ายอาหารและเครื่องดื่ม",
+											"core_business": "อาหารตามสั่ง",
+											"website": "https://www.28life.co.th/th",
+											"logo": "members/business/logo_01KYM18Z3QWGRAPNM5BA2TRSZ4.webp",
+											"product": "members/business/product_01KYM18Z3RPN29DHBWT8RNMDR7.webp"
+										}
+									},
+									"summary": "New business"
+								},
+								"2": {
+									"value": {
+										"registration_type": "JURISTIC_PERSON",
+										"company_certificate": "members/documents/company_cert_01KYM0R5YPR5ZJVPQPX0Q0TKMH.webp",
+										"id_card_image": "members/documents/id_card_image_01KYM0R6BQ6YFGKVY7HM5GMH1Q.webp",
+										"profile_avatar": "members/profile_avatars/profile_avatar_01KYM0RWR7KZCYEGBRWQ1BJXBD.webp",
+										"title_name_th": "นาย",
+										"first_name_th": "เอกนิติ",
+										"last_name_th": "อัพเดท",
+										"title_name_en": "Mr.",
+										"first_name_en": "Aekniti",
+										"last_name_en": "Update",
+										"nickname": "aek",
+										"gender": "MALE",
+										"date_of_birth": "1980-10-19",
+										"nationality": "Thai",
+										"id_card_no": null,
+										"id_card_expiry_date": "2036-07-13",
+										"phone_no": "0952532000",
+										"email": "aek_update@airsworld.net",
+										"line_id": "aek.line_id",
+										"shirt_size": "M",
+										"position": "GENERAL_MEMBER",
+										"business": {
+											"business_id": 1
+										}
+									},
+									"summary": "Shared business"
 								}
 							}
 						}
@@ -453,6 +480,12 @@
 										"summary": "Target SINGLE position already has an active holder",
 										"value": {
 											"error_message": "Position PRESIDENT is already held"
+										}
+									},
+									"8": {
+										"summary": "Business already exists",
+										"value": {
+											"error_message": "A business with this registration number already exists"
 										}
 									},
 									"Duplicate ID Card": {
@@ -760,7 +793,7 @@
 			"post": {
 				"summary": "Create a new member (/api/v1/members)",
 				"deprecated": false,
-				"description": "# Creates a new member record from a UI form submission\n> Execute under the same DB transaction\n\nReceive file path from API POST `/api/v1/members/file/upload`\n\n## ✍️Pseudocode\n\n1. Receive request body and validate required fields, types\n2. Validate each field value object\n3. Query check duplicate member by id_card_no\n    - Hash input id_card_no and compare blind index id_card_no_hash\n4. If duplicate ➞ 409 Conflict\n5. Query check live-contact conflicts (phone_no / email / line_id)\n    - Unique among LIVE members only (partial unique indexes uniq_members_*_live, WHERE deleted_at IS NULL)\n    - If phone_no already held by another live member ➞ 409 Conflict\n      { \"error_message\": \"A member with this phone number already exists\" }\n    - If email already held ➞ 409 Conflict\n      { \"error_message\": \"A member with this email already exists\" }\n    - If line_id already held ➞ 409 Conflict\n      { \"error_message\": \"A member with this Line ID already exists\" }\n    - NULL email / line_id never conflict (unique indexes treat NULL as distinct)\n6. id_card_expiry_date must not < today\n7. Query check input position is already exist\n    - If input position already exist (other member seat) ➞ 409 Conflict\n8. Encrypt `AES-256-GCM` id_card_no (base64)\n9. Hash `HMAC-SHA256` id_card_no ➞ id_card_no_hash (hex)\n10. member status = ACTIVE\n11. member_since = now\n12. expires_at = now + 1 Y (end of day)\n13. renewal_successful_count = 0\n14. If profile_avatar not null, then set profile_avatar\n15. Begin DB transaction\n16. Insert a new record into table members, **return id**\n17. If company_certificate or id_card_image not null, insert many into table member_documents\n18. Swap location [lat, long] ➞ [long, lat]\n19. Insert a new record into table member_business\n20. Commit DB transaction\n21. Return member_id\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser ->> nextjsapi: POST /api/v1/members { payload }\n    nextjsapi ->> nextjsapi: Validate request body\n\n    break Invalid request body (missing fields, invalid types, or id_card_expiry_date < today)\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi->>database: SELECT 1 FROM members WHERE id_card_no_hash = ?\n    database-->>nextjsapi: Return row or null\n    break Found duplicate id_card_no\n        nextjsapi-->>browser: 409 Conflict { error: \"Member already exists\" }\n    end\n\n    nextjsapi->>database: Query check input position is already exist\n    database-->>nextjsapi: Return row\n    break Found input position already exist\n        nextjsapi-->>browser: 409 Conflict { error: \"Position already exists\" }\n    end\n\n    Note over nextjsapi: Prepare Data:<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Set defaults: status=ACTIVE, member_since=now,<br/>expires_at=now+1Y (EOD), renewal_count=0<br/>- Conditionally include profile_avatar if provided\n\n    rect rgb(235, 245, 255)\n    Note over nextjsapi,database: Execute Under Database Transaction\n    nextjsapi->>database: BEGIN TRANSACTION\n\n    nextjsapi->>database: INSERT INTO members (...) RETURNING id\n    break if insert fails\n        nextjsapi->>database: ROLLBACK\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n    database-->>nextjsapi: { member_id }\n\n    opt company_certificate or id_card_image provided\n        nextjsapi->>database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n        break if insert fails\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n    end\n\n    nextjsapi ->> nextjsapi: Transform payload:<br/>Swap location [lat, long] ➞ [long, lat]\n\n    nextjsapi->>database: INSERT INTO member_business (member_id, location, ...)\n    break if insert fails\n        nextjsapi->>database: ROLLBACK\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 201 Created { member_id }\n```\n\n## Diagram Browser → Next.js API\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n\n    Note over browser: Step 1: User fills form, selects files, clicks Submit\n    \n    rect rgb(240, 248, 255)\n        Note over browser,nextjsapi: Single Multipart Upload\n        browser->>nextjsapi: POST /api/v1/members/file/upload<br/>(multipart/form-data)\n\n        nextjsapi-->>browser: 200 OK { profilePath: \"...\", idCardPath: \"...\" }\n    end\n\n    Note over browser: Step 2: Frontend constructs payload with returned paths\n    \n    rect rgb(240, 255, 240)\n        Note over browser,nextjsapi: Create Member\n        browser->>nextjsapi: POST /api/v1/members\n\n        nextjsapi-->>browser: 201 Created\n    end\n```",
+				"description": "# Creates a new member record from a UI form submission\n> Execute under the same DB transaction\n\nReceive file path from API POST `/api/v1/members/file/upload`\n\n## Business payload: ordered union (#62 D2/D5)\n\nThe `business` property is **exactly one of two shapes** — valibot union, **link branch first**:\n\n| Shape | Meaning |\n|---|---|\n| `{ \"business_id\": 42 }` — any other business fields sent are **optional and ignored** (stripped) | **LINK** the member to an existing LIVE business (registration picker) |\n| Full 10-field set (name, juristic_registration_no, category_id, address, location, description, core_business, website, logo, product) | **CREATE** a new shared business row |\n\n- Link intent is **never inferred** from a juristic-number match.\n- Unknown or **soft-deleted** `business_id` → **400** (a soft-deleted predecessor never blocks re-registration).\n- CREATE whose `juristic_registration_no` matches a **different LIVE business** → **409** `A business with this registration number already exists` — never silent auto-link.\n- Payload matching neither branch → **400**.\n\n## ✍️Pseudocode\n\n1. Receive request body and validate required fields, types, enums — `business` must resolve to one union branch\n2. **Resolve the business intent (ordered union)**\n    - **Link branch** (`business_id` present; extra fields stripped): query `SELECT id FROM businesses WHERE id = ? AND deleted_at IS NULL`\n        - No live row (unknown or soft-deleted) ➞ **400** `{ \"error_message\": \"business.business_id <n> does not match a live business\" }`\n    - **Create branch** (full field set): validate business VOs, swap location [lat, long] ➞ [long, lat]\n        - Query live juristic conflict: `SELECT id FROM businesses WHERE juristic_registration_no = ? AND deleted_at IS NULL`\n        - Found ➞ **409 Conflict** `{ \"error_message\": \"A business with this registration number already exists\" }` — POST never silent-auto-links\n3. Query check input position exists\n    - Unknown code ➞ **400**\n4. Position-occupied check (cardinality-aware): SINGLE position already held by a live member ➞ **409 Conflict**\n5. id_card_expiry_date must not < today ➞ **400**; id_card_no must be 13 digits ➞ **400**\n6. Encrypt `AES-256-GCM` id_card_no (base64); hash `HMAC-SHA256` ➞ id_card_no_hash (hex)\n7. Defaults: status = ACTIVE, member_since = now, expires_at = last instant of the NEXT calendar year, renewal_successful_count = 0\n8. Query check duplicate member by id_card_no (blind index hash) ➞ found ➞ **409 Conflict**\n9. Query check live-contact conflicts (phone_no / email / line_id) — unique among LIVE members only\n    - phone held ➞ 409 `A member with this phone number already exists`; email ➞ 409 `…this email…`; line_id ➞ 409 `…this Line ID…`\n10. Begin DB transaction\n11. **Branch by business intent:**\n    - **Link:** `SELECT id FROM businesses WHERE id = ? AND deleted_at IS NULL FOR UPDATE` (tx-scoped re-check — serializes against a concurrent delete-cascade; no row ➞ ROLLBACK ➞ **500**)\n    - **Create:** `INSERT INTO businesses (name, juristic_registration_no, category_id, location [long, lat], …) RETURNING id`\n12. `INSERT INTO members (…, business_id = <branch id>) RETURNING id`\n13. If company_certificate or id_card_image not null, insert rows into member_documents\n14. Commit DB transaction\n15. Return **201** `{ \"id\": <member_id> }`\n\n## Sequence diagram\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser->>nextjsapi: POST /api/v1/members { payload }\n    nextjsapi->>nextjsapi: withAuth + Validate request body<br/>(business = ordered union: link first)\n\n    break Invalid request body / neither business branch\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    alt business = LINK (business_id present, extras stripped)\n        nextjsapi->>database: SELECT id FROM businesses WHERE id = ? AND deleted_at IS NULL\n        database-->>nextjsapi: live row or empty\n        break Unknown / soft-deleted business_id\n            nextjsapi-->>browser: 400 Bad Request\n        end\n    else business = CREATE (full field set)\n        Note over nextjsapi: Build business VO<br/>swap location [lat,long] ➞ [long,lat]\n        nextjsapi->>database: SELECT id FROM businesses WHERE juristic_registration_no = ? AND deleted_at IS NULL\n        database-->>nextjsapi: conflicting id or null\n        break Live business already holds this juristic no (never silent auto-link)\n            nextjsapi-->>browser: 409 Conflict { error_message: \"A business with this registration number already exists\" }\n        end\n    end\n\n    nextjsapi->>database: SELECT position WHERE code = ?\n    break Unknown position / SINGLE position already held\n        nextjsapi-->>browser: 400 / 409 Conflict\n    end\n\n    Note over nextjsapi: Prepare Data:<br/>- Encrypt id_card_no (AES-256-GCM base64)<br/>- Hash id_card_no (HMAC-SHA256 hex)<br/>- Defaults: status=ACTIVE, member_since=now,<br/>expires_at=end of NEXT calendar year, renewal_count=0\n\n    nextjsapi->>database: SELECT count(*) FROM members WHERE id_card_no_hash = ?\n    break Found duplicate id_card_no\n        nextjsapi-->>browser: 409 Conflict\n    end\n\n    nextjsapi->>database: Check live-contact conflicts (phone_no / email / line_id)\n    break Contact already held by another LIVE member\n        nextjsapi-->>browser: 409 Conflict { error_message: \"<contact-specific message>\" }\n    end\n\n    rect rgb(235, 245, 255)\n    Note over nextjsapi,database: Execute Under Database Transaction\n    nextjsapi->>database: BEGIN TRANSACTION\n\n    alt LINK branch\n        nextjsapi->>database: SELECT id FROM businesses WHERE id = ? AND deleted_at IS NULL FOR UPDATE\n        database-->>nextjsapi: locked target id\n        break Target soft-deleted between check and lock (lost race)\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 500 Internal Server Error\n        end\n    else CREATE branch\n        nextjsapi->>database: INSERT INTO businesses (name, juristic_registration_no, category_id, location [long,lat], ...) RETURNING id\n        database-->>nextjsapi: { business_id }\n    end\n\n    nextjsapi->>database: INSERT INTO members (..., business_id) RETURNING id\n    break if insert fails\n        nextjsapi->>database: ROLLBACK\n        nextjsapi-->>browser: 500 Internal Server Error\n    end\n    database-->>nextjsapi: { member_id }\n\n    opt company_certificate or id_card_image provided\n        nextjsapi->>database: INSERT INTO member_documents (member_id, type, file_path) VALUES ...\n    end\n\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: Success\n    end\n\n    nextjsapi-->>browser: 201 Created { member_id }\n```\n\n## Diagram Browser → Next.js API\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n\n    Note over browser: Step 1: User fills form, selects files, clicks Submit\n\n    rect rgb(240, 248, 255)\n        Note over browser,nextjsapi: Single Multipart Upload\n        browser->>nextjsapi: POST /api/v1/members/file/upload<br/>(multipart/form-data)\n\n        nextjsapi-->>browser: 200 OK { profilePath: \"...\", idCardPath: \"...\" }\n    end\n\n    Note over browser: Step 2: Frontend constructs payload with returned paths\n\n    rect rgb(240, 255, 240)\n        Note over browser,nextjsapi: Create Member\n        browser->>nextjsapi: POST /api/v1/members\n\n        nextjsapi-->>browser: 201 Created\n    end\n```",
 				"tags": ["module_member"],
 				"parameters": [
 					{
@@ -780,39 +813,73 @@
 							"schema": {
 								"$ref": "#/components/schemas/CreateNewMemberRequest"
 							},
-							"example": {
-								"registration_type": "JURISTIC_PERSON",
-								"company_certificate": "members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp",
-								"id_card_image": "members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp",
-								"profile_avatar": "members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
-								"title_name_th": "นาย",
-								"first_name_th": "ปาทาน",
-								"last_name_th": "องกร",
-								"title_name_en": "Mr.",
-								"first_name_en": "Patan",
-								"last_name_en": "Ogorn",
-								"nickname": "patanZ",
-								"gender": "MALE",
-								"date_of_birth": "1987-09-20",
-								"nationality": "Thai",
-								"id_card_no": "1069097917296",
-								"id_card_expiry_date": "2036-07-13",
-								"phone_no": "0952532000",
-								"email": "sxmpib@airsworld.net",
-								"line_id": "patan.line_id",
-								"shirt_size": "XL",
-								"position": "PRESIDENT",
-								"business": {
-									"name": "บริษัท วี ฟู้ดส์",
-									"juristic_registration_no": "0105557026729",
-									"category_id": 1,
-									"address": "อาคาร ทู เอฟวายไอ เซ็นเตอร์ ชั้น 5 2525 ถ. พระรามที่ 4 แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110",
-									"location": [13.7207, 100.5596],
-									"description": "ส่งออก ขายส่งสินค้าเกษตร อาหารสด อาหารสำเร็จรูป",
-									"core_business": "อาหารปี๊ป",
-									"website": "https://www.vfoods.co.th/th",
-									"logo": "members/business/logo_01KXJEVTQY04JJD1HV8KBSA74T.webp",
-									"product": "members/business/product_01KXJEVV6S2EV71XNV9BT9MYSM.webp"
+							"examples": {
+								"1": {
+									"value": {
+										"registration_type": "JURISTIC_PERSON",
+										"company_certificate": "members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp",
+										"id_card_image": "members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp",
+										"profile_avatar": "members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
+										"title_name_th": "นาย",
+										"first_name_th": "ปาทาน",
+										"last_name_th": "องกร",
+										"title_name_en": "Mr.",
+										"first_name_en": "Patan",
+										"last_name_en": "Ogorn",
+										"nickname": "patanZ",
+										"gender": "MALE",
+										"date_of_birth": "1987-09-20",
+										"nationality": "Thai",
+										"id_card_no": "1069097917296",
+										"id_card_expiry_date": "2036-07-13",
+										"phone_no": "0952532000",
+										"email": "sxmpib@airsworld.net",
+										"line_id": "patan.line_id",
+										"shirt_size": "XL",
+										"position": "PRESIDENT",
+										"business": {
+											"name": "บริษัท วี ฟู้ดส์",
+											"juristic_registration_no": "0105557026729",
+											"category_id": 1,
+											"address": "อาคาร ทู เอฟวายไอ เซ็นเตอร์ ชั้น 5 2525 ถ. พระรามที่ 4 แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110",
+											"location": [13.7207, 100.5596],
+											"description": "ส่งออก ขายส่งสินค้าเกษตร อาหารสด อาหารสำเร็จรูป",
+											"core_business": "อาหารปี๊ป",
+											"website": "https://www.vfoods.co.th/th",
+											"logo": "members/business/logo_01KXJEVTQY04JJD1HV8KBSA74T.webp",
+											"product": "members/business/product_01KXJEVV6S2EV71XNV9BT9MYSM.webp"
+										}
+									},
+									"summary": "New business"
+								},
+								"2": {
+									"value": {
+										"registration_type": "JURISTIC_PERSON",
+										"company_certificate": "members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp",
+										"id_card_image": "members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp",
+										"profile_avatar": "members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
+										"title_name_th": "นาย",
+										"first_name_th": "ปาทาน",
+										"last_name_th": "องกร",
+										"title_name_en": "Mr.",
+										"first_name_en": "Patan",
+										"last_name_en": "Ogorn",
+										"nickname": "patanZ",
+										"gender": "MALE",
+										"date_of_birth": "1987-09-20",
+										"nationality": "Thai",
+										"id_card_no": "1069097917296",
+										"id_card_expiry_date": "2036-07-13",
+										"phone_no": "0952532000",
+										"email": "sxmpib@airsworld.net",
+										"line_id": "patan.line_id",
+										"shirt_size": "XL",
+										"position": "PRESIDENT",
+										"business": {
+											"business_id": 1
+										}
+									},
+									"summary": "Shared business"
 								}
 							}
 						}
@@ -886,15 +953,21 @@
 						"headers": {}
 					},
 					"409": {
-						"description": "Resource conflict (e.g., duplicate email).",
+						"description": "Resource conflict (e.g., duplicate email, business this juristic no already exists)",
 						"content": {
 							"application/json": {
 								"schema": {
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"examples": {
+									"5": {
+										"summary": "Business already exists",
+										"value": {
+											"error_message": "A business with this registration number already exists"
+										}
+									},
 									"Duplicate Email": {
-										"summary": "Example when the email already exists.",
+										"summary": "Email already exists",
 										"value": {
 											"error_message": "this email already exists"
 										}
@@ -2772,7 +2845,7 @@
 						"examples": ["Thai"]
 					},
 					"id_card_no": {
-						"type": "string",
+						"type": ["string", "null"],
 						"description": "Masked ID card number for display",
 						"examples": ["632XXXXXX1483"]
 					},
@@ -2978,7 +3051,15 @@
 						"examples": ["GENERAL_MEMBER"]
 					},
 					"business": {
-						"$ref": "#/components/schemas/CreateNewMemberBusinessRequest"
+						"description": "Ordered union — LINK branch first:\n• { \"business_id\": 42 } (any extra fields sent are optional and ignored) = link the member to an existing live business.\n• Full field set (name, juristic_registration_no, category_id, description required) = create a new shared business.\nNeither branch → 400. A create whose juristic_registration_no matches a DIFFERENT live business → 409 \"A business with this registration number already exists\" (never silent auto-link).",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/MemberBusinessLinkRequest"
+							},
+							{
+								"$ref": "#/components/schemas/CreateNewMemberBusinessRequest"
+							}
+						]
 					}
 				},
 				"required": [
@@ -2991,13 +3072,13 @@
 					"id_card_no",
 					"id_card_expiry_date",
 					"phone_no",
-					"business",
 					"gender",
 					"nationality",
 					"position",
 					"company_certificate",
 					"id_card_image",
-					"profile_avatar"
+					"profile_avatar",
+					"business"
 				]
 			},
 			"UpdateMemberRequest": {
@@ -3119,7 +3200,15 @@
 						"examples": ["GENERAL_MEMBER"]
 					},
 					"business": {
-						"$ref": "#/components/schemas/CreateNewMemberBusinessRequest"
+						"description": "Ordered union — LINK branch first:\n• { \"business_id\": 42 } (any extra fields sent are optional and ignored) = link the member to an existing live business.\n• Full field set (name, juristic_registration_no, category_id, description required) = create a new shared business.\nNeither branch → 400. A create whose juristic_registration_no matches a DIFFERENT live business → 409 \"A business with this registration number already exists\" (never silent auto-link).",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/MemberBusinessLinkRequest"
+							},
+							{
+								"$ref": "#/components/schemas/CreateNewMemberBusinessRequest"
+							}
+						]
 					}
 				},
 				"required": [
@@ -3530,6 +3619,12 @@
 						"format": "uint",
 						"description": "The shared business entity's id (businesses.id, ADR-0023). Not a per-member row id: members whose juristic registration no. matched at the #72 cutover now link to one shared row, so this id is identical across those members' detail responses and edits through any linked member are visible to all of them. Ids are NOT carried over from the pre-cutover rows (fresh sequence)."
 					},
+					"member_count": {
+						"type": "integer",
+						"format": "uint",
+						"examples": [1],
+						"description": "Live members linked to this business (deleted_at IS NULL), the reading member INCLUDED. member_count ≥ 2 = shared business — field edits propagate to all linked members"
+					},
 					"name": {
 						"type": "string",
 						"examples": ["บริษัท วี ฟู้ดส์"]
@@ -3595,8 +3690,21 @@
 					"logo",
 					"product",
 					"created_at",
-					"updated_at"
+					"updated_at",
+					"member_count"
 				]
+			},
+			"MemberBusinessLinkRequest": {
+				"type": "object",
+				"properties": {
+					"business_id": {
+						"type": "integer",
+						"format": "uint",
+						"minimum": 1,
+						"description": "LINK intent: attach the member to this existing LIVE business. When present, any other business fields in the payload are optional and IGNORED (stripped). Unknown or soft-deleted id → 400. Never inferred from juristic_registration_no."
+					}
+				},
+				"required": ["business_id"]
 			},
 			"BusinessCategory": {
 				"type": "object",
