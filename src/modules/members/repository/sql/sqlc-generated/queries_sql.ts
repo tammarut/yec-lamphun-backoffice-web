@@ -874,3 +874,50 @@ export async function findLiveContactConflicts(sql: Sql, args: FindLiveContactCo
 		lineIdConflict: row[2],
 	}
 }
+
+export const searchLiveBusinessesQuery = `-- name: SearchLiveBusinesses :many
+SELECT b.id,
+       b.name,
+       b.juristic_registration_no,
+       bc.name AS category_name,
+       b.address,
+       (SELECT count(*)::int FROM members mc
+         WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS member_count,
+       (SELECT array_agg(mc.title_name_th || ' ' || mc.first_name_th || ' ' || mc.last_name_th ORDER BY mc.id)
+          FROM members mc
+         WHERE mc.business_id = b.id AND mc.deleted_at IS NULL) AS owner_names
+FROM businesses b
+INNER JOIN business_categories bc ON bc.id = b.category_id
+WHERE b.deleted_at IS NULL
+  AND ($1::TEXT IS NULL
+       OR b.name ILIKE $1::TEXT
+       OR b.juristic_registration_no ILIKE $1::TEXT)
+ORDER BY b.name ASC, b.id ASC
+LIMIT $2::INT`
+
+export interface SearchLiveBusinessesArgs {
+	searchPattern: string | null
+	rowLimit: number
+}
+
+export interface SearchLiveBusinessesRow {
+	id: string
+	name: string
+	juristicRegistrationNo: string
+	categoryName: string
+	address: string | null
+	memberCount: number
+	ownerNames: string
+}
+
+export async function searchLiveBusinesses(sql: Sql, args: SearchLiveBusinessesArgs): Promise<SearchLiveBusinessesRow[]> {
+	return (await sql.unsafe(searchLiveBusinessesQuery, [args.searchPattern, args.rowLimit]).values()).map((row) => ({
+		id: row[0],
+		name: row[1],
+		juristicRegistrationNo: row[2],
+		categoryName: row[3],
+		address: row[4],
+		memberCount: row[5],
+		ownerNames: row[6],
+	}))
+}

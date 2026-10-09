@@ -24,6 +24,12 @@ export const REGISTER_KEY = {
 	// MEMBERS_REPOSITORY; SERVICES own the multi-table transactions.
 	BUSINESSES_REPOSITORY: Symbol("IBusinessesRepository"),
 	MEMBER_DOCUMENTS_REPOSITORY: Symbol("IMemberDocumentsRepository"),
+	// Members module (search-businesses query) — #68. The GET /api/v1/business/search
+	// prefix search over LIVE businesses (escaped ILIKE on name +
+	// juristic_registration_no, live-member count + Thai owner names rollup).
+	// Split from BUSINESSES_REPOSITORY (one repository per responsibility).
+	BUSINESS_SEARCH_REPOSITORY: Symbol("BUSINESS_SEARCH_REPOSITORY"),
+	BUSINESS_SEARCH_SERVICE: Symbol("BUSINESS_SEARCH_SERVICE"),
 	CREATE_NEW_MEMBER_SERVICE: Symbol("CREATE_NEW_MEMBER_SERVICE"),
 	// Members module (get-member-by-id query) — ADR-0007/0008.
 	GET_MEMBER_BY_ID_SERVICE: Symbol("GET_MEMBER_BY_ID_SERVICE"),
