@@ -6,6 +6,7 @@ import { DashboardRepository } from "src/modules/dashboard/repository/dashboard.
 import { GetDashboardStatService } from "src/modules/dashboard/use-case/get-dashboard-stat/get-dashboard-stat.service"
 import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
 import { MemberFileService } from "src/modules/members/member-file.service"
+import { BusinessSearchRepository } from "src/modules/members/repository/businesses/business-search.repository"
 import { BusinessesRepository } from "src/modules/members/repository/businesses/businesses.repository"
 import { MemberDocumentsRepository } from "src/modules/members/repository/member-document/member-document.repository"
 import { MembersRepository } from "src/modules/members/repository/members.repository"
@@ -15,6 +16,7 @@ import { GetExecutiveCommitteeService } from "src/modules/members/use-case/get-e
 import { GetLatestRenewalByMemberIdService } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
+import { SearchBusinessesService } from "src/modules/members/use-case/search-businesses/search-businesses.service"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { MembershipRenewalsRepository } from "src/modules/membership-renewals/repository/membership-renewals.repository"
 import { CreateManualRenewalService } from "src/modules/membership-renewals/use-case/create-renewal-manual/create-renewal-manual.service"
@@ -304,5 +306,18 @@ container.register(REGISTER_KEY.GET_DASHBOARD_STAT_SERVICE, { useClass: GetDashb
 // MemberFileUrlService (profile_avatar public-bucket concat, ADR-0007). The
 // tree itself is assembled in the service from the position hierarchy.
 container.register(REGISTER_KEY.GET_EXECUTIVE_COMMITTEE_SERVICE, { useClass: GetExecutiveCommitteeService }, { lifecycle: Lifecycle.Singleton })
+
+// 13. Register Members Module (search-businesses query) — #68. The GET
+// /api/v1/business/search: a read-only single-query delegation over its own
+// BusinessSearchRepository (escaped prefix-ILIKE over live businesses with the
+// live-member count + Thai owner names rollup, split from
+// BUSINESSES_REPOSITORY per responsibility). The repository is Transient
+// (stateless wrapper around the singleton DatabaseClient, matching every other
+// repository); the service is Singleton (matching the other use cases).
+container.register(REGISTER_KEY.BUSINESS_SEARCH_REPOSITORY, {
+	useClass: BusinessSearchRepository,
+})
+
+container.register(REGISTER_KEY.BUSINESS_SEARCH_SERVICE, { useClass: SearchBusinessesService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }
