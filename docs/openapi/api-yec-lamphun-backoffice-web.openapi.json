@@ -5,7 +5,14 @@
 		"description": "API for managing members.",
 		"version": "1.0.0"
 	},
-	"tags": [{ "name": "module_member" }, { "name": "dashboard" }],
+	"tags": [
+		{
+			"name": "module_member"
+		},
+		{
+			"name": "dashboard"
+		}
+	],
 	"paths": {
 		"/api/v1/members/executive-committee": {
 			"get": {
@@ -995,6 +1002,134 @@
 				"security": []
 			}
 		},
+		"/api/v1/members/file/upload": {
+			"post": {
+				"summary": "Upload one or more files (/api/v1/members/file/upload)",
+				"deprecated": false,
+				"description": "# Uploads image files to file storage, and response file path as ref\n\n## ✍️Pseudocode\n1. Receive POST request at `/api/v1/members/file/upload`\n2. Extract all uploaded files from the request\nKey: Value(file) `multipart/form-data`\n    - id_card_image\n    - company_certificate (หนังสือรับรองบริษัท/ทะเบียนพาณิชย์)\n    - profile_avatar\n    - business_logo\n    - business_product\n    - payment_slip\n\n3. Fail-Fast Validation Loop:\n    - For each provided file:\n        - If file.size > 7MB:\n             -> Return HTTP 400 Bad Request `{ error_message: \"File exceeds 5MB limit\" }`\n        - If file.extension not in `['.jpg', '.jpeg', '.png', '.webp']`:\n             -> Return HTTP 400 Bad Request `{ error_message: \"Invalid file type. Only images allowed\" }`\n4. Initialize empty response object: `response_body = {}`\n5. Process Each File (if provided):\n   - Generate secure filename: `ulid = generateULID()`\n   - Determine bucket path based on field name (e.g., `id_card_image` -> `members/documents/`)\n   - Construct final path: `file_path = \"bucket_path/\" + field_name + \"_\" + ulid + \".\" + extension`\n   \n   - Upload file buffer to Cloudflare R2 at `file_path`\n   - If R2 upload fails:\n       - Log error\n       - Return HTTP 500 Internal Server Error\n   \n   - Add to response_body: `response_body[field_name + \"_file_path\"] = file_path`\n6. Return HTTP 200 OK with `response_body` object\n\n\n## Cloudflare R2 storage buckets\n\n| # | Field               | Bucket                   | Example                                                               |\n|---|---------------------|--------------------------|-----------------------------------------------------------------------|\n| 1 | id_card_image       | members/documents/       | members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg        |\n| 2 | company_certificate | members/documents/       | members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg         |\n| 3 | profile_avatar      | members/profile_avatars/ | members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg |\n| 4 | business_logo       | members/business/        | members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg                  |\n| 5 | business_product    | members/business/        | members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg               |\n| 6 | payment_slip    | members/documents/        | members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg               |\n\n## 🖼️Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant R2 as Cloudflare R2\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/members/file/upload<br/>(multipart/form-data)\n\n    nextjsapi ->> nextjsapi: Validate request body\n    Note over nextjsapi: 1. Fail-Fast Validation:<br/>- Check file size <= 7MB<br/>- Check extension (.jpg, .jpeg, .png, .webp)<br/>- Reject entire request if ANY file is invalid\n\n    break Invalid request body\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    Note over nextjsapi: 2. Prepare Uploads:<br/>Generate secure ULID filenames for each provided file\n\n    opt id_card_image provided\n        nextjsapi->>R2: PutObject (members/documents/id_card_image_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt company_certificate provided\n        nextjsapi->>R2: PutObject (members/documents/company_cert_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt profile_avatar provided\n        nextjsapi->>R2: PutObject (members/profile_avatars/profile_avatar_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_logo provided\n        nextjsapi->>R2: PutObject (members/business/logo_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_product provided\n        nextjsapi->>R2: PutObject (members/business/product_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt payment_slip provided\n        nextjsapi->>R2: PutObject (members/documents/payment_slip_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    Note over nextjsapi: 3. Construct Response:<br/>Map uploaded paths to explicit keys\n\n    nextjsapi-->>browser: 200 OK\n```",
+				"tags": ["module_member"],
+				"parameters": [],
+				"requestBody": {
+					"content": {
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"id_card_image": {
+										"type": "string",
+										"description": "ID card image",
+										"format": "binary",
+										"example": "file:///Users/arima/Pictures/fake_image/fake-Thai-ID-Card.webp"
+									},
+									"company_certificate": {
+										"type": "string",
+										"format": "binary",
+										"description": "หนังสือรับรองบริษัท/ทะเบียนพาณิชย์",
+										"example": "file:///Users/arima/Pictures/fake_image/company_certificate.webp"
+									},
+									"profile_avatar": {
+										"type": "string",
+										"description": "Profile avatar image",
+										"format": "binary",
+										"example": "file:///Users/arima/Pictures/fake_image/Notion_Avatartion_Eren.webp"
+									},
+									"business_logo": {
+										"type": "string",
+										"format": "binary",
+										"description": "Logo image",
+										"example": "file:///Users/arima/Pictures/fake_image/fake-business-logo.webp"
+									},
+									"business_product": {
+										"type": "string",
+										"format": "binary",
+										"description": "Product image",
+										"example": "file:///Users/arima/Pictures/fake_image/fake-product.webp"
+									},
+									"payment_slip": {
+										"format": "binary",
+										"type": "string",
+										"description": "หลักฐานการโอนเงิน (Slip image)",
+										"example": ""
+									}
+								}
+							},
+							"example": {
+								"id_card_image": "file:///Users/arima/Pictures/fake_image/fake-Thai-ID-Card.webp",
+								"company_certificate": "file:///Users/arima/Pictures/fake_image/company_certificate.webp",
+								"profile_avatar": "file:///Users/arima/Pictures/fake_image/Notion_Avatartion_Eren.webp",
+								"business_logo": "file:///Users/arima/Pictures/fake_image/fake-business-logo.webp",
+								"business_product": "file:///Users/arima/Pictures/fake_image/fake-product.webp",
+								"payment_slip": ""
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/UploadSuccessResponse"
+								},
+								"examples": {
+									"Both Files Uploaded": {
+										"summary": "Example of a successful upload of both an avatar and an ID card.",
+										"value": {
+											"id_card_image_file_path": "members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg",
+											"company_certificate_file_path": "members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg",
+											"profile_avatar_file_path": "members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg",
+											"business_logo_file_path": "members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg",
+											"business_product_file_path": "members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg",
+											"payment_slip_file_path": "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"
+										}
+									},
+									"Only Avatar Uploaded": {
+										"summary": "Example when only the avatar was provided.",
+										"value": {
+											"id_card_image_file_path": null,
+											"company_certificate_file_path": null,
+											"profile_avatar_file_path": "members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg",
+											"business_logo_file_path": null,
+											"business_product_file_path": null,
+											"payment_slip_file_path": null
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "Validation failed (e.g., no files, invalid type).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"No Files Provided": {
+										"summary": "The request was made without any files.",
+										"value": {
+											"error_message": "At least one file (profile_avatar or id_card_image) must be provided."
+										}
+									},
+									"Invalid File Type": {
+										"summary": "One of the files was not an allowed image type.",
+										"value": {
+											"error_message": "Invalid file type for 'id_card_image'. Only JPEG and PNG are allowed."
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
 		"/api/v1/business/categories": {
 			"get": {
 				"summary": "Get a list of business category (/api/v1/business/categories)",
@@ -1083,6 +1218,164 @@
 											]
 										}
 									}
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
+		"/api/v1/business/search": {
+			"get": {
+				"summary": "Search live businesses for the picker (/api/v1/business/search)",
+				"deprecated": false,
+				"description": "Live-business prefix search for the wizard's business picker (#68). Staff-only (withAuth). Matches on `name` **and** `juristic_registration_no`, live rows only (`deleted_at IS NULL`), ordered by name then id, capped at `limit`.\n\n## ✍️ Pseudocode\n1. `withAuth` validates the `session_id` cookie → `401 { error_message: \"Unauthorized\" }` on missing/invalid.\n2. Parse query string into `{ search, limit }`.\n3. Valibot `safeParse`: `limit` = string→Number→integer, 1–50; `search` = optional string. Failure → `400 { error_message: <first issue message> }`.\n4. `search = search?.trim() || null` (empty/missing = no filter); `limit ?? 10`.\n5. `SearchBusinessesService.execute({ limit, search })` → `BusinessSearchRepository.searchLiveBusinesses`.\n6. Repository escapes `\\ % _` in the search term and appends `%` (prefix), bound as a parameter.\n7. SQL `SearchLiveBusinesses`: live businesses only; `name ILIKE $1 OR juristic_registration_no ILIKE $1` (skipped when null; no explicit ESCAPE clause — Postgres's default LIKE escape char is the backslash); `member_count` + `owner_names` from live linked members; `INNER JOIN business_categories`; `ORDER BY name ASC, id ASC`; `LIMIT $2`.\n8. `200 { businesses: [...] }` — snake_case items.\n9. `DatabaseError` → `500 { error_message: \"Internal Server Error\" }`.\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant C as Wizard picker (#70)\n    participant R as GET /api/v1/business/search\n    participant A as withAuth\n    participant S as SearchBusinessesService\n    participant DB as Postgres · SearchLiveBusinesses\n    C->>R: GET ?search=…&limit=…\n    R->>A: session_id cookie\n    alt missing / invalid session\n        A-->>C: 401 { error_message: \"Unauthorized\" }\n    end\n    R->>R: safeParse · limit 1–50 (default 10)\n    alt invalid limit\n        R-->>C: 400 { error_message }\n    end\n    Note over R: search.trim() — empty/missing → null = no filter\n    R->>S: execute({ limit, search: trimmed || null })\n    S->>DB: escape \\ % _ → \"q%\" · live-only ILIKE name OR juristic_no<br/>+ member_count + owner_names rollups\n    DB-->>S: rows (ORDER BY name, id · LIMIT)\n    S-->>R: ok(items)\n    R-->>C: 200 { businesses: [...] }\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "search",
+						"in": "query",
+						"description": "Escaped prefix search over business `name` AND `juristic_registration_no` (matches from the beginning of either field). Trimmed; empty/missing = no filter (unfiltered first page). LIKE wildcards % _ \\ are escaped server-side.",
+						"required": false,
+						"example": "1055",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "limit",
+						"in": "query",
+						"description": "number of businesses to return (encoded as a string in the query string). Out-of-range or non-integer → 400.",
+						"required": false,
+						"example": 10,
+						"schema": {
+							"type": "integer",
+							"default": 10,
+							"minimum": 1,
+							"maximum": 50,
+							"format": "uint"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"businesses": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/BusinessSearchItem"
+											}
+										}
+									},
+									"required": ["businesses"]
+								},
+								"examples": {
+									"Search by name prefix": {
+										"summary": "Search by prefix on name",
+										"value": {
+											"businesses": [
+												{
+													"id": 14,
+													"name": "V Foods",
+													"juristic_registration_no": "105557026729",
+													"category_name": "อาหารและเครื่องดื่ม",
+													"address": "99/1 หมู่ 4 ต.เวียงยอง อ.เมือง จ.ลำพูน",
+													"member_count": 2,
+													"owner_names": ["นายประเสริฐ โชคดี", "นางสาวอรใจ ใจดี"]
+												}
+											]
+										}
+									},
+									"Search by juristic prefix": {
+										"summary": "Search by prefix on juristic_registration_no",
+										"value": {
+											"businesses": [
+												{
+													"id": 14,
+													"name": "V Foods",
+													"juristic_registration_no": "105557026729",
+													"category_name": "อาหารและเครื่องดื่ม",
+													"address": "99/1 หมู่ 4 ต.เวียงยอง อ.เมือง จ.ลำพูน",
+													"member_count": 2,
+													"owner_names": ["นายประเสริฐ โชคดี", "นางสาวอรใจ ใจดี"]
+												}
+											]
+										}
+									},
+									"No filter (first page)": {
+										"summary": "ไม่กรอง — search missing/empty returns the unfiltered first page",
+										"value": {
+											"businesses": []
+										}
+									}
+								}
+							}
+						},
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {}
+								},
+								"example": {
+									"error_message": "limit must be at most 50"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"title": "",
+									"type": "object",
+									"properties": {
+										"error_message": {
+											"type": "string"
+										}
+									},
+									"required": ["error_message"]
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {}
+								},
+								"example": {
+									"error_message": "Internal Server Error"
 								}
 							}
 						},
@@ -2645,134 +2938,6 @@
 				},
 				"security": []
 			}
-		},
-		"/api/v1/members/file/upload": {
-			"post": {
-				"summary": "Upload one or more files (/api/v1/members/file/upload)",
-				"deprecated": false,
-				"description": "# Uploads image files to file storage, and response file path as ref\n\n## ✍️Pseudocode\n1. Receive POST request at `/api/v1/members/file/upload`\n2. Extract all uploaded files from the request\nKey: Value(file) `multipart/form-data`\n    - id_card_image\n    - company_certificate (หนังสือรับรองบริษัท/ทะเบียนพาณิชย์)\n    - profile_avatar\n    - business_logo\n    - business_product\n    - payment_slip\n\n3. Fail-Fast Validation Loop:\n    - For each provided file:\n        - If file.size > 7MB:\n             -> Return HTTP 400 Bad Request `{ error_message: \"File exceeds 5MB limit\" }`\n        - If file.extension not in `['.jpg', '.jpeg', '.png', '.webp']`:\n             -> Return HTTP 400 Bad Request `{ error_message: \"Invalid file type. Only images allowed\" }`\n4. Initialize empty response object: `response_body = {}`\n5. Process Each File (if provided):\n   - Generate secure filename: `ulid = generateULID()`\n   - Determine bucket path based on field name (e.g., `id_card_image` -> `members/documents/`)\n   - Construct final path: `file_path = \"bucket_path/\" + field_name + \"_\" + ulid + \".\" + extension`\n   \n   - Upload file buffer to Cloudflare R2 at `file_path`\n   - If R2 upload fails:\n       - Log error\n       - Return HTTP 500 Internal Server Error\n   \n   - Add to response_body: `response_body[field_name + \"_file_path\"] = file_path`\n6. Return HTTP 200 OK with `response_body` object\n\n\n## Cloudflare R2 storage buckets\n\n| # | Field               | Bucket                   | Example                                                               |\n|---|---------------------|--------------------------|-----------------------------------------------------------------------|\n| 1 | id_card_image       | members/documents/       | members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg        |\n| 2 | company_certificate | members/documents/       | members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg         |\n| 3 | profile_avatar      | members/profile_avatars/ | members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg |\n| 4 | business_logo       | members/business/        | members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg                  |\n| 5 | business_product    | members/business/        | members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg               |\n| 6 | payment_slip    | members/documents/        | members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg               |\n\n## 🖼️Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant R2 as Cloudflare R2\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/members/file/upload<br/>(multipart/form-data)\n\n    nextjsapi ->> nextjsapi: Validate request body\n    Note over nextjsapi: 1. Fail-Fast Validation:<br/>- Check file size <= 7MB<br/>- Check extension (.jpg, .jpeg, .png, .webp)<br/>- Reject entire request if ANY file is invalid\n\n    break Invalid request body\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    Note over nextjsapi: 2. Prepare Uploads:<br/>Generate secure ULID filenames for each provided file\n\n    opt id_card_image provided\n        nextjsapi->>R2: PutObject (members/documents/id_card_image_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt company_certificate provided\n        nextjsapi->>R2: PutObject (members/documents/company_cert_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt profile_avatar provided\n        nextjsapi->>R2: PutObject (members/profile_avatars/profile_avatar_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_logo provided\n        nextjsapi->>R2: PutObject (members/business/logo_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_product provided\n        nextjsapi->>R2: PutObject (members/business/product_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt payment_slip provided\n        nextjsapi->>R2: PutObject (members/documents/payment_slip_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    Note over nextjsapi: 3. Construct Response:<br/>Map uploaded paths to explicit keys\n\n    nextjsapi-->>browser: 200 OK\n```",
-				"tags": ["module_member"],
-				"parameters": [],
-				"requestBody": {
-					"content": {
-						"multipart/form-data": {
-							"schema": {
-								"type": "object",
-								"properties": {
-									"id_card_image": {
-										"type": "string",
-										"description": "ID card image",
-										"format": "binary",
-										"example": "file:///Users/arima/Pictures/fake_image/fake-Thai-ID-Card.webp"
-									},
-									"company_certificate": {
-										"type": "string",
-										"format": "binary",
-										"description": "หนังสือรับรองบริษัท/ทะเบียนพาณิชย์",
-										"example": "file:///Users/arima/Pictures/fake_image/company_certificate.webp"
-									},
-									"profile_avatar": {
-										"type": "string",
-										"description": "Profile avatar image",
-										"format": "binary",
-										"example": "file:///Users/arima/Pictures/fake_image/Notion_Avatartion_Eren.webp"
-									},
-									"business_logo": {
-										"type": "string",
-										"format": "binary",
-										"description": "Logo image",
-										"example": "file:///Users/arima/Pictures/fake_image/fake-business-logo.webp"
-									},
-									"business_product": {
-										"type": "string",
-										"format": "binary",
-										"description": "Product image",
-										"example": "file:///Users/arima/Pictures/fake_image/fake-product.webp"
-									},
-									"payment_slip": {
-										"format": "binary",
-										"type": "string",
-										"description": "หลักฐานการโอนเงิน (Slip image)",
-										"example": ""
-									}
-								}
-							},
-							"example": {
-								"id_card_image": "file:///Users/arima/Pictures/fake_image/fake-Thai-ID-Card.webp",
-								"company_certificate": "file:///Users/arima/Pictures/fake_image/company_certificate.webp",
-								"profile_avatar": "file:///Users/arima/Pictures/fake_image/Notion_Avatartion_Eren.webp",
-								"business_logo": "file:///Users/arima/Pictures/fake_image/fake-business-logo.webp",
-								"business_product": "file:///Users/arima/Pictures/fake_image/fake-product.webp",
-								"payment_slip": ""
-							}
-						}
-					},
-					"required": true
-				},
-				"responses": {
-					"200": {
-						"description": "",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/UploadSuccessResponse"
-								},
-								"examples": {
-									"Both Files Uploaded": {
-										"summary": "Example of a successful upload of both an avatar and an ID card.",
-										"value": {
-											"id_card_image_file_path": "members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg",
-											"company_certificate_file_path": "members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg",
-											"profile_avatar_file_path": "members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg",
-											"business_logo_file_path": "members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg",
-											"business_product_file_path": "members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg",
-											"payment_slip_file_path": "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"
-										}
-									},
-									"Only Avatar Uploaded": {
-										"summary": "Example when only the avatar was provided.",
-										"value": {
-											"id_card_image_file_path": null,
-											"company_certificate_file_path": null,
-											"profile_avatar_file_path": "members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg",
-											"business_logo_file_path": null,
-											"business_product_file_path": null,
-											"payment_slip_file_path": null
-										}
-									}
-								}
-							}
-						},
-						"headers": {}
-					},
-					"400": {
-						"description": "Validation failed (e.g., no files, invalid type).",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/ErrorResponse"
-								},
-								"examples": {
-									"No Files Provided": {
-										"summary": "The request was made without any files.",
-										"value": {
-											"error_message": "At least one file (profile_avatar or id_card_image) must be provided."
-										}
-									},
-									"Invalid File Type": {
-										"summary": "One of the files was not an allowed image type.",
-										"value": {
-											"error_message": "Invalid file type for 'id_card_image'. Only JPEG and PNG are allowed."
-										}
-									}
-								}
-							}
-						},
-						"headers": {}
-					}
-				},
-				"security": []
-			}
 		}
 	},
 	"webhooks": {},
@@ -3765,6 +3930,45 @@
 					"business_product_file_path",
 					"payment_slip_file_path"
 				]
+			},
+			"BusinessSearchItem": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer",
+						"format": "uint",
+						"description": "businesses.id"
+					},
+					"name": {
+						"type": "string",
+						"description": "Business name"
+					},
+					"juristic_registration_no": {
+						"type": "string",
+						"description": "Dedupe identity key (exact match, live rows only)"
+					},
+					"category_name": {
+						"type": "string",
+						"description": "From business_categories via category_id"
+					},
+					"address": {
+						"type": ["string", "null"],
+						"description": "Nullable in the businesses schema"
+					},
+					"member_count": {
+						"type": "integer",
+						"format": "uint",
+						"description": "Live linked members (deleted_at IS NULL)"
+					},
+					"owner_names": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"description": "Composed Thai full names (title_name_th + first_name_th + last_name_th) of live linked members, in member-id order; empty array when the business has no live linked members"
+					}
+				},
+				"required": ["id", "name", "juristic_registration_no", "category_name", "address", "member_count", "owner_names"]
 			}
 		},
 		"responses": {},
