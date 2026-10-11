@@ -19,11 +19,14 @@ import { integer, maxValue, minValue, object, optional, pipe, string, transform,
  */
 
 // limit: 1..50 integer. Default 10 applied in the route when absent.
+// integer() carries a custom message: its default ("Invalid integer: …")
+// is a valibot internal that would leak to API consumers and shift across
+// library versions.
 const LimitSchema = optional(
 	pipe(
 		string(),
 		transform((v) => Number(v)),
-		integer(),
+		integer("limit must be a whole number"),
 		minValue(1, "limit must be at least 1"),
 		maxValue(50, "limit must be at most 50")
 	)

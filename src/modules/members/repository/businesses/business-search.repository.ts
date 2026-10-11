@@ -38,6 +38,12 @@ export class BusinessSearchRepository implements IBusinessSearchRepository {
 		}
 		return ok(
 			result.value.map((row) => ({
+				// ponytail: BIGSERIAL→number truncates above Number.MAX_SAFE_INTEGER
+				// (~9e15). Unreachable in practice — every house repository maps
+				// BIGINT ids via Number(), and the picked id feeds
+				// MemberBusinessLinkRequest.business_id (integer uint on the wire),
+				// so a string id type would fight the whole API. If ids ever
+				// approach 2^53, switch the wire type to string everywhere at once.
 				id: Number(row.id),
 				name: row.name,
 				juristicRegistrationNo: row.juristicRegistrationNo,

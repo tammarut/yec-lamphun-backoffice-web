@@ -29,6 +29,7 @@ export type BusinessSearchFilter = {
  * `address` is nullable in the businesses schema.
  */
 export type BusinessSearchItem = {
+	/** Mapped from the BIGSERIAL `id` (safe below Number.MAX_SAFE_INTEGER — see BusinessSearchRepository). */
 	readonly id: number
 	readonly name: string
 	readonly juristicRegistrationNo: string

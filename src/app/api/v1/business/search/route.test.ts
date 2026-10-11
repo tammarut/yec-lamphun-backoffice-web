@@ -126,6 +126,13 @@ describe("GET /api/v1/business/search", () => {
 			expect(mockService.execute).toHaveBeenCalledWith({ limit: 10, search: "somchai" })
 		})
 
+		it('treats an all-whitespace search as no filter ("   " reaches the service as null)', async () => {
+			mockService.execute.mockResolvedValue(ok([]))
+			const response = await GET(makeGetRequest({ search: "   " }), undefined)
+			expect(response.status).toBe(200)
+			expect(mockService.execute).toHaveBeenCalledWith({ limit: 10, search: null })
+		})
+
 		it("accepts the lower boundary limit=1", async () => {
 			mockService.execute.mockResolvedValue(ok([]))
 			const response = await GET(makeGetRequest({ limit: "1" }), undefined)
@@ -177,14 +184,14 @@ describe("GET /api/v1/business/search", () => {
 			const response = await GET(makeGetRequest({ limit: "abc" }), undefined)
 			expect(response.status).toBe(400)
 			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("Invalid integer: Received NaN")
+			expect(json.error_message).toBe("limit must be a whole number")
 		})
 
 		it('returns 400 when limit is not an integer ("1.5")', async () => {
 			const response = await GET(makeGetRequest({ limit: "1.5" }), undefined)
 			expect(response.status).toBe(400)
 			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("Invalid integer: Received 1.5")
+			expect(json.error_message).toBe("limit must be a whole number")
 		})
 
 		it("returns 500 on a DatabaseError (no leaky details)", async () => {
