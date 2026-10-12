@@ -41,6 +41,8 @@ function makeValues(): MemberWizardFormValues {
 		shirt_size: "",
 		position: "GENERAL_MEMBER",
 		business: {
+			mode: "create",
+			linked_business: null,
 			name: "สมชาย คอนสตรัคชั่น",
 			juristic_registration_no: "0505561000123",
 			category_id: "2",

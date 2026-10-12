@@ -40,6 +40,8 @@ function makeValidFormValues(): MemberWizardFormValues {
 		shirt_size: "M",
 		position: "GENERAL_MEMBER",
 		business: {
+			mode: "create",
+			linked_business: null,
 			name: "สมชาย คอนสตรัคชั่น",
 			juristic_registration_no: "0505561000123",
 			category_id: "2",
@@ -53,6 +55,40 @@ function makeValidFormValues(): MemberWizardFormValues {
 			product: { file: null, existingUrl: null },
 		},
 	}
+}
+
+/** A representative GET /api/v1/business/search row (the picked business held in form state). */
+function pickerRow() {
+	return {
+		id: 7,
+		name: "ร้านไก่ย่างเจ้าเด็ม",
+		juristic_registration_no: "8551203456789",
+		category_name: "อาหารและเครื่องดื่ม",
+		address: null,
+		member_count: 2,
+		owner_names: ["สมชาย ใจดี", "สมหญิง รักงาน"],
+	}
+}
+
+/** A link-mode form: picked row, every manual business field at its empty default. */
+function makeLinkFormValues(): MemberWizardFormValues {
+	const values = makeValidFormValues()
+	values.business = {
+		mode: "link",
+		linked_business: pickerRow(),
+		name: "",
+		juristic_registration_no: "",
+		category_id: "",
+		address: "",
+		latitude: "",
+		longitude: "",
+		description: "",
+		core_business: "",
+		website: "",
+		logo: { file: null, existingUrl: null },
+		product: { file: null, existingUrl: null },
+	}
+	return values
 }
 
 function issuePaths(result: SafeParseResult<typeof MemberWizardSchema>): string[][] {
@@ -267,6 +303,62 @@ describe("MemberWizardSchema", () => {
 			const values = makeValidFormValues()
 			values.first_name_th = "ก".repeat(100)
 			expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+		})
+	})
+
+	describe("business link/create union (#70)", () => {
+		describe("Happy cases", () => {
+			test("link mode: a picked row passes with EVERY manual field empty (union mirror — link = id only)", () => {
+				expect(safeParse(MemberWizardSchema, makeLinkFormValues()).success).toBe(true)
+			})
+
+			test("link mode: garbage in the ignored manual fields does not matter", () => {
+				const values = makeLinkFormValues()
+				values.business.latitude = "not-a-number"
+				values.business.category_id = "not-even-a-category"
+				expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+			})
+
+			test("link mode: an address-bearing row passes too", () => {
+				const values = makeLinkFormValues()
+				values.business.linked_business = { ...pickerRow(), address: "99/หมู่ 4 ถ.ซุปเปอร์ไฮเวย์" }
+				expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+			})
+
+			test("create mode: a stale linked_business row is ignored (manual fields still required)", () => {
+				const values = makeValidFormValues()
+				values.business.linked_business = pickerRow()
+				expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+
+				const values2 = makeValidFormValues()
+				values2.business.linked_business = pickerRow()
+				values2.business.name = ""
+				expect(issuePaths(safeParse(MemberWizardSchema, values2))).toContainEqual(["business", "name"])
+			})
+
+			test("create mode: linked_business null passes (the default)", () => {
+				const values = makeValidFormValues()
+				expect(values.business.mode).toBe("create")
+				expect(values.business.linked_business).toBeNull()
+				expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+			})
+		})
+
+		describe("Unhappy cases", () => {
+			test("link mode without a picked row fails at business.linked_business with the Thai message", () => {
+				const values = makeLinkFormValues()
+				values.business.linked_business = null
+				const result = safeParse(MemberWizardSchema, values)
+				expect(result.success).toBe(false)
+				expect(issuePaths(result)).toContainEqual(["business", "linked_business"])
+				expect(issueMessages(result)).toContain("กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'สร้างกิจการใหม่'")
+			})
+
+			test("link mode still validates the rest of the form (empty nickname fails)", () => {
+				const values = makeLinkFormValues()
+				values.nickname = ""
+				expect(issuePaths(safeParse(MemberWizardSchema, values))).toContainEqual(["nickname"])
+			})
 		})
 	})
 })

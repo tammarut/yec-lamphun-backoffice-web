@@ -23,6 +23,13 @@ import * as v from "valibot"
  * - `business.category_id` / `latitude` / `longitude` are strings (HTML select
  *   and text input values) parsed to wire types at the boundary;
  * - empty string means "unset" for every API-optional field.
+ *
+ * `business` itself mirrors the server's `MemberBusinessRequestSchema` union
+ * (#69) as a `mode` variant: "create" requires the full field set; "link"
+ * requires a picked `BusinessPickerItem` and leaves the manual fields
+ * unvalidated, because the link payload sends `business_id` alone and the
+ * server strips the rest. `mode` and `linked_business` are form-side only —
+ * the mapping layer never lets them reach the wire.
  */
 
 // --- Enum mirrors (identical literals to the server picklists) --------------
@@ -62,6 +69,33 @@ const memberFileValue = v.object({
 })
 
 const emptyMemberFileValue = (): MemberFileValue => ({ file: null, existingUrl: null })
+
+/**
+ * Wire row of GET /api/v1/business/search (#68) — the picked business held in
+ * form state while linking. Client-side mirror by convention (the same rule
+ * as every enum/length mirror above); the search endpoint's route owns the
+ * authoritative shape.
+ */
+export type BusinessPickerItem = {
+	id: number
+	name: string
+	juristic_registration_no: string
+	category_name: string
+	address: string | null
+	member_count: number
+	owner_names: string[]
+}
+
+/** Shape mirror of a search row; validation stays light because the API owns the contract. */
+const businessPickerItem = v.object({
+	id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+	name: v.string(),
+	juristic_registration_no: v.string(),
+	category_name: v.string(),
+	address: v.nullable(v.string()),
+	member_count: v.pipe(v.number(), v.integer(), v.minValue(0)),
+	owner_names: v.array(v.string()),
+})
 
 /**
  * DB VARCHAR mirrors (repository/sql/schema.sql, member-business/sql/schema.sql):
@@ -119,6 +153,61 @@ const optionalCoordinate = (label: string) =>
 		v.string(),
 		v.check((value) => value.trim() === "" || Number.isFinite(Number(value)), `${label}ต้องเป็นตัวเลข`)
 	)
+
+/** Manual (create-path) business rules — the server's CreateMemberBusinessRequest mirror. */
+const businessManualFields = {
+	name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า", DB_MAX_LENGTHS.businessName),
+	juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล", DB_MAX_LENGTHS.juristicRegistrationNo),
+	category_id: v.pipe(
+		v.string(),
+		v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
+		v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
+	),
+	address: v.string(),
+	latitude: optionalCoordinate("ละติจูด"),
+	longitude: optionalCoordinate("ลองจิจูด"),
+	description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
+	core_business: v.string(),
+	website: v.string(),
+	logo: memberFileValue,
+	product: memberFileValue,
+}
+
+/**
+ * `business` mirrors the server's link/create union (#69): "link" requires a
+ * picked search row; "create" requires the full manual set. The link branch
+ * keeps the manual fields as lax strings — the payload sends `business_id`
+ * alone, so validating them would block a legitimate link form. Every field
+ * is declared in BOTH branches so the inferred union keeps flat member access
+ * (`values.business.name`) type-safe for RHF, the draft, and the review step.
+ * A variant (not a top-level pipe check) because of abortPipeEarly — the same
+ * reason the registration_type variant exists.
+ */
+const businessSchema = v.variant("mode", [
+	v.object({
+		mode: v.literal("create"),
+		linked_business: v.union([businessPickerItem, v.null()]),
+		...businessManualFields,
+	}),
+	v.object({
+		mode: v.literal("link"),
+		linked_business: v.pipe(
+			v.union([businessPickerItem, v.null()]),
+			v.check((row) => row !== null, "กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'สร้างกิจการใหม่'")
+		),
+		name: v.string(),
+		juristic_registration_no: v.string(),
+		category_id: v.string(),
+		address: v.string(),
+		latitude: v.string(),
+		longitude: v.string(),
+		description: v.string(),
+		core_business: v.string(),
+		website: v.string(),
+		logo: memberFileValue,
+		product: memberFileValue,
+	}),
+])
 
 // --- The schema ---------------------------------------------------------------
 
@@ -187,23 +276,7 @@ function wizardFields(mode: MemberWizardMode) {
 		line_id: optionalText(DB_MAX_LENGTHS.lineId),
 		shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
 		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
-		business: v.object({
-			name: requiredText("กรุณากรอกชื่อกิจการ/ร้านค้า", DB_MAX_LENGTHS.businessName),
-			juristic_registration_no: requiredText("กรุณากรอกเลขทะเบียนนิติบุคคล", DB_MAX_LENGTHS.juristicRegistrationNo),
-			category_id: v.pipe(
-				v.string(),
-				v.check((value) => value !== "", "กรุณาเลือกหมวดธุรกิจ"),
-				v.check((value) => Number.isInteger(Number(value)) && Number(value) > 0, "กรุณาเลือกหมวดธุรกิจ")
-			),
-			address: v.string(),
-			latitude: optionalCoordinate("ละติจูด"),
-			longitude: optionalCoordinate("ลองจิจูด"),
-			description: requiredText("กรุณากรอกรายละเอียดกิจการ"),
-			core_business: v.string(),
-			website: v.string(),
-			logo: memberFileValue,
-			product: memberFileValue,
-		}),
+		business: businessSchema,
 	}
 }
 
@@ -271,6 +344,8 @@ export const STEP_FIELDS = {
 		"position",
 	],
 	3: [
+		"business.mode",
+		"business.linked_business",
 		"business.name",
 		"business.juristic_registration_no",
 		"business.category_id",
@@ -310,6 +385,9 @@ export const MEMBER_WIZARD_DEFAULT_VALUES = (): MemberWizardFormValues => ({
 	shirt_size: "",
 	position: "GENERAL_MEMBER",
 	business: {
+		// สร้างกิจการใหม่ is the default — today's manual form, zero regression (#70).
+		mode: "create",
+		linked_business: null,
 		name: "",
 		juristic_registration_no: "",
 		category_id: "",

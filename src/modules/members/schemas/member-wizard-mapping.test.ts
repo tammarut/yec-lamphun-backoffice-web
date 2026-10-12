@@ -10,6 +10,8 @@ import {
 	formatPhoneNumber,
 	memberDetailToFormValues,
 	membershipDurationLabel,
+	type CreateMemberApiPayload,
+	type CreateMemberBusinessCreatePayload,
 	type UploadedFilePaths,
 } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
@@ -21,6 +23,14 @@ const uploads: UploadedFilePaths = {
 	profile_avatar_file_path: "members/profile_avatars/profile_avatar_03ULID.png",
 	business_logo_file_path: "members/business/logo_04ULID.png",
 	business_product_file_path: null,
+}
+
+/** Narrow the payload's business to the create-path union member, asserting the link branch didn't leak. */
+function createdBusiness(payload: { business: CreateMemberApiPayload["business"] }): CreateMemberBusinessCreatePayload {
+	if ("business_id" in payload.business) {
+		throw new Error("expected a create-path business payload")
+	}
+	return payload.business
 }
 
 function makeFormValues(): MemberWizardFormValues {
@@ -47,6 +57,8 @@ function makeFormValues(): MemberWizardFormValues {
 		shirt_size: "S",
 		position: "GENERAL_MEMBER",
 		business: {
+			mode: "create",
+			linked_business: null,
 			name: "มินตรา แฟชั่น",
 			juristic_registration_no: "0205562000456",
 			category_id: "11",
@@ -62,31 +74,63 @@ function makeFormValues(): MemberWizardFormValues {
 	}
 }
 
+/** A link-mode form: picked row, every manual business field at its empty default. */
+function makeLinkFormValues(): MemberWizardFormValues {
+	const values = makeFormValues()
+	values.business = {
+		mode: "link",
+		linked_business: {
+			id: 7,
+			name: "ร้านไก่ย่างเจ้าเด็ม",
+			juristic_registration_no: "8551203456789",
+			category_name: "อาหารและเครื่องดื่ม",
+			address: null,
+			member_count: 2,
+			owner_names: ["สมชาย ใจดี"],
+		},
+		name: "",
+		juristic_registration_no: "",
+		category_id: "",
+		address: "",
+		latitude: "",
+		longitude: "",
+		description: "",
+		core_business: "",
+		website: "",
+		logo: { file: null, existingUrl: null },
+		product: { file: null, existingUrl: null },
+	}
+	return values
+}
+
 describe("buildCreatePayload", () => {
 	describe("Happy cases", () => {
 		test("attaches uploaded file paths at the exact wire keys", () => {
 			const payload = buildCreatePayload(makeFormValues(), uploads)
+			const business = createdBusiness(payload)
 			expect(payload.company_certificate).toBe("members/documents/company_cert_02ULID.png")
 			expect(payload.id_card_image).toBe("members/documents/id_card_image_01ULID.jpg")
 			expect(payload.profile_avatar).toBe("members/profile_avatars/profile_avatar_03ULID.png")
-			expect(payload.business.logo).toBe("members/business/logo_04ULID.png")
-			expect(payload.business.product).toBeNull()
+			expect(business.logo).toBe("members/business/logo_04ULID.png")
+			expect(business.product).toBeNull()
 		})
 
 		test("sends null for every file path when nothing was uploaded", () => {
 			const values = makeFormValues()
 			const payload = buildCreatePayload(values, null)
+			const business = createdBusiness(payload)
 			expect(payload.company_certificate).toBeNull()
 			expect(payload.id_card_image).toBeNull()
 			expect(payload.profile_avatar).toBeNull()
-			expect(payload.business.logo).toBeNull()
-			expect(payload.business.product).toBeNull()
+			expect(business.logo).toBeNull()
+			expect(business.product).toBeNull()
 		})
 
 		test("parses lat/long strings into the wire [lat, long] pair and category id into a number", () => {
 			const payload = buildCreatePayload(makeFormValues(), uploads)
-			expect(payload.business.location).toEqual([18.5753, 99.0094])
-			expect(payload.business.category_id).toBe(11)
+			const business = createdBusiness(payload)
+			expect(business.location).toEqual([18.5753, 99.0094])
+			expect(business.category_id).toBe(11)
 		})
 
 		test("sends null for empty optional text fields and omits an empty shirt_size entirely", () => {
@@ -106,9 +150,10 @@ describe("buildCreatePayload", () => {
 			expect(payload.last_name_en).toBeNull()
 			expect(payload.email).toBeNull()
 			expect(payload.line_id).toBeNull()
-			expect(payload.business.address).toBeNull()
-			expect(payload.business.core_business).toBeNull()
-			expect(payload.business.website).toBeNull()
+			const business = createdBusiness(payload)
+			expect(business.address).toBeNull()
+			expect(business.core_business).toBeNull()
+			expect(business.website).toBeNull()
 			expect("shirt_size" in payload).toBe(false)
 		})
 
@@ -119,7 +164,7 @@ describe("buildCreatePayload", () => {
 			values.business.longitude = ""
 			const payload = buildCreatePayload(values, uploads)
 			expect(payload.shirt_size).toBe("2XL")
-			expect(payload.business.location).toBeNull()
+			expect(createdBusiness(payload).location).toBeNull()
 		})
 
 		test("payload JSON round-trips without undefined keys leaking", () => {
@@ -128,6 +173,22 @@ describe("buildCreatePayload", () => {
 			const json = JSON.stringify(buildCreatePayload(values, null))
 			expect(json).not.toContain("shirt_size")
 			expect(json).not.toContain("undefined")
+		})
+
+		test("link mode: business collapses to { business_id } alone — no other keys reach the wire", () => {
+			const payload = buildCreatePayload(makeLinkFormValues(), uploads)
+			expect(payload.business).toEqual({ business_id: 7 })
+			expect(Object.keys(payload.business)).toEqual(["business_id"])
+			// The picker's mode/row fields never leak into the JSON either.
+			expect(JSON.stringify(payload)).not.toContain("linked_business")
+		})
+
+		test("link mode: a staged logo upload still rides at the member level (files map regardless of business mode)", () => {
+			const values = makeLinkFormValues()
+			values.business.logo = { file: new File(["logo"], "logo.png", { type: "image/png" }), existingUrl: null }
+			const payload = buildCreatePayload(values, uploads)
+			expect(payload.company_certificate).toBe("members/documents/company_cert_02ULID.png")
+			expect(payload.business).toEqual({ business_id: 7 })
 		})
 	})
 
@@ -166,11 +227,12 @@ describe("buildUpdatePayload", () => {
 			values.business.logo = { file: null, existingUrl: "https://public/logo.png" }
 			values.business.product = { file: null, existingUrl: null }
 			const payload = buildUpdatePayload(values, null)
+			const business = createdBusiness(payload)
 			expect(payload.company_certificate).toBeNull()
 			expect(payload.id_card_image).toBeNull()
 			expect(payload.profile_avatar).toBeNull()
-			expect(payload.business.logo).toBeNull()
-			expect(payload.business.product).toBeNull()
+			expect(business.logo).toBeNull()
+			expect(business.product).toBeNull()
 		})
 
 		test("a changed file submits the uploaded path (replace)", () => {
@@ -279,12 +341,19 @@ describe("memberDetailToFormValues", () => {
 			expect(values.business.longitude).toBe("")
 		})
 
+		test("edit pre-fill pins the manual business path (mode create, no linked row)", () => {
+			const values = memberDetailToFormValues(makeDetail())
+			expect(values.business.mode).toBe("create")
+			expect(values.business.linked_business).toBeNull()
+		})
+
 		test("round-trips: pre-fill → buildUpdatePayload keeps the stored phone dashes and category", () => {
 			const values = memberDetailToFormValues(makeDetail())
 			const payload = buildUpdatePayload(values, null)
 			expect(payload.phone_no).toBe("087-249-2219")
-			expect(payload.business.category_id).toBe(73)
-			expect(payload.business.location).toEqual([13.72, 100.55])
+			const business = createdBusiness(payload)
+			expect(business.category_id).toBe(73)
+			expect(business.location).toEqual([13.72, 100.55])
 			expect(payload.id_card_no).toBeNull()
 		})
 	})
