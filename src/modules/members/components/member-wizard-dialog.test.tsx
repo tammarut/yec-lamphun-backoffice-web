@@ -18,6 +18,30 @@ const CATEGORIES = [
 	{ id: 2, category_name: "พาณิชยกรรม การค้า และค้าระวังประเทศ" },
 ]
 
+/** GET /api/v1/business/search fixtures (#70 picker) — one address-bearing row, one bare row. */
+const BUSINESS_SEARCH_ROWS = [
+	{
+		id: 7,
+		name: "ร้านไก่ย่างเจ้าเด็ม",
+		juristic_registration_no: "8551203456789",
+		category_name: "อาหารและเครื่องดื่ม",
+		address: "99/หมู่ 4 ถ.ซุปเปอร์ไฮเวย์",
+		member_count: 2,
+		owner_names: ["สมชาย ใจดี", "สมหญิง รักงาน"],
+	},
+	{
+		id: 9,
+		name: "ไก่ย่างหลังตลาด",
+		juristic_registration_no: "8551999888777",
+		category_name: "อาหารและเครื่องดื่ม",
+		address: null,
+		member_count: 1,
+		owner_names: [],
+	},
+]
+
+const SELECTED_CHIP = "เลือกกิจการแล้ว — สมาชิกใหม่จะผูกกับกิจการนี้"
+
 const uploadPaths = (overrides: Record<string, string> = {}) => ({
 	id_card_image_file_path: null,
 	company_certificate_file_path: null,
@@ -93,6 +117,9 @@ function renderWizard(options: { mobile?: boolean; edit?: boolean; route?: Respo
 		}
 		if (url === "/api/v1/business/categories") {
 			return jsonResponse(200, { business_categories: CATEGORIES })
+		}
+		if (url.startsWith("/api/v1/business/search")) {
+			return jsonResponse(200, { businesses: BUSINESS_SEARCH_ROWS })
 		}
 		if (url === "/api/v1/members/file/upload") {
 			return jsonResponse(200, uploadPaths({ profile_avatar_file_path: "members/profile_avatars/profile_avatar_X.png" }))
@@ -210,6 +237,27 @@ async function openEditAndWaitForPrefill() {
 async function submitFromReview() {
 	await armAndSubmit()
 	await screen.findByText("ลงทะเบียนสมาชิกเรียบร้อย")
+}
+
+/** Outwait the picker's 300 ms search debounce (real timers, renewal-combobox recipe). */
+const settleDebounce = () => new Promise((resolve) => setTimeout(resolve, 350))
+
+/** Step 2 filled, step 3 in ผูกกิจการที่มีอยู่แล้ว mode with the search box showing. */
+async function goToStep3LinkMode() {
+	await goToStep2()
+	await fillStep2()
+	fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+	fireEvent.click(await screen.findByRole("radio", { name: /ผูกกิจการที่มีอยู่แล้ว/ }))
+	return screen.findByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+}
+
+/** Search, wait out the debounce, and pick ร้านไก่ย่างเจ้าเด็ม — the lock card lands. */
+async function pickBusiness() {
+	const search = screen.getByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+	fireEvent.change(search, { target: { value: "ไก่ย่าง" } })
+	await settleDebounce()
+	fireEvent.click(await screen.findByRole("option", { name: /ร้านไก่ย่างเจ้าเด็ม/ }))
+	await screen.findByText(SELECTED_CHIP)
 }
 
 describe("MemberWizardDialog", () => {
@@ -678,6 +726,129 @@ describe("MemberWizardDialog", () => {
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 
 			expect(await screen.findByText("โหลดหมวดธุรกิจไม่สำเร็จ")).toBeTruthy()
+		})
+	})
+
+	describe("Business picker (step 3, #70)", () => {
+		describe("Happy cases", () => {
+			it("defaults to สร้างกิจการใหม่ with the manual form — the picker stays hidden", async () => {
+				renderWizard()
+				await goToStep2()
+				await fillStep2()
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+
+				expect(screen.getByRole("radio", { name: /สร้างกิจการใหม่/ }).getAttribute("aria-checked")).toBe("true")
+				expect(screen.queryByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeNull()
+				expect(screen.getByPlaceholderText("เลขทะเบียนนิติบุคคล")).toBeTruthy()
+			})
+
+			it("switching to ผูกกิจการที่มีอยู่แล้ว swaps the manual form for the search combobox (no fetch until typing)", async () => {
+				const { fetchMock } = renderWizard()
+				await goToStep3LinkMode()
+
+				expect(screen.queryByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeNull()
+				expect(screen.queryByPlaceholderText("เลขทะเบียนนิติบุคคล")).toBeNull()
+				expect(screen.queryByText("รูปภาพกิจการ")).toBeNull()
+				await settleDebounce()
+				expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v1/business/search"))).toBe(false)
+			})
+
+			it("debounces 300 ms and searches; option rows show ทะเบียน · หมวด · สมาชิก N คน", async () => {
+				const { fetchMock } = renderWizard()
+				await goToStep3LinkMode()
+				const search = screen.getByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+
+				fireEvent.change(search, { target: { value: "ไก่ย่าง" } })
+				expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v1/business/search"))).toBe(false)
+				await settleDebounce()
+
+				const searchCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/v1/business/search"))
+				expect(String(searchCall?.[0])).toBe(`/api/v1/business/search?limit=8&search=${encodeURIComponent("ไก่ย่าง")}`)
+				// The row format: ทะเบียน · หมวด · สมาชิก N คน (subtitle inside the option;
+				// the accessible name is only itemToStringLabel's business name).
+				const option = await screen.findByRole("option", { name: /ร้านไก่ย่างเจ้าเด็ม/ })
+				expect(within(option).getByText(/ทะเบียน 8551203456789 · อาหารและเครื่องดื่ม · สมาชิก 2 คน/)).toBeTruthy()
+			})
+
+			it("picking a result swaps in the lock card (chip, owners, 🔒 note); เปลี่ยนกิจการ returns to search", async () => {
+				renderWizard()
+				await goToStep3LinkMode()
+				await pickBusiness()
+
+				expect(screen.getByText(SELECTED_CHIP)).toBeTruthy()
+				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
+				expect(screen.getByText(/สมชาย ใจดี · สมหญิง รักงาน/)).toBeTruthy()
+				expect(screen.getByText(/แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ/)).toBeTruthy()
+				expect(screen.queryByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeNull()
+
+				fireEvent.click(screen.getByRole("button", { name: "เปลี่ยนกิจการ" }))
+				expect(await screen.findByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeTruthy()
+				expect(screen.queryByText(SELECTED_CHIP)).toBeNull()
+			})
+
+			it("switching the radio to สร้างกิจการใหม่ clears the pick; returning to link shows a fresh search", async () => {
+				renderWizard()
+				await goToStep3LinkMode()
+				await pickBusiness()
+
+				fireEvent.click(screen.getByRole("radio", { name: /สร้างกิจการใหม่/ }))
+				expect(await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeTruthy()
+
+				fireEvent.click(screen.getByRole("radio", { name: /ผูกกิจการที่มีอยู่แล้ว/ }))
+				await screen.findByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+				expect(screen.queryByText(SELECTED_CHIP)).toBeNull()
+			})
+
+			it("review shows the linked business from the picked row; submit sends business as { business_id } ALONE", async () => {
+				let createBody: unknown
+				renderWizard({
+					route: (url, init) => {
+						if (url === "/api/v1/members" && init?.method === "POST") {
+							createBody = JSON.parse(String(init.body))
+							return jsonResponse(201, { id: 42 })
+						}
+						return undefined
+					},
+				})
+				await goToStep3LinkMode()
+				await pickBusiness()
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+
+				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
+				expect(screen.getByText("สมาชิกร่วม")).toBeTruthy()
+
+				await armAndSubmit()
+				await screen.findByText("ลงทะเบียนสมาชิกเรียบร้อย")
+				expect(createBody).toMatchObject({ business: { business_id: 7 } })
+			})
+		})
+
+		describe("Unhappy cases", () => {
+			it("link mode without a pick blocks ถัดไป with the error summary and the field message", async () => {
+				renderWizard()
+				await goToStep3LinkMode()
+
+				// Switching into link mode revalidates the step, so the message is
+				// already under the empty search box.
+				await screen.findByText("กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'สร้างกิจการใหม่'")
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+
+				await screen.findByText(/พบข้อผิดพลาด 1 รายการ/)
+				expect(screen.queryByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)).toBeNull()
+				expect(screen.getByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeTruthy()
+			})
+
+			it("link mode is create-wizard-only: the edit wizard keeps the manual form with no radio", async () => {
+				renderWizard({ edit: true })
+				await openEditAndWaitForPrefill()
+				fireEvent.click(within(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })).getByText("ข้อมูลธุรกิจ"))
+
+				expect(await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeTruthy()
+				expect(screen.queryByRole("radio", { name: /ผูกกิจการที่มีอยู่แล้ว/ })).toBeNull()
+				expect(screen.queryByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeNull()
+			})
 		})
 	})
 
