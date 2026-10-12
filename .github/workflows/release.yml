@@ -1,0 +1,78 @@
+name: Release
+
+# PROD publisher. Pushing a git tag like `v1.2.3` builds and pushes an
+# immutable, version-tagged image (`1.2.3`) to GHCR. This workflow does NOT
+# deploy: the prod Dokploy application is advanced by a manual tag bump in
+# Dokploy (change its image tag to the new version, then Deploy) — see
+# docs/adr/0025-dev-latest-auto-deploy-prod-version-tag.md.
+#
+# Why a separate workflow instead of a branch of cd.yml:
+#   - cd.yml rides `workflow_run` on CI, and CI in this repo triggers on
+#     `push: branches: [main]` only — a git-tag push runs NO CI, so cd.yml
+#     would never fire for a release.
+#   - A `workflow_run`-triggered job sees `github.ref` as the DEFAULT BRANCH,
+#     so metadata-action's `type=semver` cannot resolve the tag from there.
+#   - Hence the release build must be triggered directly by the tag push
+#     (`on: push: tags`), where the tag ref is visible.
+#
+# There is intentionally NO CI gate here. The guarantee that a release image
+# comes from a green commit is procedural: tag a commit that already passed CI
+# on main. (Dev's `cd.yml` keeps its machine-enforced `head_branch == main` +
+# CI-success gate; this path trusts the operator.)
+on:
+    push:
+        tags: ["v*"]
+
+permissions:
+    contents: read
+    packages: write
+
+concurrency:
+    # One release per tag; distinct tags build independently.
+    group: release-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build-and-push:
+        name: Build and push version-tagged image
+        runs-on: ubuntu-latest
+        env:
+            R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+        steps:
+            - name: Checkout (the tagged commit)
+              uses: actions/checkout@v7
+
+            - name: Log in to GHCR
+              uses: docker/login-action@v4
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Docker metadata
+              id: meta
+              uses: docker/metadata-action@v6
+              with:
+                  images: ghcr.io/${{ github.repository }}
+                  # Never mint `latest` here. Dev owns that pointer (cd.yml); a
+                  # release must not move it, or the dev app would silently
+                  # deploy the released commit. metadata-action's default flavor
+                  # auto-adds `latest` for semver refs — this disables it.
+                  flavor: |
+                      latest=false
+                  tags: |
+                      # git tag v1.2.3 → image tag 1.2.3
+                      type=semver,pattern={{version}}
+
+            - name: Build and push image
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  # Runner env does not reach the Docker build: next.config.ts
+                  # reads R2_PUBLIC_BASE_URL while building (CSP img-src), so
+                  # it must be passed explicitly as a build-arg.
+                  build-args: |
+                      R2_PUBLIC_BASE_URL=${{ vars.R2_PUBLIC_BASE_URL }}
