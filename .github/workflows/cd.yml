@@ -105,14 +105,41 @@ jobs:
             cancel-in-progress: false
         steps:
             # Dokploy's built-in auto-deploy does not listen to GHCR pushes, so
-            # the workflow must trigger the deploy explicitly via the app's
-            # Deploy Webhook URL. This is the narrowest credential: the secret
-            # can only trigger this one application's deploy, unlike a Dokploy
-            # API token which can drive the whole instance. `-f` makes an HTTP
-            # error fail the job (a silent 404 would otherwise look like success).
+            # the workflow must trigger the deploy explicitly. Uses the
+            # documented API method (POST /api/application.deploy with the
+            # x-api-key header) rather than the per-app Deploy Webhook URL.
+            #
+            # CREDENTIAL SCOPE: unlike the per-app webhook URL (which can only
+            # trigger one application), a Dokploy API key is scoped to the whole
+            # instance — it can drive any Dokploy API call. Treat
+            # DOKPLOY_API_KEY as a high-value secret.
+            #
+            # KNOWN LIMITATION: the panel's Cloudflare zone has Bot Fight Mode
+            # enabled, which challenges this runner's datacenter IP (ASN 8075,
+            # Microsoft/Azure) and returns 403 for a plain curl. Both this API
+            # path and the old webhook path sit behind that same zone, so the
+            # switch itself does not defeat it. The trigger needs a path
+            # Cloudflare does not gate. The diagnostic below surfaces the
+            # status/body instead of swallowing it behind `-f`.
             - name: Trigger Dokploy dev deploy
+              env:
+                  DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+                  DOKPLOY_APP_ID: ${{ vars.DOKPLOY_APP_ID }}
+                  DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
               run: |
-                  curl -fsS -X POST "${{ secrets.DOKPLOY_DEV_DEPLOY_WEBHOOK }}"
+                  set -euo pipefail
+                  http_code=$(curl -sS -o /tmp/dokploy-body -w '%{http_code}' \
+                    --location --request POST "$DOKPLOY_URL/api/application.deploy" \
+                    --header "x-api-key: $DOKPLOY_API_KEY" \
+                    --header "Content-Type: application/json" \
+                    --data-raw "{\"applicationId\":\"$DOKPLOY_APP_ID\"}")
+                  echo "HTTP $http_code"
+                  echo "--- response body ---"
+                  cat /tmp/dokploy-body
+                  if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+                    echo "::error::Dokploy deploy trigger failed with HTTP $http_code"
+                    exit 1
+                  fi
 
     cleanup:
         name: Cleanup Old Docker Images
