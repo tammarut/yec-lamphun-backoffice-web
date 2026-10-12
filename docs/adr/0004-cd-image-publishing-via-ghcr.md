@@ -1,12 +1,16 @@
+---
+status: partially superseded by ADR-0025
+---
+
 # CD: publish Docker image to GHCR, gated on CI success
 
 Docker images for this app are built by GitHub Actions (not the production host), pushed to the GitHub Container Registry (GHCR), and pulled by Dokploy on the Contabo VPS. CD is a separate workflow file (`cd.yml`) that runs only after the CI workflow (`ci.yml`) completes successfully.
 
+> **Partially superseded by [ADR-0025](./0025-dev-latest-auto-deploy-prod-version-tag.md).** Two parts of this ADR no longer hold: (1) `cd.yml` **now triggers the dev deploy** via a Dokploy webhook — it is no longer build-and-publish-only — and (2) the published tag is `:latest` for dev, not `:main`, with prod published as immutable version tags by a separate `release.yml`. The core decisions below still stand: build off the VPS, GHCR as the registry, and CI-gating via `workflow_run` with a `head_branch == main` check.
+
 ## Scope: this is delivery, not deployment
 
-`cd.yml` **builds and publishes an image** — it does not deploy. The workflow's responsibility ends when the image is in the registry. **Deployment is Dokploy's job:** Dokploy pulls the `:main` tag from GHCR and restarts the container. Whether Dokploy pulls automatically (via a webhook on GHCR push) or requires a manual trigger is configured in Dokploy, not in this repo.
-
-This makes the workflow continuous *delivery* (an artifact is always ready to deploy) rather than continuous *deployment* (production is automatically updated). The boundary is deliberate: Dokploy owns the runtime environment (env vars, networking, process lifecycle), so it is the correct place to own the deploy decision. If automatic deployment is later desired, the change is a Dokploy webhook configuration — not a modification to `cd.yml`.
+`cd.yml` builds and publishes the image — and, since ADR-0025, triggers the **dev** deploy by POSTing the dev Dokploy application's Deploy Webhook URL after the push. It still does not deploy prod: **the prod Dokploy app is advanced by a manual image-tag bump** (change the tag, Deploy). The original framing — "delivery, not deployment" — described the pre-ADR-0025 state; the boundary has since moved so that dev deploys automatically and prod does not. Dokploy continues to own the runtime environment (env vars, networking, process lifecycle). See ADR-0025 for the dev/prod split.
 
 ## Why
 
@@ -49,10 +53,12 @@ if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workfl
 
 ## Tagging
 
+> **Superseded by ADR-0025:** `cd.yml` no longer publishes `:main` or semver tags. It publishes `:latest` (dev), and `release.yml` publishes immutable version tags (prod). The description below records the original scheme.
+
 Images are tagged by `docker/metadata-action@v6`:
 
-- `type=ref,event=branch` → the branch name. Push to `main` produces `ghcr.io/<owner>/<repo>:main`. **This is the tag Dokploy pulls** — it is mutable and always points at the latest successful-CI build of `main`.
-- `type=semver,pattern={{version}}` → a git tag `v1.2.3` produces image tag `1.2.3`. Immutable, enables pinning and rollback to a known-good version.
+- `type=ref,event=branch` → the branch name. Push to `main` produces `ghcr.io/<owner>/<repo>:main`. **This was the tag Dokploy pulled** — mutable, pointing at the latest successful-CI build of `main`. (Replaced by `:latest` in ADR-0025.)
+- `type=semver,pattern={{version}}` → a git tag `v1.2.3` produces image tag `1.2.3`. Immutable, enables pinning and rollback. (Moved to `release.yml` in ADR-0025.)
 
 The blog template's additional `prod` overlay tag was dropped: with only a `main`-deployed flow, `prod` would be indistinguishable from `:main` and adds a tag without adding information.
 
@@ -77,8 +83,8 @@ The cleanup action holds `packages: write` scope — it can **delete** package v
 ## Consequences
 
 - **GHCR package ACL (one-time, GitHub UI):** the workflow's `permissions: packages: write` grants the `GITHUB_TOKEN` the *capability* to write packages, but GHCR enforces a separate per-package allowlist deciding *which repos' tokens may touch a given package*. For **user-owned** packages (this repo is owned by the user `tammarut`, not an org), GitHub does **not** auto-grant the source repo access on package creation — the first CD push fails with `permission_denied: write_package` even though the token is correctly authenticated (via the login step) and scoped. The fix is a one-time manual step in the package settings: `github.com/users/<owner>/packages/container/<package>/settings` → "Manage Actions access" → add the `yec-lamphun-backoffice-web` repository with **Write** role. Org-owned packages auto-grant this; the gotcha is specific to user-owned packages. Once granted, re-run the failed CD workflow and the push succeeds.
-- **Dokploy config change (outside this repo):** the Dokploy application must switch from "build from GitHub source" to "pull image `ghcr.io/<owner>/<repo>:main`." This is a Dokploy UI/config change, not something the workflow does.
-- **GHCR package visibility:** the first push creates the package as private by default. Visibility (public vs private) is a separate decision made in the GitHub package settings. The image is built with `SKIP_ENV_VALIDATION=true`, so no secrets are baked in — all real env vars (`DATABASE_URL`, `R2_*`, `ADMIN_*`) are injected by Dokploy at container start.
-- **First-run bootstrap:** the package does not exist in GHCR until the first successful CI→CD cycle on `main` completes. Dokploy cannot pull `:main` until then; the first deploy after merging this workflow must complete the full cycle before Dokploy can switch to image-pull mode.
+- **Dokploy config change (outside this repo):** the Dokploy application must switch from "build from GitHub source" to image-pull mode. (ADR-0025: two applications now — dev pulling `:latest`, prod pulling a pinned version tag.) This is a Dokploy UI/config change, not something the workflow does.
+- **GHCR package visibility:** the first push creates the package as private by default. Visibility (public vs private) is a separate decision made in the GitHub package settings. The image is built with `SKIP_ENV_VALIDATION=true`, so no secrets are baked in — all real env vars (`DATABASE_URL`, `R2_*`, `ADMIN_*`) are injected by Dokploy at container start. (ADR-0025: the package stays private; Dokploy gets a `read:packages` PAT.)
+- **First-run bootstrap:** the package does not exist in GHCR until the first successful CI→CD cycle on `main` completes. Dokploy cannot pull the image until then; the first deploy after merging this workflow must complete the full cycle before Dokploy can switch to image-pull mode.
 - **Manual cleanup fallback:** if the cleanup action ever misbehaves, images can be pruned via `gh api` or the GitHub UI's package version management.
 - **No multi-arch build:** the image builds for the GitHub runner's native architecture (amd64). If the Contabo VPS is a different architecture (e.g. arm64), the image will fail to run and `docker/setup-qemu-action` + a `platforms` matrix will be needed. Confirm the VPS architecture before the first production deploy.

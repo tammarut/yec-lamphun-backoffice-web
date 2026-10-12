@@ -1,0 +1,35 @@
+---
+status: accepted
+---
+
+# Dev auto-deploys `:latest`; prod advances by version tag
+
+The Docker image is published to GHCR by two workflows with two different audiences. **Dev** is published by `cd.yml` on every CI-green merge to `main`, tagged `:latest` (the mutable pointer), and the dev Dokploy application is deployed automatically: `cd.yml`'s `deploy` job POSTs the app's Deploy Webhook URL after the push. **Prod** is published by `release.yml` on a `vX.Y.Z` git tag, tagged with the immutable version (`1.2.3`), and the prod Dokploy application is advanced by a **manual image-tag bump** in the Dokploy UI (change the tag, Deploy). This partially supersedes ADR-0004, which described a single `:main`-tagged image that `cd.yml` published but did not deploy.
+
+## Why
+
+- **The dev/prod split is the operator's chosen release model.** Dev should track tip-of-main continuously; prod should move only on a deliberate release. A single mutable tag cannot express both, so dev gets `:latest` (auto) and prod gets immutable version tags (manual).
+- **Dokploy cannot listen to GHCR.** Its built-in auto-deploy covers GitHub/GitLab/Bitbucket/Gitea/Docker Hub pushes — not container-registry pushes. So an image landing in GHCR does nothing until something tells Dokploy to pull. Hence `cd.yml` triggers the dev app explicitly via its Deploy Webhook URL.
+- **A Dokploy application deploys the tag it is configured with; the webhook cannot carry a new tag.** This is why prod cannot be auto-advanced by a release webhook without an API call that rewrites the app's image tag — and no Dokploy tag-change endpoint was confirmed. Prod therefore advances by a manual bump: set the app's image tag to the new version, Deploy. Rollback is the same action pointed at an older tag.
+- **The release build cannot be a branch of `cd.yml`.** `cd.yml` rides `workflow_run` on CI. CI in this repo triggers on `push: branches: [main]` only, and GitHub skips refs not covered by the filter — so a git-tag push runs **no CI**, and `cd.yml` would never fire for a release. Worse, a `workflow_run`-triggered job sees `github.ref` as the **default branch**, so `docker/metadata-action`'s `type=semver` cannot resolve the tag from inside it. The release build must therefore be triggered **directly** by the tag push (`on: push: tags: ['v*']`), where the tag ref is visible — a separate workflow file.
+- **`latest` must be minted from one place only.** `metadata-action`'s default flavor (`latest=auto`) auto-generates a `latest` tag for `type=semver` refs. Left unguarded, pushing `v1.2.3` would publish `1.2.3` **and** move `latest` onto the released commit — silently diverting the dev app onto the release. Both workflows set `flavor: latest=false`; dev's `latest` comes solely from an explicit `type=raw,value=latest,enable={{is_default_branch}}` rule gated behind the existing `head_branch == 'main'` check.
+
+## Considered options
+
+- **Keep `:main`, add an immutable `:sha-<short>` companion (rejected).** The self-documenting single-tag option with a real rollback window. Rejected in favour of `:latest` for dev familiarity, and because prod's version tags already cover the immutability need.
+- **`:latest` only for dev, no companion tag (chosen for dev).** Simplest registry. Trade-off, accepted knowingly: `cleanup` runs `delete-untagged: true`, so when `:latest` moves forward the superseded image is pruned as untagged — `keep-n-tagged: 3` protects **no** rollback window on dev. Rolling dev back means re-tagging an older digest within the pre-prune window, or redeploying an older prod version tag. Dev is expected to be disposable; this is tolerable there.
+- **`prod` overlay tag, or a single `:main` for both environments (rejected).** With a dev/prod split, one tag cannot express "this is what prod runs."
+- **Fully automated prod release via the Dokploy API (rejected for now).** Would need a Dokploy API token (broad instance-wide scope) and an endpoint that rewrites an app's image tag — unconfirmed. Manual bump keeps the credential surface to the single dev webhook secret.
+- **CI gate on the release path — re-run lint+test, or verify CI status via API (rejected by operator).** The operator chose to trust the tag: only tag commits that already passed CI on main. The guarantee is procedural. Dev keeps its machine-enforced gate.
+- **A second `cleanup` job in `release.yml` (rejected).** `cd.yml`'s cleanup already runs on every main merge with the same config, and its `exclude-tags: '^v?\d+\.\d+\.\d+$'` protects semver releases from pruning regardless of age. A duplicate would only race the existing one.
+
+## Consequences
+
+- **Two GHCR tags per release cycle concept:** `:latest` (dev, mutable, from main) and `X.Y.Z` (prod, immutable, from a git tag). `cd.yml` no longer publishes `:main`; the semver rule moved to `release.yml`.
+- **`cd.yml` now deploys** — this reverses ADR-0004's explicit boundary ("deployment is Dokploy's job … not a modification to `cd.yml`"). The trigger is a narrow per-app Deploy Webhook URL stored as the `DOKPLOY_DEV_DEPLOY_WEBHOOK` secret; the deploy job does not wait for the rollout.
+- **Two Dokploy applications** (dev, prod) both in image-pull mode: dev on `:latest`, prod on a pinned version. GHCR credentials (a `read:packages` PAT, package kept private) are configured once in Dokploy's Registry settings. The GitHub-app source-build hook is removed — offloading the build to CI is the whole point of ADR-0004 and stays true.
+- **Deploy jobs serialize** via a constant `concurrency` group (`dokploy-dev-deploy`, no cancel) so back-to-back merges queue rather than race the same container restart.
+- **No migration runner exists.** Schema changes ship as hand-run `.sql` files. Auto-deploy can therefore outrun a migration: new code expecting an un-migrated column returns runtime 500s (not a boot crash). Handled by manual discipline — run the migration before merging code that needs it. Also expect a possible crash-loop on first dev deploy if the container boots before the DB is reachable (`src/instrumentation.ts` throws when `verifyConnection` fails); Dokploy's restart resolves it.
+- **Rollback:** prod = set the app's image tag to an older version and Deploy. Dev = redeploy an older version tag (no `:latest` history is retained by design).
+- **Pre-flight verification:** a `workflow_run`-triggered CD change cannot be exercised from a PR — only from `main` (ADR-0004's noted subtlety). Validate via `act -l` and YAML lint locally, then confirm on the first post-merge run. A release drill: push `v0.0.1`, confirm `0.0.1` publishes and `:latest` does **not** move.
+- **VPS architecture:** the image builds amd64-only (the runner's native arch). The Contabo VPS is amd64, so no `setup-qemu`/platforms matrix is needed; revisit if the host changes.
