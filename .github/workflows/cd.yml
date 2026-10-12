@@ -114,22 +114,38 @@ jobs:
             # instance — it can drive any Dokploy API call. Treat
             # DOKPLOY_API_KEY as a high-value secret.
             #
-            # KNOWN LIMITATION: the panel's Cloudflare zone has Bot Fight Mode
-            # enabled, which challenges this runner's datacenter IP (ASN 8075,
-            # Microsoft/Azure) and returns 403 for a plain curl. Both this API
-            # path and the old webhook path sit behind that same zone, so the
-            # switch itself does not defeat it. The trigger needs a path
-            # Cloudflare does not gate. The diagnostic below surfaces the
-            # status/body instead of swallowing it behind `-f`.
+            # WHY --resolve: the panel's Cloudflare zone has Bot Fight Mode
+            # enabled, which scored this runner as a datacenter IP (ASN 8075,
+            # Microsoft/Azure) and answered with a managed_challenge — a 403 to
+            # a plain curl, before Dokploy ever saw the request (confirmed by a
+            # Cloudflare security event: ruleId bot_fight_mode). It is IP-based,
+            # not user-agent-based, and on Cloudflare's Free plan BFM cannot be
+            # skipped by any WAF/Page/IP rule. Resolving the panel hostname to
+            # the VPS IP keeps the hostname (and therefore Traefik's routing and
+            # the origin certificate) intact while taking Cloudflare out of the
+            # path for this one request — BFM and the WAF stay on for everyone
+            # else. The origin is already directly reachable on 443, so this
+            # adds no new exposure.
+            #
+            # DOKPLOY_ORIGIN_IP is a SECRET, not a variable: it reveals how to
+            # bypass the edge for this domain.
             - name: Trigger Dokploy dev deploy
               env:
                   DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
                   DOKPLOY_APP_ID: ${{ vars.DOKPLOY_APP_ID }}
                   DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+                  DOKPLOY_ORIGIN_IP: ${{ secrets.DOKPLOY_ORIGIN_IP }}
               run: |
                   set -euo pipefail
+                  if [ -z "$DOKPLOY_ORIGIN_IP" ]; then
+                    echo "::error::DOKPLOY_ORIGIN_IP is unset — set it to the VPS IP (repo secret) so the deploy trigger can bypass Cloudflare Bot Fight Mode"
+                    exit 1
+                  fi
+                  url="$DOKPLOY_URL/api/application.deploy"
+                  host=$(printf '%s\n' "$url" | awk -F/ '{print $3}')
                   http_code=$(curl -sS -o /tmp/dokploy-body -w '%{http_code}' \
-                    --location --request POST "$DOKPLOY_URL/api/application.deploy" \
+                    --resolve "${host}:443:${DOKPLOY_ORIGIN_IP}" \
+                    --location --request POST "$url" \
                     --header "x-api-key: $DOKPLOY_API_KEY" \
                     --header "Content-Type: application/json" \
                     --data-raw "{\"applicationId\":\"$DOKPLOY_APP_ID\"}")
