@@ -182,32 +182,40 @@ const businessManualFields = {
  * (`values.business.name`) type-safe for RHF, the draft, and the review step.
  * A variant (not a top-level pipe check) because of abortPipeEarly — the same
  * reason the registration_type variant exists.
+ *
+ * Mode-aware (#71) only for the link error's sibling-card name: create says
+ * สลับไป 'สร้างกิจการใหม่', edit says สลับไป 'แก้ไขข้อมูลกิจการปัจจุบัน' — the
+ * wizard's "create" branch means the manual field set in BOTH modes, but the
+ * edit cards never claim to create anything.
  */
-const businessSchema = v.variant("mode", [
-	v.object({
-		mode: v.literal("create"),
-		linked_business: v.union([businessPickerItem, v.null()]),
-		...businessManualFields,
-	}),
-	v.object({
-		mode: v.literal("link"),
-		linked_business: v.pipe(
-			v.union([businessPickerItem, v.null()]),
-			v.check((row) => row !== null, "กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'สร้างกิจการใหม่'")
-		),
-		name: v.string(),
-		juristic_registration_no: v.string(),
-		category_id: v.string(),
-		address: v.string(),
-		latitude: v.string(),
-		longitude: v.string(),
-		description: v.string(),
-		core_business: v.string(),
-		website: v.string(),
-		logo: memberFileValue,
-		product: memberFileValue,
-	}),
-])
+function buildBusinessSchema(mode: MemberWizardMode) {
+	const siblingCard = mode === "edit" ? "แก้ไขข้อมูลกิจการปัจจุบัน" : "สร้างกิจการใหม่"
+	return v.variant("mode", [
+		v.object({
+			mode: v.literal("create"),
+			linked_business: v.union([businessPickerItem, v.null()]),
+			...businessManualFields,
+		}),
+		v.object({
+			mode: v.literal("link"),
+			linked_business: v.pipe(
+				v.union([businessPickerItem, v.null()]),
+				v.check((row) => row !== null, `กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป '${siblingCard}'`)
+			),
+			name: v.string(),
+			juristic_registration_no: v.string(),
+			category_id: v.string(),
+			address: v.string(),
+			latitude: v.string(),
+			longitude: v.string(),
+			description: v.string(),
+			core_business: v.string(),
+			website: v.string(),
+			logo: memberFileValue,
+			product: memberFileValue,
+		}),
+	])
+}
 
 // --- The schema ---------------------------------------------------------------
 
@@ -276,7 +284,7 @@ function wizardFields(mode: MemberWizardMode) {
 		line_id: optionalText(DB_MAX_LENGTHS.lineId),
 		shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
 		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
-		business: businessSchema,
+		business: buildBusinessSchema(mode),
 	}
 }
 

@@ -15,6 +15,8 @@ type BusinessPickerComboboxProps = {
 	/** Fired with the picked business; the parent swaps this combobox out for the read-only card. */
 	onSelect: (business: BusinessPickerItem) => void
 	disabled?: boolean
+	/** Edit mode (#71): the not-found hint doesn't point at a สร้างกิจการใหม่ card that isn't there. */
+	editMode?: boolean
 }
 
 /**
@@ -24,7 +26,7 @@ type BusinessPickerComboboxProps = {
  * its default client label-filter would hide juristic-prefix matches whose
  * display name doesn't contain the query.
  */
-export function BusinessPickerCombobox({ onSelect, disabled = false }: BusinessPickerComboboxProps) {
+export function BusinessPickerCombobox({ onSelect, disabled = false, editMode = false }: BusinessPickerComboboxProps) {
 	const [searchTerm, setSearchTerm] = useState("")
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 	const query = useBusinessSearch(debouncedSearch)
@@ -76,6 +78,10 @@ export function BusinessPickerCombobox({ onSelect, disabled = false }: BusinessP
 							</span>
 						) : query.isPending ? (
 							"กำลังค้นหา..."
+						) : editMode ? (
+							// #71: the edit wizard's sibling radio edits the CURRENT row —
+							// pointing at a สร้างกิจการใหม่ card would be wrong.
+							"ไม่พบกิจการ (ค้นหาด้วยข้อความขึ้นต้นเท่านั้น)"
 						) : (
 							"ไม่พบกิจการ — กลับไปเลือก 'สร้างกิจการใหม่' เพื่อกรอกข้อมูลเอง (ค้นหาด้วยข้อความขึ้นต้นเท่านั้น)"
 						)}

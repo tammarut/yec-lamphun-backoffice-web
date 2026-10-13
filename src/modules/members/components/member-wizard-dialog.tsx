@@ -238,6 +238,7 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 				"business.product": detail.business.product,
 			} satisfies Record<MemberWizardFileFieldName, string | null>,
 			onExistingImageError: handleExistingImageError,
+			businessMemberCount: detail.business.member_count,
 		}
 	}, [editMode, detail, handleExistingImageError])
 

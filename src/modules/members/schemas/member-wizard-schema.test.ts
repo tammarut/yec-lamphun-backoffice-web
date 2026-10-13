@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest"
 import { safeParse, type SafeParseResult } from "valibot"
 
-import { MemberWizardSchema, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { MemberWizardSchema, buildMemberWizardSchema, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 /** Local-calendar ISO date (YYYY-MM-DD) — matches how the schema computes "today". */
 function localIsoDate(date: Date): string {
@@ -358,6 +358,14 @@ describe("MemberWizardSchema", () => {
 				const values = makeLinkFormValues()
 				values.nickname = ""
 				expect(issuePaths(safeParse(MemberWizardSchema, values))).toContainEqual(["nickname"])
+			})
+
+			test("edit mode (#71): the link error names the แก้ไขข้อมูลกิจการปัจจุบัน sibling card, not สร้างกิจการใหม่", () => {
+				const values = makeLinkFormValues()
+				values.business.linked_business = null
+				const result = safeParse(buildMemberWizardSchema("edit"), values)
+				expect(result.success).toBe(false)
+				expect(issueMessages(result)).toContain("กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'แก้ไขข้อมูลกิจการปัจจุบัน'")
 			})
 		})
 	})

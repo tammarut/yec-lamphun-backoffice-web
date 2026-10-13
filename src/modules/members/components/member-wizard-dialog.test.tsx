@@ -41,6 +41,7 @@ const BUSINESS_SEARCH_ROWS = [
 ]
 
 const SELECTED_CHIP = "เลือกกิจการแล้ว — สมาชิกใหม่จะผูกกับกิจการนี้"
+const SELECTED_CHIP_EDIT = "เลือกกิจการแล้ว — สมาชิกคนนี้จะย้ายไปผูกกับกิจการนี้"
 
 const uploadPaths = (overrides: Record<string, string> = {}) => ({
 	id_card_image_file_path: null,
@@ -93,6 +94,8 @@ const EDIT_DETAIL = {
 	updated_at: "2024-01-18T16:00:00.000Z",
 	business: {
 		id: 14,
+		// Shared by 3 live members (#62 D4) — powers the #71 shared-edit warning.
+		member_count: 3,
 		name: "V Foods",
 		description: "desc",
 		juristic_registration_no: "105557026729",
@@ -258,6 +261,24 @@ async function pickBusiness() {
 	await settleDebounce()
 	fireEvent.click(await screen.findByRole("option", { name: /ร้านไก่ย่างเจ้าเด็ม/ }))
 	await screen.findByText(SELECTED_CHIP)
+}
+
+/** Search and pick by name pattern in the EDIT wizard — the EDIT lock card lands (#71). */
+async function pickEditBusiness(search: string, name: RegExp) {
+	const searchBox = await screen.findByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+	fireEvent.change(searchBox, { target: { value: search } })
+	await settleDebounce()
+	fireEvent.click(await screen.findByRole("option", { name }))
+	await screen.findByText(SELECTED_CHIP_EDIT)
+}
+
+/** Open the edit wizard, wait for prefill, rail-jump to step 3's prefilled manual form. */
+async function openEditAtStep3(options: Parameters<typeof renderWizard>[0] = {}) {
+	const rendered = renderWizard({ ...options, edit: true })
+	await openEditAndWaitForPrefill()
+	fireEvent.click(within(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })).getByText("ข้อมูลธุรกิจ"))
+	await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+	return rendered
 }
 
 describe("MemberWizardDialog", () => {
@@ -853,13 +874,16 @@ describe("MemberWizardDialog", () => {
 				expect(screen.getByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeTruthy()
 			})
 
-			it("link mode is create-wizard-only: the edit wizard keeps the manual form with no radio", async () => {
+			// #71 regression (falsified against the pre-#71 gate: the edit wizard
+			// rendered NO radio at all — this test fails there).
+			it("edit wizard offers the same ตัวเลือกกิจการ radio, defaulting to แก้ไขข้อมูลกิจการปัจจุบัน with the prefilled manual form", async () => {
 				renderWizard({ edit: true })
 				await openEditAndWaitForPrefill()
 				fireEvent.click(within(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })).getByText("ข้อมูลธุรกิจ"))
 
 				expect(await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeTruthy()
-				expect(screen.queryByRole("radio", { name: /ผูกกิจการที่มีอยู่แล้ว/ })).toBeNull()
+				expect(screen.getByRole("radio", { name: /แก้ไขข้อมูลกิจการปัจจุบัน/ }).getAttribute("aria-checked")).toBe("true")
+				expect(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ })).toBeTruthy()
 				expect(screen.queryByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeNull()
 			})
 		})
@@ -1101,6 +1125,123 @@ describe("MemberWizardDialog", () => {
 
 			expect(await screen.findByText("โหลดข้อมูลสมาชิกไม่สำเร็จ")).toBeTruthy()
 			expect(screen.getByRole("button", { name: "ลองใหม่" })).toBeTruthy()
+		})
+	})
+
+	describe("Edit wizard business re-link (#71)", () => {
+		/** A search row mirroring the edited member's OWN business (id 14) — the re-link no-op target. */
+		const SELF_BUSINESS_ROW = {
+			id: 14,
+			name: "V Foods",
+			juristic_registration_no: "105557026729",
+			category_name: "อุตสาหกรรมการผลิต",
+			address: null,
+			member_count: 3,
+			owner_names: ["ประเสริฐ โชคดี"],
+		}
+
+		describe("Happy cases", () => {
+			it("switching to เปลี่ยนกิจการ swaps the prefilled manual form for the search combobox; the lock card shows the EDIT chip", async () => {
+				await openEditAtStep3()
+
+				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
+
+				expect(screen.getByText(SELECTED_CHIP_EDIT)).toBeTruthy()
+				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
+				expect(screen.getByText(/บันทึกแล้วสมาชิกคนนี้จะย้ายไปผูกกับกิจการนี้/)).toBeTruthy()
+				expect(screen.queryByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeNull()
+			})
+
+			it("re-link submits the PATCH with business { business_id: 7 } ALONE and null id_card_no", async () => {
+				let patchBody: unknown
+				await openEditAtStep3({
+					route: (url, init) => {
+						if (url === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH") {
+							patchBody = JSON.parse(String(init.body))
+							return new Response(null, { status: 204 })
+						}
+						return undefined
+					},
+				})
+
+				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
+
+				await armAndSubmit()
+				await screen.findByText("บันทึกการแก้ไขเรียบร้อย")
+				expect(patchBody).toMatchObject({ id_card_no: null, business: { business_id: 7 } })
+				expect(Object.keys((patchBody as { business: Record<string, unknown> }).business)).toEqual(["business_id"])
+			})
+
+			it("re-linking to the member's CURRENT business is an allowed no-op — resubmit never errors", async () => {
+				let patchBody: unknown
+				await openEditAtStep3({
+					route: (url, init) => {
+						if (url.startsWith("/api/v1/business/search")) {
+							return jsonResponse(200, { businesses: [SELF_BUSINESS_ROW] })
+						}
+						if (url === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH") {
+							patchBody = JSON.parse(String(init.body))
+							return new Response(null, { status: 204 })
+						}
+						return undefined
+					},
+				})
+
+				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				await pickEditBusiness("V Foods", /V Foods/)
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+
+				await armAndSubmit()
+				await screen.findByText("บันทึกการแก้ไขเรียบร้อย")
+				expect(patchBody).toMatchObject({ business: { business_id: 14 } })
+			})
+
+			it("preserves the picked business across radio switches (edit N2 — no clear-on-any-switch)", async () => {
+				await openEditAtStep3()
+
+				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
+				fireEvent.click(screen.getByRole("radio", { name: /แก้ไขข้อมูลกิจการปัจจุบัน/ }))
+				await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+
+				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				// The lock card returns WITHOUT a re-pick — form state kept the row.
+				expect(await screen.findByText(SELECTED_CHIP_EDIT)).toBeTruthy()
+				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
+			})
+		})
+
+		describe("Shared-edit warning banner", () => {
+			it("shows on the manual branch when the current business has member_count > 1", async () => {
+				await openEditAtStep3()
+
+				expect(await screen.findByText(/กิจการนี้มีสมาชิก 3 คน/)).toBeTruthy()
+			})
+
+			it("stays hidden when member_count is 1", async () => {
+				const soloBusinessDetail = { ...EDIT_DETAIL, business: { ...EDIT_DETAIL.business, member_count: 1 } }
+				await openEditAtStep3({
+					route: (url) => (url === `/api/v1/members/${EDIT_MEMBER_ID}` ? jsonResponse(200, soloBusinessDetail) : undefined),
+				})
+
+				await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+				expect(screen.queryByText(/กิจการนี้มีสมาชิก/)).toBeNull()
+			})
+
+			it("is hidden in เปลี่ยนกิจการ mode even for a shared business (the lock card carries the count)", async () => {
+				await openEditAtStep3()
+				await screen.findByText(/กิจการนี้มีสมาชิก 3 คน/)
+
+				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				await screen.findByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+				expect(screen.queryByText(/กิจการนี้มีสมาชิก/)).toBeNull()
+			})
 		})
 	})
 })

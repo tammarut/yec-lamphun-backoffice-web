@@ -20,6 +20,12 @@ export type MemberWizardEditContextValue = {
 	/** Live resolved file URLs (presigned for private files), keyed by form field. */
 	existingUrls: Readonly<Record<MemberWizardFileFieldName, string | null>>
 	/**
+	 * Live members linked to the member's current business (GET /:id's
+	 * business.member_count, self-included) — powers the #71 shared-edit
+	 * warning on the step-3 manual branch.
+	 */
+	businessMemberCount: number
+	/**
 	 * A stored file's preview failed to load (expired presign or missing
 	 * object). The dialog refetches the detail — the response carries freshly
 	 * minted URLs. Capped per field by the dialog, so a genuinely missing

@@ -268,8 +268,9 @@ export function memberDetailToFormValues(detail: MemberDetailResponse): MemberWi
 		shirt_size: (detail.shirt_size ?? "") as MemberWizardFormValues["shirt_size"],
 		position: detail.position as MemberWizardFormValues["position"],
 		business: {
-			// The edit wizard is manual-only until #71 (re-link): pin the create
-			// path so pre-filled values map to the full field set, as today.
+			// The edit default is the manual path (wholesale edit of the current
+			// row) — the admin opts into a re-link by switching the radio (#71),
+			// so the pick always starts empty and is made fresh from the picker.
 			mode: "create",
 			linked_business: null,
 			name: detail.business.name,

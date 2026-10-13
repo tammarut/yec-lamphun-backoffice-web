@@ -1,5 +1,7 @@
 "use client"
 
+import { HugeiconsIcon } from "@hugeicons/react"
+import { UserMultiple03Icon } from "@hugeicons/core-free-icons"
 import { Controller, useFormContext, type FieldPath } from "react-hook-form"
 
 import { Alert, AlertTitle } from "src/shared/components/ui/alert"
@@ -17,10 +19,20 @@ import { useBusinessCategories } from "src/modules/members/hooks/use-business-ca
 import { DB_MAX_LENGTHS, STEP_FIELDS, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import { cn } from "src/shared/lib/utils/utils"
 
-/** The ตัวเลือกกิจการ radio-card pair, in the step-1 ประเภทการสมัคร idiom (proto/business-picker variant B). */
-const BUSINESS_MODE_CARDS = [
+/**
+ * The ตัวเลือกกิจการ radio-card pair, in the step-1 ประเภทการสมัคร idiom
+ * (proto/business-picker variant B). The wizard's "create" form value means
+ * "the manual field set" in BOTH modes — in edit mode nothing is created, the
+ * prefilled row is wholesale-edited — so the edit cards get their own labels.
+ */
+const CREATE_MODE_BUSINESS_CARDS = [
 	{ value: "create", label: "สร้างกิจการใหม่", description: "กรอกข้อมูลกิจการเองทั้งหมด" },
 	{ value: "link", label: "ผูกกิจการที่มีอยู่แล้ว", description: "ค้นหากิจการเดิมเพื่อไม่สร้างข้อมูลซ้ำ" },
+] as const
+
+const EDIT_MODE_BUSINESS_CARDS = [
+	{ value: "create", label: "แก้ไขข้อมูลกิจการปัจจุบัน", description: "คงกิจการเดิมของสมาชิก แก้ไขข้อมูลทั้งชุด" },
+	{ value: "link", label: "เปลี่ยนกิจการ", description: "ย้ายสมาชิกไปผูกกับกิจการอื่นที่มีอยู่แล้ว" },
 ] as const
 
 function BusinessTextField({
@@ -155,11 +167,16 @@ function ManualBusinessFields({ disabled }: { disabled?: boolean }) {
 }
 
 /**
- * Wizard step 3 — ข้อมูลธุรกิจ (#70): a ตัวเลือกกิจการ radio pair picks between
- * the manual form (สร้างกิจการใหม่, the default — zero regression) and the
- * server-search picker (ผูกกิจการที่มีอยู่แล้ว), which swaps the combobox for
- * a read-only lock card once a business is picked. Switching the radio clears
- * any selection. Edit mode keeps the manual form only — re-linking is #71.
+ * Wizard step 3 — ข้อมูลธุรกิจ (#70, edit-relink #71): a ตัวเลือกกิจการ radio
+ * pair picks between the manual form (create: สร้างกิจการใหม่ / edit:
+ * แก้ไขข้อมูลกิจการปัจจุบัน — the default, prefill-pinned) and the
+ * server-search picker (create: ผูกกิจการที่มีอยู่แล้ว / edit: เปลี่ยนกิจการ),
+ * which swaps the combobox for a read-only lock card once a business is
+ * picked. Create keeps #70's clear-on-any-switch; edit preserves the pick
+ * across switches (N2) — the manual prefill is never cleared either way, and
+ * a preserved pick can't leak into a manual submit (the payload reads only
+ * the active branch). The manual branch shows the shared-edit warning when
+ * GET /:id reports member_count > 1 (#71).
  */
 export function MemberWizardStepBusiness({ disabled = false }: { disabled?: boolean }) {
 	const { trigger, setValue, watch, formState } = useFormContext<MemberWizardFormValues>()
@@ -168,54 +185,55 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 	const businessMode = watch("business.mode")
 	const linkedBusiness = watch("business.linked_business")
 	const linkedBusinessError = formState.errors.business?.linked_business
+	const businessCards = editMode ? EDIT_MODE_BUSINESS_CARDS : CREATE_MODE_BUSINESS_CARDS
 
 	function switchBusinessMode(next: MemberWizardFormValues["business"]["mode"]) {
-		// Switching the radio clears any selection — both directions (#70) —
-		// and revalidates the whole step so errors from the OTHER branch
-		// (e.g. manual required fields after a failed ถัดไป) don't linger.
+		// Create (#70): switching the radio clears any selection, both
+		// directions. Edit (#71 N2): the pick is preserved. Either way the step
+		// revalidates so errors from the OTHER branch (e.g. manual required
+		// fields after a failed ถัดไป) don't linger.
 		setValue("business.mode", next, { shouldDirty: true })
-		setValue("business.linked_business", null, { shouldDirty: true })
+		if (!editMode) {
+			setValue("business.linked_business", null, { shouldDirty: true })
+		}
 		void trigger([...STEP_FIELDS[3]] as FieldPath<MemberWizardFormValues>[])
 	}
 
 	return (
 		<FieldSet data-slot="wizard-step-business" className="gap-8">
 			<FieldSet>
-				{!editMode && (
-					<>
-						<FieldLegend variant="label">
-							ตัวเลือกกิจการ<span className="text-destructive">*</span>
-						</FieldLegend>
-						<RadioGroup
-							value={businessMode}
-							disabled={disabled}
-							onValueChange={(next) => switchBusinessMode(next as MemberWizardFormValues["business"]["mode"])}
-							className="mb-4 grid gap-3 sm:grid-cols-2"
+				<FieldLegend variant="label">
+					ตัวเลือกกิจการ<span className="text-destructive">*</span>
+				</FieldLegend>
+				<RadioGroup
+					value={businessMode}
+					disabled={disabled}
+					onValueChange={(next) => switchBusinessMode(next as MemberWizardFormValues["business"]["mode"])}
+					className="mb-4 grid gap-3 sm:grid-cols-2"
+				>
+					{businessCards.map((card) => (
+						<label
+							key={card.value}
+							data-slot="wizard-business-mode-card"
+							className={cn(
+								"flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors",
+								businessMode === card.value ? "border-primary bg-primary/5" : "hover:border-primary/40"
+							)}
 						>
-							{BUSINESS_MODE_CARDS.map((card) => (
-								<label
-									key={card.value}
-									data-slot="wizard-business-mode-card"
-									className={cn(
-										"flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors",
-										businessMode === card.value ? "border-primary bg-primary/5" : "hover:border-primary/40"
-									)}
-								>
-									<RadioGroupItem value={card.value} className="mt-0.5" />
-									<span className="min-w-0">
-										<span className="block font-medium">{card.label}</span>
-										<span className="text-muted-foreground block text-xs">{card.description}</span>
-									</span>
-								</label>
-							))}
-						</RadioGroup>
-					</>
-				)}
+							<RadioGroupItem value={card.value} className="mt-0.5" />
+							<span className="min-w-0">
+								<span className="block font-medium">{card.label}</span>
+								<span className="text-muted-foreground block text-xs">{card.description}</span>
+							</span>
+						</label>
+					))}
+				</RadioGroup>
 				{businessMode === "link" ? (
 					<div className="grid gap-2">
 						{linkedBusiness === null ? (
 							<BusinessPickerCombobox
 								disabled={disabled}
+								editMode={editMode}
 								onSelect={(business) => {
 									setValue("business.linked_business", business, { shouldDirty: true })
 									void trigger("business.linked_business")
@@ -224,6 +242,7 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 						) : (
 							<SelectedBusinessCard
 								business={linkedBusiness}
+								editMode={editMode}
 								// No trigger here: the user is mid-pick; ถัดไป revalidates.
 								onClear={() => setValue("business.linked_business", null, { shouldDirty: true })}
 							/>
@@ -231,7 +250,20 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 						<FieldError errors={[linkedBusinessError]} />
 					</div>
 				) : (
-					<ManualBusinessFields disabled={disabled} />
+					<>
+						{edit !== null && edit.businessMemberCount > 1 && (
+							<div
+								data-slot="wizard-shared-business-warning"
+								className="border-warning/30 bg-warning/10 mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm"
+							>
+								<span className="mt-0.5 flex shrink-0 items-center" aria-hidden="true">
+									<HugeiconsIcon icon={UserMultiple03Icon} className="size-4" />
+								</span>
+								<span>กิจการนี้มีสมาชิก {edit.businessMemberCount} คน — การแก้ไขข้อมูลกิจการจะมีผลกับทุกสมาชิกที่ผูกอยู่กับกิจการนี้</span>
+							</div>
+						)}
+						<ManualBusinessFields disabled={disabled} />
+					</>
 				)}
 			</FieldSet>
 

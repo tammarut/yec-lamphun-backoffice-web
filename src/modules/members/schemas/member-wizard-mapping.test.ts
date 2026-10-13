@@ -247,6 +247,12 @@ describe("buildUpdatePayload", () => {
 			const payload = buildUpdatePayload(values, uploads)
 			expect(payload.company_certificate).toBe("members/documents/company_cert_02ULID.png")
 		})
+
+		test("link mode (#71 edit re-link): business collapses to { business_id } ALONE", () => {
+			const payload = buildUpdatePayload(makeLinkFormValues(), null)
+			expect("business_id" in payload.business).toBe(true)
+			expect(payload.business).toEqual({ business_id: 7 })
+		})
 	})
 })
 
