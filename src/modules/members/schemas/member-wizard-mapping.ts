@@ -90,7 +90,7 @@ function locationOrNull(business: MemberWizardFormValues["business"]): [number, 
  * invariant structural instead of trusting a fall-through into the create arm.
  */
 function businessPayload(business: MemberWizardFormValues["business"], uploads: UploadedFilePaths | null): CreateMemberApiPayload["business"] {
-	if (business.mode !== "link") {
+	if (business.mode === "create") {
 		return {
 			name: business.name.trim(),
 			juristic_registration_no: business.juristic_registration_no.trim(),
