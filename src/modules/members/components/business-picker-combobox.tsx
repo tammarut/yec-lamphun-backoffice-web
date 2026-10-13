@@ -29,7 +29,9 @@ export function BusinessPickerCombobox({ onSelect, disabled = false }: BusinessP
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 	const query = useBusinessSearch(debouncedSearch)
 
-	const results = query.data ?? []
+	// searchTerm (not debouncedSearch) so clearing the input hides stale rows
+	// instantly — a disabled query keeps its last data for the staleTime window.
+	const results = searchTerm === "" ? [] : (query.data ?? [])
 
 	return (
 		<Combobox<BusinessPickerItem>

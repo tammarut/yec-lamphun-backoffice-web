@@ -84,27 +84,30 @@ function locationOrNull(business: MemberWizardFormValues["business"]): [number, 
 }
 
 /**
- * The `business` half of the wire payload: link mode collapses to
- * `{ business_id }`; create mode maps the manual fields. Link-with-null can
- * never reach submit (the schema gates it), so that fall-through lands in the
- * create mapping and would earn the server's 400 rather than fabricating an id.
+ * The `business` half of the wire payload: create mode maps the manual
+ * fields; link mode collapses to `{ business_id }`. Link-with-null can never
+ * reach submit (the schema gates it) — the explicit throw keeps that
+ * invariant structural instead of trusting a fall-through into the create arm.
  */
 function businessPayload(business: MemberWizardFormValues["business"], uploads: UploadedFilePaths | null): CreateMemberApiPayload["business"] {
-	if (business.mode === "link" && business.linked_business !== null) {
-		return { business_id: business.linked_business.id }
+	if (business.mode !== "link") {
+		return {
+			name: business.name.trim(),
+			juristic_registration_no: business.juristic_registration_no.trim(),
+			category_id: Number(business.category_id),
+			address: textOrNull(business.address),
+			location: locationOrNull(business),
+			description: business.description.trim(),
+			core_business: textOrNull(business.core_business),
+			website: textOrNull(business.website),
+			logo: pathOrNull(uploads, "business_logo_file_path"),
+			product: pathOrNull(uploads, "business_product_file_path"),
+		}
 	}
-	return {
-		name: business.name.trim(),
-		juristic_registration_no: business.juristic_registration_no.trim(),
-		category_id: Number(business.category_id),
-		address: textOrNull(business.address),
-		location: locationOrNull(business),
-		description: business.description.trim(),
-		core_business: textOrNull(business.core_business),
-		website: textOrNull(business.website),
-		logo: pathOrNull(uploads, "business_logo_file_path"),
-		product: pathOrNull(uploads, "business_product_file_path"),
+	if (business.linked_business === null) {
+		throw new Error("link mode without a picked business — the wizard schema should have blocked submit")
 	}
+	return { business_id: business.linked_business.id }
 }
 
 /** The PATCH /api/v1/members/{id} request body — the create payload with the null-sticky id_card_no. */

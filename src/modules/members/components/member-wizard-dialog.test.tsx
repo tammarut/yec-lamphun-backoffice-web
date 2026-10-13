@@ -771,6 +771,19 @@ describe("MemberWizardDialog", () => {
 				expect(within(option).getByText(/ทะเบียน 8551203456789 · อาหารและเครื่องดื่ม · สมาชิก 2 คน/)).toBeTruthy()
 			})
 
+			it("clearing the search input hides the previous results instantly (no stale rows, M2)", async () => {
+				renderWizard()
+				await goToStep3LinkMode()
+				const search = screen.getByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
+				fireEvent.change(search, { target: { value: "ไก่ย่าง" } })
+				await settleDebounce()
+				expect(await screen.findByRole("option", { name: /ร้านไก่ย่างเจ้าเด็ม/ })).toBeTruthy()
+
+				fireEvent.change(search, { target: { value: "" } })
+				await waitFor(() => expect(screen.queryByRole("option")).toBeNull())
+				expect(await screen.findByText(/พิมพ์เพื่อค้นหากิจการที่มีอยู่/)).toBeTruthy()
+			})
+
 			it("picking a result swaps in the lock card (chip, owners, 🔒 note); เปลี่ยนกิจการ returns to search", async () => {
 				renderWizard()
 				await goToStep3LinkMode()

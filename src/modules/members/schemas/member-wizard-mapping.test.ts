@@ -199,6 +199,12 @@ describe("buildCreatePayload", () => {
 			const payload = buildCreatePayload(values, null)
 			expect(payload.first_name_th).toBe("สมชาย")
 		})
+
+		test("link mode with a null pick throws instead of fabricating a create payload (M1)", () => {
+			const values = makeLinkFormValues()
+			values.business.linked_business = null
+			expect(() => buildCreatePayload(values, null)).toThrow("link mode without a picked business")
+		})
 	})
 })
 
