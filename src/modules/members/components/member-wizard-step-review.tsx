@@ -136,31 +136,56 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 			</ReviewSection>
 
 			<ReviewSection title="ข้อมูลธุรกิจ" step={3} onEdit={onEdit}>
-				<ReviewRow label="ชื่อกิจการ/ร้านค้า" value={values.business.name} />
-				<ReviewRow label="เลขทะเบียนนิติบุคคล" value={values.business.juristic_registration_no} />
-				<ReviewRow label="หมวดธุรกิจหลัก" value={categoryName} />
-				<ReviewRow label="ที่อยู่กิจการ" value={values.business.address} />
-				<ReviewRow
-					label="พิกัด"
-					value={values.business.latitude === "" || values.business.longitude === "" ? "" : `${values.business.latitude}, ${values.business.longitude}`}
-				/>
-				<ReviewRow label="รายละเอียดกิจการ" value={values.business.description} />
-				<ReviewRow label="ผลิตภัณฑ์/บริการหลัก" value={values.business.core_business} />
-				<ReviewRow label="Website" value={values.business.website} />
-				<ReviewRow
-					label="โลโก้"
-					value={values.business.logo.file === null && values.business.logo.existingUrl === null ? "" : <FileValue value={values.business.logo} name="business.logo" />}
-				/>
-				<ReviewRow
-					label="รูปผลิตภัณฑ์"
-					value={
-						values.business.product.file === null && values.business.product.existingUrl === null ? (
-							""
-						) : (
-							<FileValue value={values.business.product} name="business.product" />
-						)
-					}
-				/>
+				{values.business.mode === "link" && values.business.linked_business !== null ? (
+					// Link mode (#70): the picked business, read-only — its own row data
+					// carries the category name, no lookup needed.
+					<>
+						<ReviewRow label="ชื่อกิจการ/ร้านค้า" value={values.business.linked_business.name} />
+						<ReviewRow label="เลขทะเบียนนิติบุคคล" value={values.business.linked_business.juristic_registration_no} />
+						<ReviewRow label="หมวดธุรกิจหลัก" value={values.business.linked_business.category_name} />
+						<ReviewRow label="ที่อยู่กิจการ" value={values.business.linked_business.address} />
+						<ReviewRow
+							label="สมาชิกร่วม"
+							value={`${values.business.linked_business.member_count} คน${
+								values.business.linked_business.owner_names.length > 0 ? ` (${values.business.linked_business.owner_names.join(" · ")})` : ""
+							}`}
+						/>
+					</>
+				) : (
+					<>
+						<ReviewRow label="ชื่อกิจการ/ร้านค้า" value={values.business.name} />
+						<ReviewRow label="เลขทะเบียนนิติบุคคล" value={values.business.juristic_registration_no} />
+						<ReviewRow label="หมวดธุรกิจหลัก" value={categoryName} />
+						<ReviewRow label="ที่อยู่กิจการ" value={values.business.address} />
+						<ReviewRow
+							label="พิกัด"
+							value={values.business.latitude === "" || values.business.longitude === "" ? "" : `${values.business.latitude}, ${values.business.longitude}`}
+						/>
+						<ReviewRow label="รายละเอียดกิจการ" value={values.business.description} />
+						<ReviewRow label="ผลิตภัณฑ์/บริการหลัก" value={values.business.core_business} />
+						<ReviewRow label="Website" value={values.business.website} />
+						<ReviewRow
+							label="โลโก้"
+							value={
+								values.business.logo.file === null && values.business.logo.existingUrl === null ? (
+									""
+								) : (
+									<FileValue value={values.business.logo} name="business.logo" />
+								)
+							}
+						/>
+						<ReviewRow
+							label="รูปผลิตภัณฑ์"
+							value={
+								values.business.product.file === null && values.business.product.existingUrl === null ? (
+									""
+								) : (
+									<FileValue value={values.business.product} name="business.product" />
+								)
+							}
+						/>
+					</>
+				)}
 			</ReviewSection>
 		</div>
 	)

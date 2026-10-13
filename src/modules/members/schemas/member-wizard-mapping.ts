@@ -21,6 +21,29 @@ export type UploadedFilePaths = {
 	readonly business_product_file_path: string | null
 }
 
+/**
+ * The POST /api/v1/members `business` union (the server's ordered
+ * `union([link, create])`): link mode sends the picked business's id ALONE —
+ * the server strips every other field — while create mode sends the full
+ * manual set. `mode` / `linked_business` never reach the wire.
+ */
+export type CreateMemberBusinessLinkPayload = {
+	business_id: number
+}
+
+export type CreateMemberBusinessCreatePayload = {
+	name: string
+	juristic_registration_no: string
+	category_id: number
+	address: string | null
+	location: [number, number] | null
+	description: string
+	core_business: string | null
+	website: string | null
+	logo: string | null
+	product: string | null
+}
+
 /** The POST /api/v1/members request body (snake_case wire contract). */
 export type CreateMemberApiPayload = {
 	registration_type: MemberWizardFormValues["registration_type"]
@@ -44,31 +67,47 @@ export type CreateMemberApiPayload = {
 	line_id: string | null
 	shirt_size?: MemberWizardFormValues["shirt_size"]
 	position: MemberWizardFormValues["position"]
-	business: {
-		name: string
-		juristic_registration_no: string
-		category_id: number
-		address: string | null
-		location: [number, number] | null
-		description: string
-		core_business: string | null
-		website: string | null
-		logo: string | null
-		product: string | null
-	}
+	business: CreateMemberBusinessLinkPayload | CreateMemberBusinessCreatePayload
 }
 
 const textOrNull = (value: string): string | null => (value.trim() === "" ? null : value.trim())
 
 const pathOrNull = (uploads: UploadedFilePaths | null, key: keyof UploadedFilePaths): string | null => (uploads === null ? null : uploads[key])
 
-function locationOrNull(values: MemberWizardFormValues): [number, number] | null {
-	const latitude = values.business.latitude.trim()
-	const longitude = values.business.longitude.trim()
+function locationOrNull(business: MemberWizardFormValues["business"]): [number, number] | null {
+	const latitude = business.latitude.trim()
+	const longitude = business.longitude.trim()
 	if (latitude === "" || longitude === "") {
 		return null
 	}
 	return [Number(latitude), Number(longitude)]
+}
+
+/**
+ * The `business` half of the wire payload: create mode maps the manual
+ * fields; link mode collapses to `{ business_id }`. Link-with-null can never
+ * reach submit (the schema gates it) — the explicit throw keeps that
+ * invariant structural instead of trusting a fall-through into the create arm.
+ */
+function businessPayload(business: MemberWizardFormValues["business"], uploads: UploadedFilePaths | null): CreateMemberApiPayload["business"] {
+	if (business.mode === "create") {
+		return {
+			name: business.name.trim(),
+			juristic_registration_no: business.juristic_registration_no.trim(),
+			category_id: Number(business.category_id),
+			address: textOrNull(business.address),
+			location: locationOrNull(business),
+			description: business.description.trim(),
+			core_business: textOrNull(business.core_business),
+			website: textOrNull(business.website),
+			logo: pathOrNull(uploads, "business_logo_file_path"),
+			product: pathOrNull(uploads, "business_product_file_path"),
+		}
+	}
+	if (business.linked_business === null) {
+		throw new Error("link mode without a picked business — the wizard schema should have blocked submit")
+	}
+	return { business_id: business.linked_business.id }
 }
 
 /** The PATCH /api/v1/members/{id} request body — the create payload with the null-sticky id_card_no. */
@@ -99,18 +138,7 @@ export function buildCreatePayload(values: MemberWizardFormValues, uploads: Uplo
 		line_id: textOrNull(values.line_id),
 		...(values.shirt_size === "" ? {} : { shirt_size: values.shirt_size }),
 		position: values.position,
-		business: {
-			name: values.business.name.trim(),
-			juristic_registration_no: values.business.juristic_registration_no.trim(),
-			category_id: Number(values.business.category_id),
-			address: textOrNull(values.business.address),
-			location: locationOrNull(values),
-			description: values.business.description.trim(),
-			core_business: textOrNull(values.business.core_business),
-			website: textOrNull(values.business.website),
-			logo: pathOrNull(uploads, "business_logo_file_path"),
-			product: pathOrNull(uploads, "business_product_file_path"),
-		},
+		business: businessPayload(values.business, uploads),
 	}
 }
 
@@ -240,6 +268,10 @@ export function memberDetailToFormValues(detail: MemberDetailResponse): MemberWi
 		shirt_size: (detail.shirt_size ?? "") as MemberWizardFormValues["shirt_size"],
 		position: detail.position as MemberWizardFormValues["position"],
 		business: {
+			// The edit wizard is manual-only until #71 (re-link): pin the create
+			// path so pre-filled values map to the full field set, as today.
+			mode: "create",
+			linked_business: null,
 			name: detail.business.name,
 			juristic_registration_no: detail.business.juristic_registration_no,
 			category_id: String(detail.business.category_id),
