@@ -30,7 +30,10 @@ export function RenewalMemberCombobox({ onSelect, disabled = false }: RenewalMem
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 	const query = useRenewalMemberSearch(debouncedSearch)
 
-	const candidates = query.data?.data ?? []
+	// searchTerm (not debouncedSearch) so clearing the input hides stale rows
+	// instantly — a disabled query keeps its last data for the staleTime window
+	// (the step-3 business picker's M2 rule, mirrored here).
+	const candidates = searchTerm === "" ? [] : (query.data?.data ?? [])
 
 	return (
 		<Combobox<MemberListItemResponse>
