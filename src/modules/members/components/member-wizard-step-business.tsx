@@ -31,8 +31,8 @@ const CREATE_MODE_BUSINESS_CARDS = [
 ] as const
 
 const EDIT_MODE_BUSINESS_CARDS = [
-	{ value: "create", label: "แก้ไขข้อมูลกิจการปัจจุบัน", description: "คงกิจการเดิมของสมาชิก แก้ไขข้อมูลทั้งชุด" },
-	{ value: "link", label: "เปลี่ยนกิจการ", description: "ย้ายสมาชิกไปผูกกับกิจการอื่นที่มีอยู่แล้ว" },
+	{ value: "create", label: "แก้ไขข้อมูลกิจการปัจจุบัน", description: "คงกิจการเดิมของสมาชิก" },
+	{ value: "link", label: "ย้ายกิจการ", description: "ย้ายสมาชิกไปผูกกับกิจการอื่นที่มีอยู่แล้ว" },
 ] as const
 
 function BusinessTextField({
@@ -170,7 +170,7 @@ function ManualBusinessFields({ disabled }: { disabled?: boolean }) {
  * Wizard step 3 — ข้อมูลธุรกิจ (#70, edit-relink #71): a ตัวเลือกกิจการ radio
  * pair picks between the manual form (create: สร้างกิจการใหม่ / edit:
  * แก้ไขข้อมูลกิจการปัจจุบัน — the default, prefill-pinned) and the
- * server-search picker (create: ผูกกิจการที่มีอยู่แล้ว / edit: เปลี่ยนกิจการ),
+ * server-search picker (create: ผูกกิจการที่มีอยู่แล้ว / edit: ย้ายกิจการ),
  * which swaps the combobox for a read-only lock card once a business is
  * picked. Create keeps #70's clear-on-any-switch; edit preserves the pick
  * across switches (N2) — the manual prefill is never cleared either way, and
@@ -263,7 +263,7 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 								<span className="mt-0.5 flex shrink-0 items-center" aria-hidden="true">
 									<HugeiconsIcon icon={UserMultiple03Icon} className="size-4" />
 								</span>
-								<span>กิจการนี้มีสมาชิก {edit.businessMemberCount} คน — การแก้ไขข้อมูลกิจการจะมีผลกับทุกสมาชิกที่ผูกอยู่กับกิจการนี้</span>
+								<span>กิจการนี้มีสมาชิก {edit.businessMemberCount} คน — การแก้ไขข้อมูลมีผลกับทุกสมาชิกในกิจการนี้</span>
 							</div>
 						)}
 						<ManualBusinessFields disabled={disabled} />

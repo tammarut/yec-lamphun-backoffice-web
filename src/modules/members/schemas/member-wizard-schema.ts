@@ -183,13 +183,12 @@ const businessManualFields = {
  * A variant (not a top-level pipe check) because of abortPipeEarly — the same
  * reason the registration_type variant exists.
  *
- * Mode-aware (#71) only for the link error's sibling-card name: create says
- * สลับไป 'สร้างกิจการใหม่', edit says สลับไป 'แก้ไขข้อมูลกิจการปัจจุบัน' — the
- * wizard's "create" branch means the manual field set in BOTH modes, but the
- * edit cards never claim to create anything.
+ * Mode-aware (#71) only for the link-required error: create points at its
+ * sibling card (สลับไป 'สร้างกิจการใหม่'); edit keeps it to the plain
+ * กรุณาเลือกกิจการ (user copy ruling — no sibling-card name).
  */
 function buildBusinessSchema(mode: MemberWizardMode) {
-	const siblingCard = mode === "edit" ? "แก้ไขข้อมูลกิจการปัจจุบัน" : "สร้างกิจการใหม่"
+	const linkRequiredMessage = mode === "edit" ? "กรุณาเลือกกิจการ" : "กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'สร้างกิจการใหม่'"
 	return v.variant("mode", [
 		v.object({
 			mode: v.literal("create"),
@@ -200,7 +199,7 @@ function buildBusinessSchema(mode: MemberWizardMode) {
 			mode: v.literal("link"),
 			linked_business: v.pipe(
 				v.union([businessPickerItem, v.null()]),
-				v.check((row) => row !== null, `กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป '${siblingCard}'`)
+				v.check((row) => row !== null, linkRequiredMessage)
 			),
 			name: v.string(),
 			juristic_registration_no: v.string(),

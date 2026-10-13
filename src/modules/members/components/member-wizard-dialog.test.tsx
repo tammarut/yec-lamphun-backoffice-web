@@ -883,7 +883,7 @@ describe("MemberWizardDialog", () => {
 
 				expect(await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeTruthy()
 				expect(screen.getByRole("radio", { name: /แก้ไขข้อมูลกิจการปัจจุบัน/ }).getAttribute("aria-checked")).toBe("true")
-				expect(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ })).toBeTruthy()
+				expect(screen.getByRole("radio", { name: /ย้ายกิจการ/ })).toBeTruthy()
 				expect(screen.queryByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })).toBeNull()
 			})
 		})
@@ -1141,15 +1141,15 @@ describe("MemberWizardDialog", () => {
 		}
 
 		describe("Happy cases", () => {
-			it("switching to เปลี่ยนกิจการ swaps the prefilled manual form for the search combobox; the lock card shows the EDIT chip", async () => {
+			it("switching to ย้ายกิจการ swaps the prefilled manual form for the search combobox; the lock card shows the EDIT chip", async () => {
 				await openEditAtStep3()
 
-				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
 
 				expect(screen.getByText(SELECTED_CHIP_EDIT)).toBeTruthy()
 				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
-				expect(screen.getByText(/บันทึกแล้วสมาชิกคนนี้จะย้ายไปผูกกับกิจการนี้/)).toBeTruthy()
+				expect(screen.getByText(/แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ/)).toBeTruthy()
 				expect(screen.queryByPlaceholderText("ชื่อกิจการ/ร้านค้า")).toBeNull()
 			})
 
@@ -1165,7 +1165,7 @@ describe("MemberWizardDialog", () => {
 					},
 				})
 
-				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
 				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
@@ -1192,7 +1192,7 @@ describe("MemberWizardDialog", () => {
 					},
 				})
 
-				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await pickEditBusiness("V Foods", /V Foods/)
 				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
@@ -1205,12 +1205,12 @@ describe("MemberWizardDialog", () => {
 			it("preserves the picked business across radio switches (edit N2 — no clear-on-any-switch)", async () => {
 				await openEditAtStep3()
 
-				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
 				fireEvent.click(screen.getByRole("radio", { name: /แก้ไขข้อมูลกิจการปัจจุบัน/ }))
 				await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
 
-				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				// The lock card returns WITHOUT a re-pick — form state kept the row.
 				expect(await screen.findByText(SELECTED_CHIP_EDIT)).toBeTruthy()
 				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
@@ -1238,11 +1238,11 @@ describe("MemberWizardDialog", () => {
 				expect(screen.queryByText(/กิจการนี้มีสมาชิก/)).toBeNull()
 			})
 
-			it("is hidden in เปลี่ยนกิจการ mode even for a shared business (the lock card carries the count)", async () => {
+			it("is hidden in ย้ายกิจการ mode even for a shared business (the lock card carries the count)", async () => {
 				await openEditAtStep3()
 				await screen.findByText(/กิจการนี้มีสมาชิก 3 คน/)
 
-				fireEvent.click(screen.getByRole("radio", { name: /เปลี่ยนกิจการ/ }))
+				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await screen.findByRole("combobox", { name: "ค้นหากิจการที่มีอยู่แล้ว" })
 				expect(screen.queryByText(/กิจการนี้มีสมาชิก/)).toBeNull()
 			})

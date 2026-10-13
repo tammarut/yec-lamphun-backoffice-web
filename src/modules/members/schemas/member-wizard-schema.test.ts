@@ -360,12 +360,12 @@ describe("MemberWizardSchema", () => {
 				expect(issuePaths(safeParse(MemberWizardSchema, values))).toContainEqual(["nickname"])
 			})
 
-			test("edit mode (#71): the link error names the แก้ไขข้อมูลกิจการปัจจุบัน sibling card, not สร้างกิจการใหม่", () => {
+			test("edit mode (#71): the link error is the plain กรุณาเลือกกิจการ (user copy ruling — no sibling-card name)", () => {
 				const values = makeLinkFormValues()
 				values.business.linked_business = null
 				const result = safeParse(buildMemberWizardSchema("edit"), values)
 				expect(result.success).toBe(false)
-				expect(issueMessages(result)).toContain("กรุณาเลือกกิจการที่มีอยู่แล้ว หรือสลับไป 'แก้ไขข้อมูลกิจการปัจจุบัน'")
+				expect(issueMessages(result)).toContain("กรุณาเลือกกิจการ")
 			})
 		})
 	})

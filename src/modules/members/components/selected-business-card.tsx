@@ -40,8 +40,8 @@ export function SelectedBusinessCard({ business, onClear, editMode = false }: Se
 					type="button"
 					onClick={onClear}
 					className="text-muted-foreground hover:text-destructive p-1.5"
-					aria-label="เปลี่ยนกิจการ"
-					title="เปลี่ยนกิจการ"
+					aria-label={editMode ? "ย้ายกิจการ" : "เปลี่ยนกิจการ"}
+					title={editMode ? "ย้ายกิจการ" : "เปลี่ยนกิจการ"}
 					data-slot="wizard-clear-business"
 				>
 					<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
@@ -77,7 +77,7 @@ export function SelectedBusinessCard({ business, onClear, editMode = false }: Se
 				</span>
 				<span>
 					{editMode
-						? "ข้อมูลกิจการอ่านอย่างเดียว — บันทึกแล้วสมาชิกคนนี้จะย้ายไปผูกกับกิจการนี้; แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ"
+						? "ข้อมูลกิจการอ่านอย่างเดียว — แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ"
 						: "ข้อมูลกิจการอ่านอย่างเดียว — บันทึกแล้วผูกสมาชิกใหม่เข้ากับกิจการนี้ ไม่สร้างข้อมูลซ้ำ; แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ"}
 				</span>
 			</div>
