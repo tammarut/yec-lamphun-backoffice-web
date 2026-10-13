@@ -123,6 +123,20 @@ describe("RenewalFormDialog", () => {
 			expect(screen.getByText(/สถานะ: หมดอายุ/)).toBeTruthy()
 		})
 
+		it("member mode: clearing the search input hides the previous results instantly (no stale rows, M2)", async () => {
+			const { settleDebounce } = renderDialog({})
+
+			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+			await settleDebounce()
+			expect(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ })).toBeTruthy()
+
+			fireEvent.change(screen.getByRole("combobox"), { target: { value: "" } })
+			// Instant, not debounce-deferred: the empty-term guard is a render-time
+			// derivation over searchTerm, so the stale rows vanish this render.
+			expect(screen.queryByRole("option")).toBeNull()
+			expect(await screen.findByText(/พิมพ์เพื่อค้นหาสมาชิก/)).toBeTruthy()
+		})
+
 		it("member mode: uploads the slip first, then POSTs /renewals with the returned path, and shows the success screen", async () => {
 			const { fetchMock, settleDebounce, onClose } = renderDialog({})
 

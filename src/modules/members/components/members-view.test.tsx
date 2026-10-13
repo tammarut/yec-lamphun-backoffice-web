@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { downloadMembersCsv } from "src/modules/members/components/export-members-csv"
@@ -30,11 +30,22 @@ function listPage(members: MemberListItem[]) {
 /**
  * Render MembersView against a stubbed fetch. `sessionOk` toggles the admin
  * probe (204 = staff, 401 = public); `listResponse` produces the list GET;
- * `mobile` seeds matchMedia for the responsive default-view effect.
+ * `extraResponse` (optional) routes anything else first (detail GET/PATCH,
+ * categories) — return undefined to fall through; `mobile` seeds matchMedia
+ * for the responsive default-view effect.
  */
-function renderView(options: { sessionOk: boolean; listResponse: (url: string) => Response; mobile?: boolean }) {
+function renderView(options: {
+	sessionOk: boolean
+	listResponse: (url: string) => Response
+	extraResponse?: (url: string, init?: RequestInit) => Response | undefined
+	mobile?: boolean
+}) {
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
+		const extra = options.extraResponse?.(url, init)
+		if (extra !== undefined) {
+			return extra
+		}
 		if (url === "/api/v1/auth/session") {
 			return jsonResponse(options.sessionOk ? 204 : 401, options.sessionOk ? undefined : { error_message: "Unauthorized" })
 		}
@@ -112,6 +123,92 @@ describe("MembersView", () => {
 
 			expect(await screen.findByText("ลงทะเบียนสมาชิกใหม่")).toBeTruthy()
 			expect(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })).toBeTruthy()
+		})
+
+		// Regression (found smoke-testing #71, latent since 3b-edit's 049485d):
+		// the edit wizard unmounted the moment its submit called
+		// onOpenChange(false), discarding the success dialog before it painted —
+		// the PATCH saved but nothing confirmed it. The view must keep the
+		// wizard mounted through the success dialog (the create instance
+		// already does, which is why create always showed it).
+		it("admin: a saved edit keeps the wizard mounted through its success dialog", async () => {
+			let patched = false
+			const EDIT_DETAIL = {
+				id: 1,
+				registration_type: "INDIVIDUAL",
+				company_certificate: null,
+				id_card_image: null,
+				profile_avatar: null,
+				title_name_th: "นาย",
+				first_name_th: "สมชาย",
+				last_name_th: "ใจดี",
+				title_name_en: null,
+				first_name_en: null,
+				last_name_en: null,
+				nickname: "ชาย",
+				gender: "MALE",
+				date_of_birth: "1990-05-15",
+				nationality: "ไทย",
+				id_card_no: "632XXXXXX1483",
+				id_card_expiry_date: "2035-01-01",
+				member_since: "2024-01-18T16:00:00.000Z",
+				expires_at: null,
+				phone_no: "0891112222",
+				email: null,
+				line_id: null,
+				shirt_size: null,
+				position: "GENERAL_MEMBER",
+				status: "ACTIVE",
+				created_at: "2024-01-18T16:00:00.000Z",
+				updated_at: "2024-01-18T16:00:00.000Z",
+				business: {
+					id: 14,
+					member_count: 1,
+					name: "ร้านกาแฟสมชาย",
+					description: "กาแฟคั่วบด",
+					juristic_registration_no: "0555555555555",
+					category_id: 1,
+					address: null,
+					location: null,
+					core_business: null,
+					website: null,
+					logo: null,
+					product: null,
+					created_at: "2024-01-18T16:00:00.000Z",
+					updated_at: "2024-01-18T16:00:00.000Z",
+				},
+			}
+			renderView({
+				sessionOk: true,
+				listResponse: () => jsonResponse(200, listPage([makeMember()])),
+				extraResponse: (url, init) => {
+					if (url === "/api/v1/members/1" && init?.method === "PATCH") {
+						patched = true
+						return jsonResponse(204)
+					}
+					if (url === "/api/v1/members/1") {
+						return jsonResponse(200, EDIT_DETAIL)
+					}
+					if (url === "/api/v1/business/categories") {
+						return jsonResponse(200, { business_categories: [{ id: 1, category_name: "อุตสาหกรรมการผลิต" }] })
+					}
+					return undefined
+				},
+			})
+
+			await screen.findByText("นายสมชาย ใจดี")
+			fireEvent.click(screen.getByRole("button", { name: "แก้ไขข้อมูลสมาชิก นายสมชาย ใจดี" }))
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+			await waitFor(() => expect(screen.getByRole("radio", { name: /บุคคลธรรมดา/ }).getAttribute("aria-checked")).toBe("true"))
+
+			// Edit rail is free — jump straight to review and submit the prefill.
+			fireEvent.click(within(screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })).getByText("ตรวจสอบข้อมูล"))
+			const submitButton = await screen.findByRole("button", { name: "ยืนยันบันทึกข้อมูล" })
+			await waitFor(() => expect((submitButton as HTMLButtonElement).disabled).toBe(false))
+			fireEvent.click(submitButton)
+
+			await waitFor(() => expect(patched).toBe(true))
+			expect(screen.getByText("บันทึกการแก้ไขเรียบร้อย")).toBeTruthy()
 		})
 
 		it("public: no เพิ่มสมาชิก button", async () => {

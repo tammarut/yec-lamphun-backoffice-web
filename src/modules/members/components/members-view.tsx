@@ -37,7 +37,17 @@ export function MembersView() {
 	const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(new Set())
 	const [deleteTarget, setDeleteTarget] = useState<MemberListItem | null>(null)
 	const [wizardOpen, setWizardOpen] = useState(false)
+	// editTarget is "which member the edit wizard shows" and deliberately
+	// SURVIVES close — only editOpen flips. Nulling editTarget on close would
+	// unmount the wizard the instant its submit calls onOpenChange(false),
+	// discarding the success dialog that the same handler just opened (latent
+	// since 3b-edit; create's persistent instance never had the problem).
 	const [editTarget, setEditTarget] = useState<MemberListItem | null>(null)
+	const [editOpen, setEditOpen] = useState(false)
+	const openEdit = (member: MemberListItem) => {
+		setEditTarget(member)
+		setEditOpen(true)
+	}
 
 	// The view is DERIVED: the user's explicit pick wins; otherwise follow the
 	// breakpoint (card under 768px, table above). Deriving — rather than copying
@@ -210,12 +220,12 @@ export function MembersView() {
 					onToggleOne={toggleOne}
 					onToggleAll={toggleAll}
 					onDeleteClick={setDeleteTarget}
-					onEditClick={setEditTarget}
+					onEditClick={openEdit}
 				/>
 			) : (
 				// Card view is display-only (the mockup has no card checkboxes):
 				// a table-made selection persists here and still drives Export CSV.
-				<MembersCardGrid members={members} isAdmin={isAdmin} onDeleteClick={setDeleteTarget} onEditClick={setEditTarget} />
+				<MembersCardGrid members={members} isAdmin={isAdmin} onDeleteClick={setDeleteTarget} onEditClick={openEdit} />
 			)}
 
 			{!isLoading && hasMore && (
@@ -241,15 +251,11 @@ export function MembersView() {
 
 			{/* Separate instance from the create wizard: one dialog per mode, so the
 			    edit dialog's resolver/prefill/dirty-guard never bleed into a create
-			    session (and the create draft is never at risk from an edit close). */}
-			{isAdmin && editTarget !== null && (
-				<MemberWizardDialog
-					key={`edit-${editTarget.id}`}
-					open={editTarget !== null}
-					onOpenChange={(open) => (open ? undefined : setEditTarget(null))}
-					editMember={{ id: editTarget.id }}
-				/>
-			)}
+			    session (and the create draft is never at risk from an edit close).
+			    Mounted until a DIFFERENT member is opened (the key remounts) — like
+			    the create instance, it must stay mounted through onOpenChange(false)
+			    so its success dialog can paint. */}
+			{isAdmin && editTarget !== null && <MemberWizardDialog key={`edit-${editTarget.id}`} open={editOpen} onOpenChange={setEditOpen} editMember={{ id: editTarget.id }} />}
 		</div>
 	)
 }

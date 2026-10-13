@@ -8,6 +8,8 @@ import type { BusinessPickerItem } from "src/modules/members/schemas/member-wiza
 type SelectedBusinessCardProps = {
 	business: BusinessPickerItem
 	onClear: () => void
+	/** Edit mode (#71): the member moves to this business instead of a new member joining it. */
+	editMode?: boolean
 }
 
 /**
@@ -17,14 +19,14 @@ type SelectedBusinessCardProps = {
  * the link/create union contract (#69); business edits go through the owner
  * member's edit page (#71 re-links from there).
  */
-export function SelectedBusinessCard({ business, onClear }: SelectedBusinessCardProps) {
+export function SelectedBusinessCard({ business, onClear, editMode = false }: SelectedBusinessCardProps) {
 	return (
 		<div data-slot="wizard-selected-business" className="border-primary/30 bg-primary/5 rounded-xl border p-4">
 			<div className="text-primary flex items-center gap-1 text-xs font-medium" data-slot="wizard-selected-business-chip">
 				<span className="flex shrink-0 items-center" aria-hidden="true">
 					<HugeiconsIcon icon={CheckmarkCircle01Icon} className="size-3.5" />
 				</span>
-				เลือกกิจการแล้ว — สมาชิกใหม่จะผูกกับกิจการนี้
+				{editMode ? "เลือกกิจการแล้ว — สมาชิกคนนี้จะย้ายไปผูกกับกิจการนี้" : "เลือกกิจการแล้ว — สมาชิกใหม่จะผูกกับกิจการนี้"}
 			</div>
 			<div className="mt-2 flex items-start gap-3">
 				<span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-lg" aria-hidden="true">
@@ -38,8 +40,8 @@ export function SelectedBusinessCard({ business, onClear }: SelectedBusinessCard
 					type="button"
 					onClick={onClear}
 					className="text-muted-foreground hover:text-destructive p-1.5"
-					aria-label="เปลี่ยนกิจการ"
-					title="เปลี่ยนกิจการ"
+					aria-label={editMode ? "ย้ายกิจการ" : "เปลี่ยนกิจการ"}
+					title={editMode ? "ย้ายกิจการ" : "เปลี่ยนกิจการ"}
 					data-slot="wizard-clear-business"
 				>
 					<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
@@ -73,7 +75,11 @@ export function SelectedBusinessCard({ business, onClear }: SelectedBusinessCard
 				<span className="flex shrink-0 items-center" aria-hidden="true">
 					<HugeiconsIcon icon={LockedIcon} className="size-3.5" />
 				</span>
-				<span>ข้อมูลกิจการอ่านอย่างเดียว — บันทึกแล้วผูกสมาชิกใหม่เข้ากับกิจการนี้ ไม่สร้างข้อมูลซ้ำ; แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ</span>
+				<span>
+					{editMode
+						? "ข้อมูลกิจการอ่านอย่างเดียว — แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ"
+						: "ข้อมูลกิจการอ่านอย่างเดียว — บันทึกแล้วผูกสมาชิกใหม่เข้ากับกิจการนี้ ไม่สร้างข้อมูลซ้ำ; แก้ไขข้อมูลกิจการที่หน้าสมาชิกเจ้าของกิจการ"}
+				</span>
 			</div>
 		</div>
 	)
