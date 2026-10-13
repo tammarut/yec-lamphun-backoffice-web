@@ -1222,6 +1222,10 @@ describe("MemberWizardDialog", () => {
 				await openEditAtStep3()
 
 				expect(await screen.findByText(/กิจการนี้มีสมาชิก 3 คน/)).toBeTruthy()
+				// Scrutiny N2: announced like the shared Alert primitive (role on root).
+				// The only role="alert" on this screen — the error summary renders
+				// only after a failed ถัดไป.
+				expect(screen.getByRole("alert")).toBeTruthy()
 			})
 
 			it("stays hidden when member_count is 1", async () => {

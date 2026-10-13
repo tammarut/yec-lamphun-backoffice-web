@@ -22,7 +22,9 @@ export type MemberWizardEditContextValue = {
 	/**
 	 * Live members linked to the member's current business (GET /:id's
 	 * business.member_count, self-included) — powers the #71 shared-edit
-	 * warning on the step-3 manual branch.
+	 * warning on the step-3 manual branch. Point-in-time snapshot like every
+	 * other field here: refreshed only when the detail query refetches, not
+	 * while the dialog sits open (scrutiny N1 — informational, not a gate).
 	 */
 	businessMemberCount: number
 	/**

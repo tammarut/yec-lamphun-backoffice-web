@@ -254,6 +254,10 @@ export function MemberWizardStepBusiness({ disabled = false }: { disabled?: bool
 						{edit !== null && edit.businessMemberCount > 1 && (
 							<div
 								data-slot="wizard-shared-business-warning"
+								// Same announcement semantics as the shared Alert primitive
+								// (role="alert" on its root): a wholesale shared-row edit is
+								// safety information a screen reader must hear.
+								role="alert"
 								className="border-warning/30 bg-warning/10 mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm"
 							>
 								<span className="mt-0.5 flex shrink-0 items-center" aria-hidden="true">
