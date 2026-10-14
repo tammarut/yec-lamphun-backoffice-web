@@ -39,6 +39,12 @@ const UPLOAD_BODY = {
 	payment_slip_file_path: "members/documents/payment_slip_test.jpg",
 }
 
+// ADR-0026 create-renewal 201 shape — solo submission (group_id null).
+const CREATE_RENEWAL_BODY = {
+	renewals: [{ member_id: 101, renewal_id: 5001 }],
+	group_id: null,
+}
+
 function pngFile(sizeBytes = 1024): File {
 	const file = new File(["x".repeat(sizeBytes)], "slip.png", { type: "image/png" })
 	return file
@@ -59,7 +65,7 @@ function renderDialog(options: { mode?: "member" | "manual"; preselectedMember?:
 			return jsonResponse(200, UPLOAD_BODY)
 		}
 		if ((url === "/api/v1/membership/renewals" || url === "/api/v1/membership/renewals/manual") && (init?.method ?? "GET") === "POST") {
-			return options.renewalsResponse?.(url) ?? jsonResponse(201, { id: 5001 })
+			return options.renewalsResponse?.(url) ?? jsonResponse(201, CREATE_RENEWAL_BODY)
 		}
 		return jsonResponse(404)
 	})
@@ -159,7 +165,7 @@ describe("RenewalFormDialog", () => {
 			expect(uploadForm?.get("payment_slip")).toBeTruthy()
 
 			const createBody = fetchMock.mock.calls[createIndex]?.[1]?.body
-			expect(JSON.parse(String(createBody))).toEqual({ member_id: 101, payment_slip: "members/documents/payment_slip_test.jpg" })
+			expect(JSON.parse(String(createBody))).toEqual({ member_ids: [101], payment_slip: "members/documents/payment_slip_test.jpg" })
 
 			fireEvent.click(screen.getByRole("button", { name: "ปิด" }))
 			expect(onClose).toHaveBeenCalled()
@@ -199,6 +205,8 @@ describe("RenewalFormDialog", () => {
 			expect(screen.getByText("สถานะ: ต่ออายุสำเร็จ (ปกติ)")).toBeTruthy()
 			const manualIndex = fetchMock.mock.calls.findIndex(([url]) => String(url) === "/api/v1/membership/renewals/manual")
 			expect(manualIndex).toBeGreaterThanOrEqual(0)
+			// Manual mode keeps the OLD member_id contract until its bulk flip (#85) —
+			// the fork in use-create-renewal must not leak member_ids onto /manual.
 			expect(JSON.parse(String(fetchMock.mock.calls[manualIndex]?.[1]?.body))).toEqual({
 				member_id: 202,
 				payment_slip: "members/documents/payment_slip_test.jpg",
@@ -223,7 +231,7 @@ describe("RenewalFormDialog", () => {
 					return jsonResponse(200, UPLOAD_BODY)
 				}
 				if (url === "/api/v1/membership/renewals/manual") {
-					return jsonResponse(201, { id: 5001 })
+					return jsonResponse(201, CREATE_RENEWAL_BODY)
 				}
 				return jsonResponse(404)
 			})
