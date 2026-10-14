@@ -48,6 +48,13 @@ export type MembershipRenewalProps = {
 	 * to the manual endpoint. Undefined here means "not applicable".
 	 */
 	readonly expiresAt?: Date
+	/**
+	 * The Renewal Group marker (ADR-0026): the shared UUIDv7 stamped on every
+	 * row of one bulk submission. `null`/absent = solo submission — every row
+	 * the service builds for a single-member request carries no marker, and no
+	 * historical row is ever backfilled.
+	 */
+	readonly groupId?: string | null
 }
 
 /**
@@ -163,6 +170,13 @@ export class MembershipRenewal {
 	get expiresAt(): Date | undefined {
 		return this.createProps().expiresAt
 	}
+	/**
+	 * The Renewal Group marker (ADR-0026). `undefined`/`null` on a solo
+	 * submission — the repository normalizes both to SQL NULL on insert.
+	 */
+	get groupId(): string | null | undefined {
+		return this.createProps().groupId
+	}
 
 	// --- Factory: New Renewal Creation ---
 
@@ -183,7 +197,7 @@ export class MembershipRenewal {
 	 * `Result` shape matches {@link Member.create} so the future review API can
 	 * add real transition-validation here without changing the call signature.
 	 */
-	static create(input: { memberId: number; paymentSlipFilePath: string; isAdmin: boolean; now: Date }): Result<MembershipRenewal, never> {
+	static create(input: { memberId: number; paymentSlipFilePath: string; isAdmin: boolean; now: Date; groupId?: string | null }): Result<MembershipRenewal, never> {
 		const status: RenewalStatus = input.isAdmin ? "APPROVED" : "PENDING_REVIEW"
 		const memberStatusOnRenewal: MemberStatusOnRenewal = input.isAdmin ? "ACTIVE" : "PENDING_RENEWAL"
 
@@ -194,6 +208,7 @@ export class MembershipRenewal {
 				paymentDateAt: input.now,
 				status,
 				memberStatusOnRenewal,
+				groupId: input.groupId ?? null,
 			})
 		)
 	}

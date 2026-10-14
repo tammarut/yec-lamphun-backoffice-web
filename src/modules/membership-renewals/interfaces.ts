@@ -9,6 +9,18 @@ import type { ListMembershipRenewalFilter, MembershipRenewalListPage } from "./u
 import type { RenewalStatRow } from "./use-case/get-renewal-stat/get-renewal-stat.types"
 import type { RenewalAlreadyReviewedError } from "./use-case/review-renewal/review-renewal.errors"
 
+/** One member's pre-check read result: the batched status read returns these. */
+export type MemberStatusRow = {
+	readonly id: number
+	readonly status: string
+}
+
+/** One member's persisted outcome: the bulk create returns one per renewal row. */
+export type CreatedRenewalRow = {
+	readonly memberId: number
+	readonly renewalId: number
+}
+
 /**
  * Repository contract for the membership-renewals module.
  *
@@ -39,22 +51,35 @@ export interface IMembershipRenewalRepository {
 	getMemberStatusForRenewal(memberId: number): Promise<Result<string | null, DatabaseError>>
 
 	/**
-	 * Atomically create a renewal and update the member's Renewal Cache Columns
-	 * in one transaction (ADR-0014). Status values are read from the aggregate's
-	 * getters (resolved by the service from the submission kind, ADR-0015):
+	 * Batched variant of the pre-check read (ADR-0026): one query for the whole
+	 * member_ids array. Missing (or soft-deleted) ids simply come back absent —
+	 * the service matches rows against the request order and narrows the first
+	 * missing id → 404.
+	 */
+	getMemberStatusesForRenewal(memberIds: readonly number[]): Promise<Result<ReadonlyArray<MemberStatusRow>, DatabaseError>>
+
+	/**
+	 * Atomically create the renewals for ONE submission and update every member's
+	 * Renewal Cache Columns in ONE transaction (ADR-0026 all-or-nothing — the
+	 * bulk generalization of the old single-member createRenewal). Status values
+	 * are read from each aggregate's getters (resolved by the service from the
+	 * submission kind, ADR-0015); per member:
 	 *   1. INSERT INTO membership_renewals (member_id, payment_slip_file_path,
-	 *      payment_date_at, renewal.status) RETURNING id
+	 *      payment_date_at, status, group_id) RETURNING id
 	 *   2. UPDATE members SET status=renewal.memberStatusOnRenewal,
 	 *      latest_renewal_status=renewal.status WHERE id AND deleted_at IS NULL
 	 *
 	 * The partial unique index idx_one_pending_renewal_per_member covers
 	 * status='PENDING_REVIEW' ONLY, so a public insert may hit Postgres code
 	 * 23505 under a race that beats the pre-check; this method catches that code
-	 * and returns `err(PendingRenewalExistsError)` (→ 409). An admin insert
-	 * ('APPROVED') is excluded from the index and cannot 23505. All other DB
-	 * failures map to `err(DatabaseError)`. On success returns `ok(newRenewalId)`.
+	 * (naming the offending member in the error message) and returns
+	 * `err(PendingRenewalExistsError)` (→ 409) — and the throw rolls back every
+	 * row written so far in the batch. An admin insert ('APPROVED') is excluded
+	 * from the index and cannot 23505. All other DB failures map to
+	 * `err(DatabaseError)`. On success returns one row per member, in request
+	 * order.
 	 */
-	createRenewal(renewal: MembershipRenewal): Promise<Result<number, PendingRenewalExistsError | DatabaseError>>
+	createRenewals(renewals: readonly MembershipRenewal[]): Promise<Result<ReadonlyArray<CreatedRenewalRow>, PendingRenewalExistsError | DatabaseError>>
 
 	/**
 	 * Atomically create a MANUAL renewal and advance the member's membership

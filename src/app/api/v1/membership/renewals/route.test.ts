@@ -25,10 +25,17 @@ vi.mock("src/modules/container", () => ({
 // Import route AFTER mocks.
 import { GET, POST } from "./route"
 
-// A valid snake_case body, as the client sends it.
+// A valid snake_case body, as the client sends it (ADR-0026 contract — solo
+// submission = member_ids of one, main member first).
 const validBody = {
-	member_id: 1,
+	member_ids: [1],
 	payment_slip: "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg",
+}
+
+// The service result the mocked use case resolves to by default (solo submission).
+const soloServiceResult = {
+	renewals: [{ memberId: 1, renewalId: 71 }],
+	groupId: null,
 }
 
 const mockSessionData = {
@@ -70,7 +77,7 @@ describe("POST /api/v1/membership/renewals", () => {
 
 		// Defaults: public path. validateSession defaults to INVALID so a cookie,
 		// if present, behaves as not-admin unless a TC overrides to ok(...).
-		mockService.execute.mockResolvedValue(ok(71))
+		mockService.execute.mockResolvedValue(ok(soloServiceResult))
 		mockAuthService.validateSession.mockReturnValue(err(new Error("invalid session")))
 
 		vi.mocked(container.resolve).mockImplementation((token) => {
@@ -85,19 +92,22 @@ describe("POST /api/v1/membership/renewals", () => {
 	})
 
 	describe("Happy cases", () => {
-		it("PUBLIC (no cookie): returns 201 with the new renewal id", async () => {
+		it("PUBLIC (no cookie): returns 201 with the per-member renewals + null group_id", async () => {
 			const response = await POST(makeRequest(validBody))
 
 			expect(response).toBeInstanceOf(NextResponse)
 			expect(response.status).toBe(201)
-			expect(await response.json()).toEqual({ id: 71 })
+			expect(await response.json()).toEqual({
+				renewals: [{ member_id: 1, renewal_id: 71 }],
+				group_id: null,
+			})
 		})
 
-		it("PUBLIC (no cookie): passes isAdmin=false to the service", async () => {
+		it("PUBLIC (no cookie): passes isAdmin=false and the member_ids array to the service", async () => {
 			await POST(makeRequest(validBody))
 
 			expect(mockService.execute).toHaveBeenCalledWith({
-				memberId: 1,
+				memberIds: [1],
 				paymentSlip: validBody.payment_slip,
 				isAdmin: false,
 			})
@@ -110,12 +120,15 @@ describe("POST /api/v1/membership/renewals", () => {
 
 			expect(mockAuthService.validateSession).toHaveBeenCalledWith("valid-session-id")
 			expect(mockService.execute).toHaveBeenCalledWith({
-				memberId: 1,
+				memberIds: [1],
 				paymentSlip: validBody.payment_slip,
 				isAdmin: true,
 			})
 			expect(response.status).toBe(201)
-			expect(await response.json()).toEqual({ id: 71 })
+			expect(await response.json()).toEqual({
+				renewals: [{ member_id: 1, renewal_id: 71 }],
+				group_id: null,
+			})
 		})
 
 		it("INVALID cookie: treated as public (isAdmin=false), NOT 401", async () => {
@@ -136,11 +149,38 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(json.error_message).toBe("Invalid request body")
 		})
 
-		it("returns 400 when member_id is missing", async () => {
-			const { member_id, ...missing } = validBody
-			void member_id
+		it("returns 400 on the OLD contract shape (member_id instead of member_ids)", async () => {
+			const response = await POST(makeRequest({ member_id: 1, payment_slip: validBody.payment_slip }))
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when member_ids is missing", async () => {
+			const { member_ids, ...missing } = validBody
+			void member_ids
 			const response = await POST(makeRequest(missing))
 			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when member_ids is empty", async () => {
+			const response = await POST(makeRequest({ ...validBody, member_ids: [] }))
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when member_ids exceeds 6 entries", async () => {
+			const response = await POST(makeRequest({ ...validBody, member_ids: [1, 2, 3, 4, 5, 6, 7] }))
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when member_ids contains duplicates", async () => {
+			const response = await POST(makeRequest({ ...validBody, member_ids: [1, 2, 2] }))
+			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 when a member_ids entry is not a positive integer", async () => {
+			for (const bad of [0, -3, 1.5, "abc"]) {
+				const response = await POST(makeRequest({ ...validBody, member_ids: [bad] }))
+				expect(response.status).toBe(400)
+			}
 		})
 
 		it("returns 400 when payment_slip is missing", async () => {
@@ -150,38 +190,28 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(response.status).toBe(400)
 		})
 
-		it("returns 400 when member_id is not a positive integer", async () => {
-			const response = await POST(makeRequest({ ...validBody, member_id: 0 }))
-			expect(response.status).toBe(400)
-		})
-
-		it("returns 400 when member_id is a string", async () => {
-			const response = await POST(makeRequest({ ...validBody, member_id: "abc" }))
-			expect(response.status).toBe(400)
-		})
-
-		it("returns 404 when the service reports MemberNotFoundError", async () => {
-			mockService.execute.mockResolvedValue(err(new MemberNotFoundError()))
+		it("returns 404 when the service reports MemberNotFoundError, naming the member", async () => {
+			mockService.execute.mockResolvedValue(err(new MemberNotFoundError("member_id 7 not found")))
 			const response = await POST(makeRequest(validBody))
 			expect(response.status).toBe(404)
 			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("not found this member id")
+			expect(json.error_message).toBe("member_id 7 not found")
 		})
 
-		it("returns 403 when the service reports ResignedMemberError", async () => {
-			mockService.execute.mockResolvedValue(err(new ResignedMemberError()))
+		it("returns 403 when the service reports ResignedMemberError, naming the member", async () => {
+			mockService.execute.mockResolvedValue(err(new ResignedMemberError("member_id 8 is resigned — resigned members cannot submit renewal requests")))
 			const response = await POST(makeRequest(validBody))
 			expect(response.status).toBe(403)
 			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("resigned members cannot submit renewal requests")
+			expect(json.error_message).toBe("member_id 8 is resigned — resigned members cannot submit renewal requests")
 		})
 
-		it("returns 409 when the service reports PendingRenewalExistsError", async () => {
-			mockService.execute.mockResolvedValue(err(new PendingRenewalExistsError()))
+		it("returns 409 when the service reports PendingRenewalExistsError, naming the member", async () => {
+			mockService.execute.mockResolvedValue(err(new PendingRenewalExistsError("member_id 9 already has a pending renewal request")))
 			const response = await POST(makeRequest(validBody))
 			expect(response.status).toBe(409)
 			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("You already have a pending renewal request")
+			expect(json.error_message).toBe("member_id 9 already has a pending renewal request")
 		})
 
 		it("returns 500 on a DatabaseError (no leaky details)", async () => {
