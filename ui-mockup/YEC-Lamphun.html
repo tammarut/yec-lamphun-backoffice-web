@@ -105,6 +105,15 @@
             { id: 21, name: "นายเอกชัย ปูนผสม", nickname: "เอก", position: "สมาชิกทั่วไป", department: "เอก ปูนซีเมนต์", businessDesc: "รับขนส่งและจำหน่ายปูนผสมเสร็จ", email: "ekachai@company.com", phone: "083-999-9999", lineId: "ek_cement", status: "Pending", memberSince: "2023-02-14", transactionDate: "2025-02-14", type: "Staff", gender: "Male", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Ekachai" },
             { id: 22, name: "นางสาวอรพรรณ สวยงาม", nickname: "อร", position: "สมาชิกทั่วไป", department: "อร ซาลอน เสริมสวย", businessDesc: "ซาลอนเสริมสวยและตกแต่งผม", email: "orapan@company.com", phone: "084-111-1111", lineId: "orn_salon", status: "Pending", memberSince: "2023-05-09", transactionDate: "2025-05-09", type: "Staff", gender: "Female", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Orapan" },
             { id: 23, name: "นายจิรายุ โตไว", nickname: "เจ", position: "สมาชิกทั่วไป", department: "เจ นูทริชั่น ฟู้ด", businessDesc: "อาหารสุขภาพครบถ้วนส่งตรงถึงบ้าน", email: "jirayu@company.com", phone: "084-222-2222", lineId: "jay_nutri", status: "Pending", memberSince: "2023-09-01", transactionDate: "", type: "Staff", gender: "Male", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Jirayu" },
+            // Renewal Group demo data (ticket #86 badge preview): one 3-person same-business
+            // group + one 2-person mixed-business pair, all pending review (Verifying),
+            // sharing renewalGroupId + transactionDate per group — the mockup stand-in for
+            // the real group_id column / shared payment_date_at.
+            { id: 24, name: "นายธีรภัทร ปลูกผัก", nickname: "ธีร์", position: "คณะทำงานสร้างเครือข่ายธุรกิจ", department: "แพรวา โอร์แกนิก ฟาร์ม", businessDesc: "ปลูกและจำหน่ายผักออร์แกนิกส่งซูเปอร์มาร์เก็ต", email: "theeraphat@company.com", phone: "085-111-2221", lineId: "thee_farm", status: "Verifying", renewalGroupId: "RG-20261010-A", memberSince: "2022-01-09", transactionDate: "2026-10-10", type: "Committee", gender: "Male", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Theeraphat" },
+            { id: 25, name: "นางสาวแพรวา มีสุข", nickname: "แพรว", position: "สมาชิกทั่วไป", department: "แพรวา โอร์แกนิก ฟาร์ม", businessDesc: "ปลูกและจำหน่ายผักออร์แกนิกส่งซูเปอร์มาร์เก็ต", email: "praewa@company.com", phone: "085-111-2222", lineId: "praew_org", status: "Verifying", renewalGroupId: "RG-20261010-A", memberSince: "2022-01-09", transactionDate: "2026-10-10", type: "Staff", gender: "Female", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=PraewaM" },
+            { id: 26, name: "นายปณิธาน ส่งตรง", nickname: "ปณิธาน", position: "สมาชิกทั่วไป", department: "แพรวา โอร์แกนิก ฟาร์ม", businessDesc: "ปลูกและจำหน่ายผักออร์แกนิกส่งซูเปอร์มาร์เก็ต", email: "panithan@company.com", phone: "085-111-2223", lineId: "pan_delivery", status: "Verifying", renewalGroupId: "RG-20261010-A", memberSince: "2023-03-12", transactionDate: "2026-10-10", type: "Staff", gender: "Male", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Panithan" },
+            { id: 27, name: "นางสิริกัญญา หวานมี", nickname: "กัญญา", position: "สมาชิกทั่วไป", department: "กัญญา ขนมหวาน", businessDesc: "ขนมหวานสไตล์บ้านๆ สั่งทำพิเศษ", email: "sirikanja@company.com", phone: "085-222-3331", lineId: "kan_dessert", status: "Verifying", renewalGroupId: "RG-20261011-B", memberSince: "2021-11-20", transactionDate: "2026-10-11", type: "Staff", gender: "Female", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sirikanja" },
+            { id: 28, name: "นายกฤติน ปากกาดี", nickname: "ติน", position: "สมาชิกทั่วไป", department: "ติน ออฟฟิศ เมท", businessDesc: "จำหน่ายเครื่องเขียนและอุปกรณ์สำนักงาน", email: "krittinin@company.com", phone: "085-222-3332", lineId: "tin_office", status: "Verifying", renewalGroupId: "RG-20261011-B", memberSince: "2024-02-01", transactionDate: "2026-10-11", type: "Staff", gender: "Male", image: "https://api.dicebear.com/7.x/avataaars/svg?seed=Krittinin" },
         ];
 
         const yecPositions = [
@@ -1631,20 +1640,20 @@
                                     {filteredList.length > 0 ? (
                                         filteredList.map(member => (
                                             <tr key={member.id} className="hover:bg-gray-50 transition">
-                                                <td className="p-4"><div className="flex items-center gap-3"><img src={member.image} className="w-10 h-10 rounded-full bg-gray-100 object-cover"/><div><div className="font-bold text-gray-800 text-sm">{member.name} {member.nickname && <span className="text-gray-500 font-normal">({member.nickname})</span>}</div><div className="text-xs text-gray-500">{member.phone}</div></div></div></td>
+                                                <td className="p-4"><div className="flex items-center gap-3"><img src={member.image} className="w-10 h-10 rounded-full bg-gray-100 object-cover"/><div><div className="font-bold text-gray-800 text-sm">{member.name} {member.nickname && <span className="text-gray-500 font-normal">({member.nickname})</span>}</div><div className="text-xs text-gray-500">{member.phone}</div>{member.renewalGroupId && (<div className="mt-1"><span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 text-[11px] font-medium" title="สมาชิกกลุ่มนี้ส่งคำขอต่ออายุพร้อมกันด้วยสลิปการโอนเงินใบเดียวกัน"><i className="fa-solid fa-users"></i>ส่งพร้อมกัน {members.filter(m => m.renewalGroupId === member.renewalGroupId).length} คน / สลิปใบเดียวกัน</span></div>)}</div></div></td>
                                                 <td className="p-4 text-sm text-gray-600">{member.type === 'Committee' ? 'คณะกรรมการ' : 'สมาชิกทั่วไป'}</td>
                                                 <td className="p-4 text-sm text-gray-600">{member.memberSince || "-"}</td>
                                                 {/* Display Transaction Date only for Admin */}
                                                 {isAdmin && <td className="p-4 text-sm text-gray-600">{member.transactionDate || "-"}</td>}
                                                 <td className="p-4">
                                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                                        member.status === 'Active' ? 'bg-green-100 text-green-700' : 
+                                                        member.status === 'Active' ? 'bg-green-100 text-green-700' :
                                                         member.status === 'Verifying' ? 'bg-yellow-100 text-yellow-700' :
                                                         member.status === 'ContactStaff' ? 'bg-red-50 text-red-600 border border-red-200' :
                                                         'bg-orange-100 text-orange-700'
                                                     }`}>
-                                                        {member.status === 'Active' ? 'ปกติ' : 
-                                                         member.status === 'Verifying' ? 'รอตรวจสอบ' : 
+                                                        {member.status === 'Active' ? 'ปกติ' :
+                                                         member.status === 'Verifying' ? 'รอตรวจสอบ' :
                                                          member.status === 'ContactStaff' ? 'กรุณาติดต่อฝ่ายข้อมูลและทะเบียนสมาชิก' :
                                                          'รอต่ออายุ'}
                                                     </span>
