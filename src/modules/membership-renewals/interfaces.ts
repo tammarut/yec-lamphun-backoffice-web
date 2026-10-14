@@ -94,7 +94,7 @@ export interface IMembershipRenewalRepository {
 	 *      renewal_successful_count=renewal_successful_count+1
 	 *      WHERE id AND deleted_at IS NULL
 	 *
-	 * Distinct from {@link createRenewal} because the manual flow writes FOUR
+	 * Distinct from {@link createRenewals} because the manual flow writes FOUR
 	 * member cache columns (the public flow writes two and deliberately leaves
 	 * expires_at / renewal_successful_count untouched — ADR-0015 deferred them;
 	 * ADR-0016 assigns them here).

@@ -231,7 +231,9 @@ describe("RenewalFormDialog", () => {
 					return jsonResponse(200, UPLOAD_BODY)
 				}
 				if (url === "/api/v1/membership/renewals/manual") {
-					return jsonResponse(201, CREATE_RENEWAL_BODY)
+					// Manual still returns the OLD `{ id }` body until #85 — keep the
+					// stub faithful to the live contract.
+					return jsonResponse(201, { id: 5001 })
 				}
 				return jsonResponse(404)
 			})

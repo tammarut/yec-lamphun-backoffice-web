@@ -22,6 +22,9 @@ type CreateRenewalResponse = {
 	/** Shared Renewal Group marker (ADR-0026); null on a solo submission. */
 	readonly group_id: string | null
 }
+// NOTE: until #85, the /manual branch actually still returns the OLD `{ id }`
+// body — this type describes the public branch, and the hook never reads the
+// body anyway (the form renders success from local state). #85 unifies both.
 
 /**
  * Every renewal read hook keys under this prefix (list / stat / expired-list /
