@@ -23,21 +23,33 @@
 -- status column the service needs for its 404/403/409 early-exit branches.
 -- Returns no row when the member does not exist or is soft-deleted (the repo
 -- narrows that to null → the service maps to 404).
+-- Single-member variant — still used by the manual flow (until it goes bulk).
 SELECT status
 FROM members
 WHERE id = $1
   AND deleted_at IS NULL;
 
+-- name: GetMemberStatusesForRenewal :many
+-- Batched pre-check read for the bulk-aware create-renewal flow (ADR-0026): one
+-- query for the whole member_ids array instead of N single reads. The service
+-- matches rows back against the request order and narrows a missing id → 404
+-- (no row when the member does not exist or is soft-deleted).
+SELECT id, status
+FROM members
+WHERE id = ANY(@ids::bigint[])
+  AND deleted_at IS NULL;
+
 -- name: InsertMembershipRenewal :many
 -- Insert the renewal row INSIDE the tx. payment_date_at is fixed (NOW()); the
 -- status is a parameter ($3) selected by the service from the submission kind
--- (PENDING_REVIEW public / APPROVED admin). The partial unique index
+-- (PENDING_REVIEW public / APPROVED admin). group_id ($4) is the shared Renewal
+-- Group marker (ADR-0026) — NULL for a solo submission. The partial unique index
 -- idx_one_pending_renewal_per_member covers status = 'PENDING_REVIEW' ONLY, so a
 -- public insert may hit Postgres code 23505 under a race that beats the
 -- pre-check; the repo catches that code and maps it to PendingRenewalExistsError.
 -- An admin insert (status='APPROVED') is excluded from that index and cannot 23505.
-INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status)
-VALUES ($1, $2, NOW(), $3)
+INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, group_id)
+VALUES ($1, $2, NOW(), $3, $4)
 RETURNING id;
 
 -- name: UpdateMemberStatusOnRenewal :exec

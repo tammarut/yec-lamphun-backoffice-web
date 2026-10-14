@@ -33,6 +33,7 @@ import { SystemSettingsRepository } from "src/modules/system-settings/repository
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { envConfig } from "src/shared/config/env"
 import { ulidGenerator } from "src/shared/lib/ulid-generator"
+import { uuidV7Generator } from "src/shared/lib/uuidv7-generator"
 import { container, Lifecycle } from "tsyringe"
 import { REGISTER_KEY } from "./di-tokens"
 
@@ -65,6 +66,13 @@ container.register(REGISTER_KEY.SESSION_STORE, {
 // Register the shared ID generator (ULID) so any service needing ULIDs can inject it.
 container.register(REGISTER_KEY.ID_GENERATOR, {
 	useValue: ulidGenerator,
+})
+
+// Register the UUIDv7 generator (ADR-0026) under its own token — the Renewal
+// Group marker mints UUIDv7 (native-uuid column), while ULID keeps serving
+// session ids / member file paths.
+container.register(REGISTER_KEY.UUID_ID_GENERATOR, {
+	useValue: uuidV7Generator,
 })
 
 // 3. Register DatabaseClient
