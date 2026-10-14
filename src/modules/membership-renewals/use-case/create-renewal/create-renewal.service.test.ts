@@ -18,12 +18,12 @@ describe("CreateRenewalService", () => {
 	let mockIdGen: MockProxy<IIdGenerator>
 
 	beforeEach(() => {
-		// Arrange (shared setup)
+		// Arrange (shared setup): happy-path defaults — an ACTIVE member, a
+		// successful renewal insert, and a mintable group id. Solo submissions
+		// must NOT touch the generator (NULL = solo, ADR-0026), so every solo TC
+		// asserts it stayed silent.
 		mockRepo = mock<IMembershipRenewalRepository>()
 		mockIdGen = mock<IIdGenerator>()
-		// Happy-path defaults: an ACTIVE member, a successful renewal insert, and
-		// a mintable group id — solo submissions must NOT touch the generator
-		// (NULL = solo, ADR-0026), so every solo TC asserts it stayed silent.
 		mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 15, status: "ACTIVE" }]))
 		mockRepo.createRenewals.mockResolvedValue(ok([{ memberId: 15, renewalId: 71 }]))
 		mockIdGen.generate.mockReturnValue(MINTED_GROUP_ID)
@@ -43,8 +43,11 @@ describe("CreateRenewalService", () => {
 
 	describe("Happy cases", () => {
 		test("PUBLIC: ACTIVE member -> ok(renewals + null groupId) with PENDING_REVIEW / PENDING_RENEWAL", async () => {
+			// Arrange
+			const req = baseReq({ isAdmin: false })
+
 			// Act
-			const result = await service.execute(baseReq({ isAdmin: false }))
+			const result = await service.execute(req)
 
 			// Assert — the service built an aggregate carrying the PUBLIC status pair.
 			expect(result._unsafeUnwrap()).toEqual({ renewals: [{ memberId: 15, renewalId: 71 }], groupId: null })
@@ -55,17 +58,21 @@ describe("CreateRenewalService", () => {
 		test("PUBLIC: EXPIRED member can file a renewal", async () => {
 			// Arrange — EXPIRED is the expected path back to ACTIVE.
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 15, status: "EXPIRED" }]))
+			const req = baseReq({ isAdmin: false })
 
 			// Act
-			const result = await service.execute(baseReq({ isAdmin: false }))
+			const result = await service.execute(req)
 
 			// Assert
 			expect(result.isOk()).toBe(true)
 		})
 
 		test("ADMIN: ACTIVE member -> APPROVED / ACTIVE (instant approval)", async () => {
+			// Arrange
+			const req = baseReq({ isAdmin: true })
+
 			// Act
-			const result = await service.execute(baseReq({ isAdmin: true }))
+			const result = await service.execute(req)
 
 			// Assert — admin bypass: aggregate carries the APPROVED / ACTIVE pair.
 			expect(result._unsafeUnwrap()).toEqual({ renewals: [{ memberId: 15, renewalId: 71 }], groupId: null })
@@ -77,9 +84,10 @@ describe("CreateRenewalService", () => {
 			// Arrange
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 42, status: "ACTIVE" }]))
 			mockRepo.createRenewals.mockResolvedValue(ok([{ memberId: 42, renewalId: 71 }]))
+			const req = baseReq({ memberIds: [42], isAdmin: false })
 
 			// Act
-			await service.execute(baseReq({ memberIds: [42], isAdmin: false }))
+			await service.execute(req)
 
 			// Assert
 			expect(mockIdGen.generate).not.toHaveBeenCalled()
@@ -91,9 +99,10 @@ describe("CreateRenewalService", () => {
 		test("aggregate stamps paymentDateAt at server-now and carries memberId + paymentSlip", async () => {
 			// Arrange
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 42, status: "ACTIVE" }]))
+			const req = baseReq({ memberIds: [42], isAdmin: false })
 
 			// Act
-			await service.execute(baseReq({ memberIds: [42], isAdmin: false }))
+			await service.execute(req)
 
 			// Assert — the aggregate is persistence-ready: fields flow through getters.
 			const renewal = passedRenewals()?.[0]
@@ -118,9 +127,10 @@ describe("CreateRenewalService", () => {
 					{ memberId: 17, renewalId: 73 },
 				])
 			)
+			const req = baseReq({ memberIds: [15, 16, 17] })
 
 			// Act
-			const result = await service.execute(baseReq({ memberIds: [15, 16, 17] }))
+			const result = await service.execute(req)
 
 			// Assert — one mint, one shared marker, one aggregate per member.
 			expect(mockIdGen.generate).toHaveBeenCalledTimes(1)
@@ -142,9 +152,10 @@ describe("CreateRenewalService", () => {
 		test("returns MemberNotFoundError naming the member when it does not exist", async () => {
 			// Arrange — absent from the batched read = not found / soft-deleted.
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([]))
+			const req = baseReq()
 
 			// Act
-			const result = await service.execute(baseReq())
+			const result = await service.execute(req)
 
 			// Assert — the write path is never reached; the member is named.
 			expect(result.isErr()).toBe(true)
@@ -157,9 +168,10 @@ describe("CreateRenewalService", () => {
 		test("returns ResignedMemberError naming the member when status is RESIGNED", async () => {
 			// Arrange
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 15, status: "RESIGNED" }]))
+			const req = baseReq()
 
 			// Act
-			const result = await service.execute(baseReq())
+			const result = await service.execute(req)
 
 			// Assert
 			const error = result._unsafeUnwrapErr()
@@ -171,9 +183,10 @@ describe("CreateRenewalService", () => {
 		test("returns PendingRenewalExistsError naming the member when status is PENDING_RENEWAL (pre-check)", async () => {
 			// Arrange
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 15, status: "PENDING_RENEWAL" }]))
+			const req = baseReq()
 
 			// Act
-			const result = await service.execute(baseReq())
+			const result = await service.execute(req)
 
 			// Assert
 			const error = result._unsafeUnwrapErr()
@@ -186,9 +199,10 @@ describe("CreateRenewalService", () => {
 			// Arrange — member 16 (asked first) is missing; member 15 is resigned.
 			// The 404 for member 16 must win because it comes first in the request.
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(ok([{ id: 15, status: "RESIGNED" }]))
+			const req = baseReq({ memberIds: [16, 15] })
 
 			// Act
-			const result = await service.execute(baseReq({ memberIds: [16, 15] }))
+			const result = await service.execute(req)
 
 			// Assert
 			const error = result._unsafeUnwrapErr()
@@ -200,9 +214,10 @@ describe("CreateRenewalService", () => {
 			// Arrange — the pre-check passed but a concurrent request inserted the
 			// renewal first; the unique index rejected this INSERT with pg 23505.
 			mockRepo.createRenewals.mockResolvedValue(err(new PendingRenewalExistsError("member_id 15 already has a pending renewal request")))
+			const req = baseReq({ isAdmin: false })
 
 			// Act
-			const result = await service.execute(baseReq({ isAdmin: false }))
+			const result = await service.execute(req)
 
 			// Assert — same domain fact, same error class as the pre-check path.
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(PendingRenewalExistsError)
@@ -211,9 +226,10 @@ describe("CreateRenewalService", () => {
 		test("propagates DatabaseError when the batched status read fails", async () => {
 			// Arrange
 			mockRepo.getMemberStatusesForRenewal.mockResolvedValue(err(new DatabaseError("boom")))
+			const req = baseReq()
 
 			// Act
-			const result = await service.execute(baseReq())
+			const result = await service.execute(req)
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
@@ -223,9 +239,10 @@ describe("CreateRenewalService", () => {
 		test("propagates DatabaseError when the create transaction fails", async () => {
 			// Arrange
 			mockRepo.createRenewals.mockResolvedValue(err(new DatabaseError("tx failed")))
+			const req = baseReq()
 
 			// Act
-			const result = await service.execute(baseReq())
+			const result = await service.execute(req)
 
 			// Assert
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
