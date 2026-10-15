@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto"
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { CryptoError } from "./errors"
 import type { IBlindIndexService } from "./crypto-services.interface"
 
@@ -18,7 +18,7 @@ import type { IBlindIndexService } from "./crypto-services.interface"
  * Deterministic: the same plaintext always yields the same digest, so it can
  * back a unique index / equality lookup without storing the plaintext.
  */
-@singleton()
+@injectable()
 export class HmacBlindIndexService implements IBlindIndexService {
 	private readonly key: Buffer
 

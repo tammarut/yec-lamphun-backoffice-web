@@ -1,5 +1,5 @@
 import { Result, ResultAsync, err, ok } from "neverthrow"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 
 import type { IIdGenerator } from "src/modules/shared/id-generator"
 import type { IStorageClient } from "src/modules/shared/storage"
@@ -31,7 +31,7 @@ const logger = createLogger(["members", "service", "member-file"])
  * MemberFileStorageError WITHOUT cleaning up already-uploaded objects
  * (per the spec's literal pseudocode). Orphaned object keys are logged.
  */
-@singleton()
+@injectable()
 export class MemberFileService {
 	private readonly idGenerator: IIdGenerator
 	private readonly storageClient: IStorageClient

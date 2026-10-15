@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberFileUrlService } from "../../member-file-url.service"
 import type { GetListMembersError } from "./get-list-members.errors"
@@ -25,7 +25,7 @@ import type { ListMembersFilter, ListMembersPageResponse, MemberListItemResponse
  * `InvalidCursorError` (deleted anchor) and `DatabaseError` (infra) propagate
  * unchanged; the route maps them to 400 and 500 respectively.
  */
-@singleton()
+@injectable()
 export class GetListMembersService {
 	constructor(
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,

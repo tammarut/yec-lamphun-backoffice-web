@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IMembershipRenewalRepository } from "../../interfaces"
 import type { RenewalStatResponse, RenewalStatRow } from "./get-renewal-stat.types"
 
@@ -24,7 +24,7 @@ import type { RenewalStatResponse, RenewalStatRow } from "./get-renewal-stat.typ
  * Returns AGENTS.md §2B
  * `Promise<Result<RenewalStatResponse, DatabaseError>>`.
  */
-@singleton()
+@injectable()
 export class GetRenewalStatService {
 	constructor(@inject(REGISTER_KEY.MEMBERSHIP_RENEWALS_REPOSITORY) private readonly repository: IMembershipRenewalRepository) {}
 

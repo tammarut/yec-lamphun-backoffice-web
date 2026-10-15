@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { PositionReadModel } from "../../domain/member-read-models"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberFileUrlService } from "../../member-file-url.service"
@@ -38,7 +38,7 @@ const ROOT_POSITION_CODE = "PRESIDENT"
  * Returns AGENTS.md §2B
  * `Promise<Result<GetExecutiveCommitteeResponse, DatabaseError>>`.
  */
-@singleton()
+@injectable()
 export class GetExecutiveCommitteeService {
 	constructor(
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,

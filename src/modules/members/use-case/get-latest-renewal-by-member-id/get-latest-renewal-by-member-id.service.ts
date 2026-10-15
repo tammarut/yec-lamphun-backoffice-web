@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { MemberLatestRenewalReadModel } from "../../domain/member-read-models"
 import type { IMemberRepository } from "../../interfaces"
 import { MemberFileUrlService } from "../../member-file-url.service"
@@ -26,7 +26,7 @@ import type { LatestRenewalResponse } from "./get-latest-renewal-by-member-id.ty
  *
  * Returns AGENTS.md §2B `Promise<Result<LatestRenewalResponse, GetLatestRenewalByMemberIdError>>`.
  */
-@singleton()
+@injectable()
 export class GetLatestRenewalByMemberIdService {
 	constructor(
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,

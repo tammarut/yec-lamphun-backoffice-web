@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IStorageUrlResolver } from "src/modules/shared/storage/storage-url-resolver.interface"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IMembershipRenewalRepository } from "../../interfaces"
 import type { GetListExpiredMembershipError } from "./get-list-expired-membership.errors"
 import type { ExpiredMembershipListRow, ExpiredMembershipResponse, ListExpiredMembershipFilter, ListExpiredMembershipPageResponse } from "./get-list-expired-membership.types"
@@ -29,7 +29,7 @@ import type { ExpiredMembershipListRow, ExpiredMembershipResponse, ListExpiredMe
  * `InvalidCursorError` (deleted anchor) and `DatabaseError` (infra) propagate
  * unchanged; the route maps them to 400 and 500 respectively.
  */
-@singleton()
+@injectable()
 export class GetListExpiredMembershipService {
 	constructor(
 		@inject(REGISTER_KEY.MEMBERSHIP_RENEWALS_REPOSITORY) private readonly repository: IMembershipRenewalRepository,

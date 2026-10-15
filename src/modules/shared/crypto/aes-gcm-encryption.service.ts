@@ -2,7 +2,7 @@ import { err, ok, type Result } from "neverthrow"
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IEncryptionService } from "./crypto-services.interface"
 import { CryptoError } from "./errors"
 
@@ -20,7 +20,7 @@ const AUTH_TAG_BYTES = 16 // GCM authentication tag length
  * One key per environment (see ADR on key strategy); zero-downtime rotation is
  * intentionally out of scope.
  */
-@singleton()
+@injectable()
 export class AesGcmEncryptionService implements IEncryptionService {
 	private readonly key: Buffer
 

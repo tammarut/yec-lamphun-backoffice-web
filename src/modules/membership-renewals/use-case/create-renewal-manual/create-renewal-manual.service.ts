@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { MembershipRenewal } from "../../domain/membership-renewal"
 import type { IMembershipRenewalRepository } from "../../interfaces"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError, type CreateManualRenewalError } from "./create-renewal-manual.errors"
@@ -29,7 +29,7 @@ import type { CreateManualRenewalRequest } from "./create-renewal-manual.types"
  *
  * Returns AGENTS.md §2B single-wrapped `Promise<Result<number, CreateManualRenewalError>>`.
  */
-@singleton()
+@injectable()
 export class CreateManualRenewalService {
 	constructor(@inject(REGISTER_KEY.MEMBERSHIP_RENEWALS_REPOSITORY) private readonly repository: IMembershipRenewalRepository) {}
 
