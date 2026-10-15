@@ -66,7 +66,12 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		// whole member_ids array. Missing ids simply come back absent — the
 		// service matches rows against the request order and narrows a missing
 		// id → 404.
-		const result = await ResultAsync.fromPromise(getMemberStatusesForRenewal(this.sql, { ids: memberIds.map(String) }), (error) => error as Error)
+		// The ids travel as ONE scalar CSV string (split by string_to_array in
+		// SQL) — a JS array param is bound by bun:sql as its joined scalar text,
+		// which fails the bigint[] cast (pg 22P02 malformed array literal). Every
+		// id is route-validated as a positive integer, so the CSV is
+		// injection-safe.
+		const result = await ResultAsync.fromPromise(getMemberStatusesForRenewal(this.sql, { ids: memberIds.join(",") }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}
