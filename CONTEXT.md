@@ -93,6 +93,10 @@ _Avoid_: instant renewal, auto-approval, staff submission
 A Renewal Submission made by staff via `POST /api/v1/membership/renewals/manual`, which requires a valid staff session cookie (enforced by `withAuth`, unlike the public create-renewal endpoint's optional cookie). It is always an Admin Submission: the renewal is created at Renewal Status `APPROVED` and the member's Member Status moves to `ACTIVE`. Unlike a plain Admin Submission on the public endpoint, a Manual Renewal Submission ALSO advances the member's membership clock — it bumps `renewal_successful_count` by one and sets `expires_at` to the **Membership Expiry**. The public endpoint deliberately does neither (ADR-0015, ADR-0016).
 _Avoid_: manual renewal, backoffice renewal, staff-created renewal
 
+**Renewal Group**:
+The set of Membership Renewals created together by one Renewal Submission covering several members under a single payment slip (one main member plus up to five additional). It is a payment fact, not a review fact: every renewal in the group keeps its independent lifecycle, and a Renewal Review always decides one record at a time — "approve the whole group" is a convenience over N decisions, never one decision. Members may come from different businesses (the same-business expectation is a form warning, never a block), and each member appears at most once per submission. Recorded as a shared group marker on each row; solo submissions carry none.
+_Avoid_: bulk renewal, batch, joint renewal, same-business renewal
+
 **Renewal Review**:
 The staff act of deciding a live `PENDING_REVIEW` Membership Renewal, via `PATCH /api/v1/membership/renewals/review/{renewal_id}` (staff session required). Approving sets the Renewal Status to `APPROVED`, moves the member to `ACTIVE`, re-stamps the Membership Expiry, and increments `renewal_successful_count`; rejecting sets `REJECTED` with a mandatory rejection reason and moves the member to `EXPIRED`. Both outcomes are terminal — deciding an already-decided renewal is refused as already reviewed.
 _Avoid_: approve api, renewal decision, moderation

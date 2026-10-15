@@ -2,6 +2,10 @@ export const REGISTER_KEY = {
 	ENV_CONFIG: Symbol("ENV_CONFIG"),
 	SESSION_STORE: Symbol("SESSION_STORE"),
 	ID_GENERATOR: Symbol("IIdGenerator"),
+	// UUIDv7 id generator (ADR-0026) — mints the Renewal Group marker. Its own
+	// Symbol token so the existing ULID binding (session ids, member file paths)
+	// stays untouched.
+	UUID_ID_GENERATOR: Symbol("UUID_ID_GENERATOR"),
 	AUTH_SERVICE: Symbol("AUTH_SERVICE"),
 	SYSTEM_SETTINGS_REPOSITORY: Symbol("SYSTEM_SETTINGS_REPOSITORY"),
 	SYSTEM_SETTINGS_SERVICE: Symbol("SYSTEM_SETTINGS_SERVICE"),

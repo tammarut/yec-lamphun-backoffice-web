@@ -6,6 +6,9 @@ CREATE TABLE membership_renewals (
     payment_date_at TIMESTAMPTZ NOT NULL,
     -- Replaced ENUM with constrained VARCHAR
     status VARCHAR(50) NOT NULL,
+    -- Renewal Group marker (ADR-0026): shared UUIDv7 across the rows of one
+    -- bulk submission; NULL = solo submission (no backfill — history was solo).
+    group_id UUID NULL,
     rejection_reason TEXT NULL,
     reviewed_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

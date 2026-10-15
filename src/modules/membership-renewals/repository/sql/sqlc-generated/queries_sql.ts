@@ -22,15 +22,38 @@ export async function getMemberStatusForRenewal(sql: Sql, args: GetMemberStatusF
 	}))
 }
 
+export const getMemberStatusesForRenewalQuery = `-- name: GetMemberStatusesForRenewal :many
+SELECT id, status
+FROM members
+WHERE id = ANY($1::bigint[])
+  AND deleted_at IS NULL`
+
+export interface GetMemberStatusesForRenewalArgs {
+	ids: string[]
+}
+
+export interface GetMemberStatusesForRenewalRow {
+	id: string
+	status: string
+}
+
+export async function getMemberStatusesForRenewal(sql: Sql, args: GetMemberStatusesForRenewalArgs): Promise<GetMemberStatusesForRenewalRow[]> {
+	return (await sql.unsafe(getMemberStatusesForRenewalQuery, [args.ids]).values()).map((row) => ({
+		id: row[0],
+		status: row[1],
+	}))
+}
+
 export const insertMembershipRenewalQuery = `-- name: InsertMembershipRenewal :many
-INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status)
-VALUES ($1, $2, NOW(), $3)
+INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, group_id)
+VALUES ($1, $2, NOW(), $3, $4)
 RETURNING id`
 
 export interface InsertMembershipRenewalArgs {
 	memberId: string
 	paymentSlipFilePath: string
 	status: string
+	groupId: string | null
 }
 
 export interface InsertMembershipRenewalRow {
@@ -38,7 +61,7 @@ export interface InsertMembershipRenewalRow {
 }
 
 export async function insertMembershipRenewal(sql: Sql, args: InsertMembershipRenewalArgs): Promise<InsertMembershipRenewalRow[]> {
-	return (await sql.unsafe(insertMembershipRenewalQuery, [args.memberId, args.paymentSlipFilePath, args.status]).values()).map((row) => ({
+	return (await sql.unsafe(insertMembershipRenewalQuery, [args.memberId, args.paymentSlipFilePath, args.status, args.groupId]).values()).map((row) => ({
 		id: row[0],
 	}))
 }

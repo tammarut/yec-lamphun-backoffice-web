@@ -12,7 +12,19 @@ export type CreateRenewalInput = {
 	readonly manual: boolean
 }
 
-type CreateRenewalResponse = { readonly id: number }
+type CreatedRenewalRow = {
+	readonly member_id: number
+	readonly renewal_id: number
+}
+
+type CreateRenewalResponse = {
+	readonly renewals: ReadonlyArray<CreatedRenewalRow>
+	/** Shared Renewal Group marker (ADR-0026); null on a solo submission. */
+	readonly group_id: string | null
+}
+// NOTE: until #85, the /manual branch actually still returns the OLD `{ id }`
+// body — this type describes the public branch, and the hook never reads the
+// body anyway (the form renders success from local state). #85 unifies both.
 
 /**
  * Every renewal read hook keys under this prefix (list / stat / expired-list /
@@ -22,10 +34,14 @@ export const RENEWALS_ROOT_QUERY_KEY = ["membership-renewals"] as const
 
 async function postRenewal(input: CreateRenewalInput): Promise<CreateRenewalResponse> {
 	const url = input.manual ? "/api/v1/membership/renewals/manual" : "/api/v1/membership/renewals"
+	// ADR-0026 lockstep: the public endpoint takes member_ids[1..6] — a solo
+	// submission sends [member_id]. The manual endpoint keeps the old member_id
+	// contract until its own bulk flip (#85); delete this fork there.
+	const body = input.manual ? { member_id: input.member_id, payment_slip: input.payment_slip } : { member_ids: [input.member_id], payment_slip: input.payment_slip }
 	const result = await fetchJson<CreateRenewalResponse>(url, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ member_id: input.member_id, payment_slip: input.payment_slip }),
+		body: JSON.stringify(body),
 	})
 	if (result.isErr()) {
 		throw result.error

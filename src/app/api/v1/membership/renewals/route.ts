@@ -31,7 +31,12 @@ const logger = createLogger(["membership-renewals", "route", "create"])
 const listLogger = createLogger(["membership-renewals", "route", "list"])
 
 type CreatedRenewalResponse = {
-	readonly id: number
+	readonly renewals: ReadonlyArray<{
+		readonly member_id: number
+		readonly renewal_id: number
+	}>
+	/** Shared Renewal Group marker (ADR-0026); null on a solo submission (N=1). */
+	readonly group_id: string | null
 }
 
 // ============================================================================
@@ -48,12 +53,14 @@ type CreatedRenewalResponse = {
 // same way withAuth does, but never returns 401.
 //
 // Flow:
-//   1. Parse + structurally validate the JSON body (member_id, payment_slip).
+//   1. Parse + structurally validate the JSON body (member_ids[1..6], payment_slip).
 //   2. Resolve isAdmin (inline soft session check, no 401).
-//   3. Hand the DTO to the use case, which runs the status pre-check (404/403/409)
-//      then the atomic cross-table write (INSERT renewal + UPDATE member cache
-//      columns, ADR-0014).
-// Success → 201 { id }. Errors → { error_message } with the matching status.
+//   3. Hand the DTO to the use case, which runs the batched status pre-check
+//      (404/403/409 naming the offending member) then the atomic cross-table
+//      write — one INSERT renewal + UPDATE member cache columns PER member, all
+//      inside one transaction (ADR-0014/ADR-0026).
+// Success → 201 { renewals, group_id }. Errors → { error_message } with the
+// matching status.
 // ============================================================================
 export async function POST(request: NextRequest): Promise<NextResponse<CreatedRenewalResponse | ResponseBodyError>> {
 	// 1. Parse JSON body.
@@ -87,7 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreatedRe
 	//    pair (PENDING_REVIEW/PENDING_RENEWAL vs APPROVED/ACTIVE) from isAdmin.
 	const service = container.resolve<CreateRenewalService>(REGISTER_KEY.CREATE_RENEWAL_SERVICE)
 	const createRenewalReq: CreateRenewalRequest = {
-		memberId: parsed.output.member_id,
+		memberIds: parsed.output.member_ids,
 		paymentSlip: parsed.output.payment_slip,
 		isAdmin,
 	}
@@ -96,7 +103,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreatedRe
 		return mapError(result.error)
 	}
 
-	const createdRenewalResponse: CreatedRenewalResponse = { id: result.value }
+	const createdRenewalResponse: CreatedRenewalResponse = {
+		renewals: result.value.renewals.map((row) => ({ member_id: row.memberId, renewal_id: row.renewalId })),
+		group_id: result.value.groupId,
+	}
 	return NextResponse.json(createdRenewalResponse, { status: 201 })
 }
 

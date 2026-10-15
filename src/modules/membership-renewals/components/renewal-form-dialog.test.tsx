@@ -39,6 +39,12 @@ const UPLOAD_BODY = {
 	payment_slip_file_path: "members/documents/payment_slip_test.jpg",
 }
 
+// ADR-0026 create-renewal 201 shape — solo submission (group_id null).
+const CREATE_RENEWAL_BODY = {
+	renewals: [{ member_id: 101, renewal_id: 5001 }],
+	group_id: null,
+}
+
 function pngFile(sizeBytes = 1024): File {
 	const file = new File(["x".repeat(sizeBytes)], "slip.png", { type: "image/png" })
 	return file
@@ -59,7 +65,7 @@ function renderDialog(options: { mode?: "member" | "manual"; preselectedMember?:
 			return jsonResponse(200, UPLOAD_BODY)
 		}
 		if ((url === "/api/v1/membership/renewals" || url === "/api/v1/membership/renewals/manual") && (init?.method ?? "GET") === "POST") {
-			return options.renewalsResponse?.(url) ?? jsonResponse(201, { id: 5001 })
+			return options.renewalsResponse?.(url) ?? jsonResponse(201, CREATE_RENEWAL_BODY)
 		}
 		return jsonResponse(404)
 	})
@@ -109,12 +115,15 @@ afterEach(() => {
 describe("RenewalFormDialog", () => {
 	describe("Happy cases", () => {
 		it("member mode: autocomplete searches EXPIRED members only and the selected card replaces the search", async () => {
+			// Arrange
 			const { fetchMock, settleDebounce } = renderDialog({})
 
+			// Act
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 
+			// Assert
 			const memberUrls = fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith("/api/v1/members?"))
 			expect(memberUrls.at(-1)).toBe("/api/v1/members?limit=8&status=EXPIRED&search=%E0%B8%AA%E0%B8%A1")
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
@@ -124,29 +133,34 @@ describe("RenewalFormDialog", () => {
 		})
 
 		it("member mode: clearing the search input hides the previous results instantly (no stale rows, M2)", async () => {
+			// Arrange — search, wait, and let a result render.
 			const { settleDebounce } = renderDialog({})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			expect(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ })).toBeTruthy()
 
+			// Act
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "" } })
-			// Instant, not debounce-deferred: the empty-term guard is a render-time
-			// derivation over searchTerm, so the stale rows vanish this render.
+
+			// Assert — instant, not debounce-deferred: the empty-term guard is a
+			// render-time derivation over searchTerm, so the stale rows vanish this render.
 			expect(screen.queryByRole("option")).toBeNull()
 			expect(await screen.findByText(/พิมพ์เพื่อค้นหาสมาชิก/)).toBeTruthy()
 		})
 
 		it("member mode: uploads the slip first, then POSTs /renewals with the returned path, and shows the success screen", async () => {
+			// Arrange
 			const { fetchMock, settleDebounce, onClose } = renderDialog({})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
+
+			// Act
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
+			// Assert
 			expect(await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeTruthy()
 			expect(screen.getByText("สถานะ: รอตรวจสอบการโอนเงิน")).toBeTruthy()
 
@@ -159,13 +173,14 @@ describe("RenewalFormDialog", () => {
 			expect(uploadForm?.get("payment_slip")).toBeTruthy()
 
 			const createBody = fetchMock.mock.calls[createIndex]?.[1]?.body
-			expect(JSON.parse(String(createBody))).toEqual({ member_id: 101, payment_slip: "members/documents/payment_slip_test.jpg" })
+			expect(JSON.parse(String(createBody))).toEqual({ member_ids: [101], payment_slip: "members/documents/payment_slip_test.jpg" })
 
 			fireEvent.click(screen.getByRole("button", { name: "ปิด" }))
 			expect(onClose).toHaveBeenCalled()
 		})
 
 		it("manual mode: title, locked preselected member, submit to /manual, and the ต่ออายุสำเร็จ screen", async () => {
+			// Arrange
 			const { fetchMock } = renderDialog({
 				mode: "manual",
 				preselectedMember: expiredMembershipToFormMember({
@@ -185,20 +200,25 @@ describe("RenewalFormDialog", () => {
 				}),
 			})
 
+			// Assert — the locked preselected card: title, name, no member switcher.
 			expect(screen.getByText("ต่ออายุสมาชิก (ผู้ดูแลระบบ)")).toBeTruthy()
 			expect(screen.getByText("นางสาวสมหญิง ใจงาม")).toBeTruthy()
 			expect(screen.getByText(/\(หญิง\)/)).toBeTruthy()
 			expect(screen.queryByRole("button", { name: "เปลี่ยนสมาชิก" })).toBeNull()
 			expect(screen.queryByRole("combobox")).toBeNull()
 
+			// Act
 			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
 			fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
 
+			// Assert
 			expect(await screen.findByText("ต่ออายุสำเร็จ")).toBeTruthy()
 			expect(screen.getByText("สถานะ: ต่ออายุสำเร็จ (ปกติ)")).toBeTruthy()
 			const manualIndex = fetchMock.mock.calls.findIndex(([url]) => String(url) === "/api/v1/membership/renewals/manual")
 			expect(manualIndex).toBeGreaterThanOrEqual(0)
+			// Manual mode keeps the OLD member_id contract until its bulk flip (#85) —
+			// the fork in use-create-renewal must not leak member_ids onto /manual.
 			expect(JSON.parse(String(fetchMock.mock.calls[manualIndex]?.[1]?.body))).toEqual({
 				member_id: 202,
 				payment_slip: "members/documents/payment_slip_test.jpg",
@@ -206,23 +226,29 @@ describe("RenewalFormDialog", () => {
 		})
 
 		it("fee rail computes 5,000 minus the working-team discount for a committee member", async () => {
+			// Arrange
 			const { settleDebounce } = renderDialog({})
 
+			// Act
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 
+			// Assert
 			expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (1 คน)")).toBeTruthy()
 			expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
 		})
 
 		it("reopening resets the form: no stale success screen, and the preselected card still locks", async () => {
+			// Arrange — submit once to reach the success screen.
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				if (url === "/api/v1/members/file/upload") {
 					return jsonResponse(200, UPLOAD_BODY)
 				}
 				if (url === "/api/v1/membership/renewals/manual") {
+					// Manual still returns the OLD `{ id }` body until #85 — keep the
+					// stub faithful to the live contract.
 					return jsonResponse(201, { id: 5001 })
 				}
 				return jsonResponse(404)
@@ -257,10 +283,11 @@ describe("RenewalFormDialog", () => {
 			fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
 			expect(await screen.findByText("ต่ออายุสำเร็จ")).toBeTruthy()
 
-			// Close, then reopen for the SAME member — must be a fresh form.
+			// Act — close, then reopen for the SAME member: must be a fresh form.
 			view.rerender(ui(false))
 			view.rerender(ui(true))
 
+			// Assert — no stale success screen, preselected card still locks.
 			expect(screen.queryByText("ต่ออายุสำเร็จ")).toBeNull()
 			expect(screen.getByText("นางสาวสมหญิง ใจงาม")).toBeTruthy()
 			expect(screen.getByRole("button", { name: /อนุมัติ/ })).toBeTruthy()
@@ -269,10 +296,13 @@ describe("RenewalFormDialog", () => {
 
 	describe("Unhappy cases", () => {
 		it("empty submit shows the three-item missing-field summary without any fetch", async () => {
+			// Arrange
 			const { fetchMock } = renderDialog({})
 
+			// Act
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
+			// Assert
 			expect(await screen.findByText("กรุณาดำเนินการให้ครบถ้วน:")).toBeTruthy()
 			expect(screen.getByText("เลือกสมาชิกที่ต่ออายุ")).toBeTruthy()
 			expect(screen.getByText("แนบหลักฐานการโอนเงิน (Slip)")).toBeTruthy()
@@ -281,102 +311,121 @@ describe("RenewalFormDialog", () => {
 		})
 
 		it("oversized slip is rejected client-side with no upload fetch", async () => {
+			// Arrange
 			const { fetchMock, settleDebounce } = renderDialog({})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
-
 			const oversized = pngFile()
 			Object.defineProperty(oversized, "size", { value: 8 * 1024 * 1024 })
+
+			// Act
 			pickSlipFile(oversized)
 
+			// Assert
 			expect(screen.getByText("ขนาดไฟล์ต้องไม่เกิน 7MB")).toBeTruthy()
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload").length).toBe(0)
 		})
 
 		it("409 pending-exists surfaces the server error_message inline without the success screen", async () => {
+			// Arrange — the create POST will answer 409.
 			const { settleDebounce } = renderDialog({
 				renewalsResponse: () => jsonResponse(409, { error_message: "This member has a pending renewal" }),
 			})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
+
+			// Act
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
+			// Assert
 			expect(await screen.findByText("ส่งข้อมูลไม่สำเร็จ")).toBeTruthy()
 			expect(screen.getByText(/This member has a pending renewal/)).toBeTruthy()
 			expect(screen.queryByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeNull()
 		})
 
 		it("403 resigned surfaces the server error_message inline (status changed between pick and submit)", async () => {
+			// Arrange — the create POST will answer 403.
 			const { settleDebounce } = renderDialog({
 				renewalsResponse: () => jsonResponse(403, { error_message: "This member has resigned" }),
 			})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
+
+			// Act
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
+			// Assert
 			expect(await screen.findByText("ส่งข้อมูลไม่สำเร็จ")).toBeTruthy()
 			expect(screen.getByText(/This member has resigned/)).toBeTruthy()
 			expect(screen.queryByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeNull()
 		})
 
 		it("404 member-not-found surfaces the server error_message inline", async () => {
+			// Arrange — the create POST will answer 404.
 			const { settleDebounce } = renderDialog({
 				renewalsResponse: () => jsonResponse(404, { error_message: "Member not found" }),
 			})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 			await stageSlipFile(pngFile())
 			fireEvent.click(screen.getByRole("checkbox"))
+
+			// Act
 			fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
 
+			// Assert
 			expect(await screen.findByText("ส่งข้อมูลไม่สำเร็จ")).toBeTruthy()
 			expect(screen.getByText(/Member not found/)).toBeTruthy()
 		})
 
 		it("preview derives a CSP-safe data: URL from the staged file (blob: is blocked by img-src)", async () => {
+			// Arrange
 			const { settleDebounce } = renderDialog({})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
+
+			// Act
 			await stageSlipFile(pngFile())
 
+			// Assert
 			const preview = screen.getByRole("img", { name: /ตัวอย่างสลิป slip.png/ })
 			expect(preview.getAttribute("src")?.startsWith("data:image/")).toBe(true)
 		})
 
 		it("copy button writes the account number digits-only and confirms", async () => {
+			// Arrange
 			const writeText = vi.fn().mockResolvedValue(undefined)
 			Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
 			renderDialog({})
 
+			// Act
 			fireEvent.click(screen.getByRole("button", { name: "คัดลอกเลขบัญชี" }))
 
+			// Assert
 			expect(writeText).toHaveBeenCalledWith("2078138702")
 			expect(screen.getByText("คัดลอกแล้ว")).toBeTruthy()
 		})
 
 		it("non-image slip is rejected with the extension message", async () => {
+			// Arrange
 			const { settleDebounce } = renderDialog({})
-
 			fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
 			await settleDebounce()
 			fireEvent.click(await screen.findByRole("option", { name: /นายสมชาย ใจดี/ }))
 
+			// Act
 			pickSlipFile(new File(["x"], "slip.pdf", { type: "application/pdf" }))
 
+			// Assert
 			expect(screen.getByText(/รองรับเฉพาะไฟล์รูปภาพ/)).toBeTruthy()
 		})
 	})

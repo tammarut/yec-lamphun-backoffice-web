@@ -5,7 +5,7 @@ import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
 import type { MembershipRenewal, RenewalStatus, ReviewedRenewal } from "../domain/membership-renewal"
-import type { IMembershipRenewalRepository } from "../interfaces"
+import type { CreatedRenewalRow, IMembershipRenewalRepository } from "../interfaces"
 import { PendingRenewalExistsError } from "../use-case/create-renewal/create-renewal.errors"
 import { InvalidCursorError } from "../use-case/get-list-expired-membership/get-list-expired-membership.errors"
 import type { ExpiredMembershipListPage, ExpiredMembershipListRow, ListExpiredMembershipFilter } from "../use-case/get-list-expired-membership/get-list-expired-membership.types"
@@ -15,6 +15,7 @@ import type { RenewalStatRow } from "../use-case/get-renewal-stat/get-renewal-st
 import { RenewalAlreadyReviewedError } from "../use-case/review-renewal/review-renewal.errors"
 import {
 	getMemberStatusForRenewal,
+	getMemberStatusesForRenewal,
 	getRenewalForReview,
 	getRenewalStat,
 	insertMembershipRenewal,
@@ -60,21 +61,39 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		return ok(row ? row.status : null)
 	}
 
-	async createRenewal(renewal: MembershipRenewal) {
-		// The transaction is scoped to this method: insert renewal → update member
-		// cache columns. bun:sql auto-commits on success, auto-rollbacks on throw.
-		// The status values are read from the aggregate's getters — they were
+	async getMemberStatusesForRenewal(memberIds: readonly number[]) {
+		// Batched variant of the pre-check read (ADR-0026): one query for the
+		// whole member_ids array. Missing ids simply come back absent — the
+		// service matches rows against the request order and narrows a missing
+		// id → 404.
+		const result = await ResultAsync.fromPromise(getMemberStatusesForRenewal(this.sql, { ids: memberIds.map(String) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(result.value.map((row) => ({ id: Number(row.id), status: row.status })))
+	}
+
+	async createRenewals(renewals: readonly MembershipRenewal[]) {
+		// The transaction is scoped to this method: per member, insert renewal →
+		// update member cache columns, all inside ONE tx (ADR-0026 all-or-nothing).
+		// bun:sql auto-commits on success, auto-rollbacks on throw — a 23505 on
+		// ANY member's insert aborts and rolls back every row written so far.
+		// The status values are read from the aggregates' getters — they were
 		// resolved by MembershipRenewal.create() from the submission kind (ADR-0015);
 		// the repo does not interpret them.
 		try {
-			const renewalId = await this.dbClient.transaction(async (tx) => {
+			const created = await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
-				const newId = await this.doInsertRenewal(sql, renewal)
-				await this.doUpdateMemberStatus(sql, renewal)
-				return newId
+				const results: CreatedRenewalRow[] = []
+				for (const renewal of renewals) {
+					const newId = await this.doInsertRenewal(sql, renewal)
+					await this.doUpdateMemberStatus(sql, renewal)
+					results.push({ memberId: renewal.memberId, renewalId: newId })
+				}
+				return results
 			})
 
-			return ok(renewalId)
+			return ok(created)
 		} catch (error) {
 			// doInsertRenewal may throw a PendingRenewalExistsError on pg code 23505;
 			// propagate it as-is so the route maps to 409. Everything else (including
@@ -138,6 +157,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 				memberId: String(renewal.memberId),
 				paymentSlipFilePath: renewal.paymentSlipFilePath,
 				status: renewal.status,
+				groupId: renewal.groupId ?? null,
 			})
 			const row = result[0]
 			if (!row) {
@@ -150,8 +170,10 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 			// postgres.js does the same (its PostgresError also has `.code`). Either
 			// driver reaches this branch with code "23505"; the partial unique index
 			// idx_one_pending_renewal_per_member is the only such index on this table.
+			// The message names the offending member (ADR-0026) — under a bulk batch
+			// the client must be able to tell WHICH member raced.
 			if (isUniqueViolation(error)) {
-				throw new PendingRenewalExistsError(undefined, error)
+				throw new PendingRenewalExistsError(`member_id ${renewal.memberId} already has a pending renewal request`, error)
 			}
 			if (error instanceof DatabaseError) {
 				throw error

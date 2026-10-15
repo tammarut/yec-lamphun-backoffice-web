@@ -11,9 +11,9 @@
 		"lint:fix": "eslint --fix --ext .ts,.tsx .",
 		"prettier:format": "prettier --write 'src/**/*.{js,jsx,ts,tsx}'",
 		"prepare:husky": "husky",
-		"test": "vitest --run",
-		"test:watch": "vitest",
-		"test:coverage": "vitest --run --coverage"
+		"test": "bunx --bun vitest --run",
+		"test:watch": "bunx --bun vitest",
+		"test:coverage": "bunx --bun vitest --run --coverage"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx}": [
