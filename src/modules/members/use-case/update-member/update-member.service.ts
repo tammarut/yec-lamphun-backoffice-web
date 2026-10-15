@@ -4,7 +4,7 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { Member } from "../../domain/member"
 import { MemberBusiness } from "../../domain/member-business"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
@@ -65,7 +65,7 @@ import type { UpdateMemberRequest } from "./update-member.types"
  *
  * Returns AGENTS.md §2B single-wrapped `Promise<Result<void, UpdateMemberError>>`.
  */
-@singleton()
+@injectable()
 export class UpdateMemberService {
 	constructor(
 		@inject(DatabaseClient) private readonly dbClient: DatabaseClient,

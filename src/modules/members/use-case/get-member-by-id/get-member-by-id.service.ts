@@ -3,7 +3,7 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IEncryptionService } from "src/modules/shared/crypto"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { createLogger } from "src/shared/lib/logger/logger"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { maskIdCard } from "../../domain/mask-id-card"
 import type { MemberBusinessReadModel, MemberDetailReadModel } from "../../domain/member-read-models"
 import type { IMemberRepository } from "../../interfaces"
@@ -26,7 +26,7 @@ const logger = createLogger(["members", "use-case", "get-member-by-id"])
  *
  * Returns AGENTS.md §2B `Promise<Result<MemberDetailResponse, GetMemberByIdError>>`.
  */
-@singleton()
+@injectable()
 export class GetMemberByIdService {
 	constructor(
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,

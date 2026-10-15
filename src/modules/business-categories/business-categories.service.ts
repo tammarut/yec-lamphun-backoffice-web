@@ -1,11 +1,11 @@
 import { ResultAsync } from "neverthrow"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { REGISTER_KEY } from "../di-tokens"
 import { BusinessCategoryDomain } from "./domain/business-category.domain"
 import type { IBusinessCategoriesRepository } from "./interfaces"
 
-@singleton()
+@injectable()
 export class BusinessCategoriesService {
 	constructor(
 		@inject(REGISTER_KEY.BUSINESS_CATEGORIES_REPOSITORY)

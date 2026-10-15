@@ -3,7 +3,7 @@ import type { Sql } from "postgres"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
 import type { IMemberRepository } from "../../interfaces"
@@ -32,7 +32,7 @@ import type { DeleteMemberError } from "./delete-member.errors"
  * them to the AGENTS.md §2B single-wrapped `Promise<Result<void,
  * DeleteMemberError>>`.
  */
-@singleton()
+@injectable()
 export class DeleteMemberService {
 	constructor(
 		@inject(DatabaseClient) private readonly dbClient: DatabaseClient,

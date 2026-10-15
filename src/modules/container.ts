@@ -38,6 +38,17 @@ import { REGISTER_KEY } from "./di-tokens"
 
 export { REGISTER_KEY } from "./di-tokens"
 
+// ── Lifecycle authority ─────────────────────────────────────────────────────
+// Every `lifecycle:` option below is THE lifecycle decision for its token.
+// Services carry `@injectable()` — DI-eligibility only, no self-registration.
+// Verified against tsyringe 4.10 (resolveRegistration): `useClass` constructs
+// directly and caches per registration, so `@singleton()` would ADD a second,
+// independent class-token registration — resolving a service by its class
+// token would then mint a fresh instance instead of returning this container's
+// singleton. Sole exception: DatabaseClient keeps `@singleton()` because it is
+// deliberately NOT registered here — it is consumed via its class token
+// (`@inject(DatabaseClient)`, instrumentation.ts).
+
 // 1. Register EnvConfig
 container.register(REGISTER_KEY.ENV_CONFIG, {
 	useValue: envConfig,

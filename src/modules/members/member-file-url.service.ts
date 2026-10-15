@@ -2,7 +2,7 @@ import { type Result, ResultAsync, err, ok } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IStorageUrlResolver } from "src/modules/shared/storage"
 import { StorageError } from "src/modules/shared/storage"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { MemberFilePaths, MemberFileUrls } from "./member-file-url.types"
 
 /**
@@ -27,7 +27,7 @@ import type { MemberFilePaths, MemberFileUrls } from "./member-file-url.types"
  * honest and actionable. Null paths (a field with no uploaded file) pass
  * through as `null` URLs without calling the resolver — absence is not failure.
  */
-@singleton()
+@injectable()
 export class MemberFileUrlService {
 	constructor(@inject(REGISTER_KEY.STORAGE_URL_RESOLVER) private readonly resolver: IStorageUrlResolver) {}
 

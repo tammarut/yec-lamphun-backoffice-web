@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IDashboardRepository } from "../../interfaces"
 import type { DashboardStatResponse } from "./get-dashboard-stat.types"
 
@@ -28,7 +28,7 @@ import type { DashboardStatResponse } from "./get-dashboard-stat.types"
  * Returns AGENTS.md §2B
  * `Promise<Result<DashboardStatResponse, DatabaseError>>`.
  */
-@singleton()
+@injectable()
 export class GetDashboardStatService {
 	constructor(@inject(REGISTER_KEY.DASHBOARD_REPOSITORY) private readonly repository: IDashboardRepository) {}
 

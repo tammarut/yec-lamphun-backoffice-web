@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import type { IBusinessSearchRepository } from "../../repository/businesses/interfaces"
 import type { BusinessSearchFilter, BusinessSearchItem } from "./search-businesses.types"
 
@@ -17,7 +17,7 @@ import type { BusinessSearchFilter, BusinessSearchItem } from "./search-business
  * Returns AGENTS.md §2B `Promise<Result<readonly BusinessSearchItem[],
  * DatabaseError>>`.
  */
-@singleton()
+@injectable()
 export class SearchBusinessesService {
 	constructor(
 		@inject(REGISTER_KEY.BUSINESS_SEARCH_REPOSITORY)

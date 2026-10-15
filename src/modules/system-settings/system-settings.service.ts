@@ -1,11 +1,11 @@
 import { errAsync, okAsync, ResultAsync } from "neverthrow"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { REGISTER_KEY } from "../di-tokens"
 import { SystemSettingDomain } from "./domain/system-setting.domain"
 import type { ISystemSettingsRepository } from "./interfaces"
 
-@singleton()
+@injectable()
 export class SystemSettingsService {
 	constructor(
 		@inject(REGISTER_KEY.SYSTEM_SETTINGS_REPOSITORY)

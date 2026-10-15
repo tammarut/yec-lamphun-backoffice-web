@@ -3,7 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { type Result, ResultAsync, err, ok } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
-import { inject, singleton } from "tsyringe"
+import { inject, injectable } from "tsyringe"
 import { StorageError } from "./errors"
 import type { BucketKind, IStorageClient, PutObjectParams } from "./storage-client.interface"
 import type { IStorageUrlResolver } from "./storage-url-resolver.interface"
@@ -25,7 +25,7 @@ import type { IStorageUrlResolver } from "./storage-url-resolver.interface"
  * docs/adr/0002-r2-two-bucket-public-private-split.md and
  * docs/adr/0007-file-url-resolution-via-dedicated-resolver-and-policy-service.md.
  */
-@singleton()
+@injectable()
 export class R2StorageClient implements IStorageClient, IStorageUrlResolver {
 	private readonly config: EnvConfig
 	private readonly client: S3Client
