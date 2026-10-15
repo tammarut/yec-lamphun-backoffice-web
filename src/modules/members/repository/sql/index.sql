@@ -12,8 +12,8 @@ CREATE INDEX IF NOT EXISTS idx_members_latest_renewal_status
 CREATE INDEX IF NOT EXISTS idx_members_position_code
     ON members(position_code);
 
--- Join support for the business link (FK to businesses; same statement as
--- businesses-migration.sql section 3 — keep in sync)
+-- Join support for the business link (FK to businesses; created at the
+-- #72 cutover)
 CREATE INDEX IF NOT EXISTS idx_members_business_id
     ON members(business_id);
 

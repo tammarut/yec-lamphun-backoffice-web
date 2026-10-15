@@ -1,6 +1,6 @@
 -- ============================================================================
 -- businesses indexes
--- (same statements as businesses-migration.sql section 4 — keep in sync)
+-- (same statements as the applied #72 cutover — runbook archived in git history)
 -- ============================================================================
 
 -- Live-rows-only partial UNIQUE on the dedupe identity key — soft-deleting a

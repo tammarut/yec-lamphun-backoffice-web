@@ -1,7 +1,8 @@
 -- ============================================================================
 -- Table: businesses
--- The shared business entity (spec #66). Extracted from member_business by
--- businesses-migration.sql (runs at the cutover ticket); members link to it
+-- The shared business entity (spec #66). Extracted from member_business at
+-- the #72 cutover (runbook archived in git history: businesses-migration.sql);
+-- members link to it
 -- via members.business_id (FK below). Co-owners soft-share one row by
 -- reference: logo/product file paths live HERE, not on the member link.
 --

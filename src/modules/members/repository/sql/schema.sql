@@ -67,8 +67,8 @@ CREATE TABLE members (
     -- Business (FK to businesses; the shared entity extracted from
     -- member_business — members link to it by reference. NOT NULL since the
     -- #72 cutover: every member row is created with its business link in the
-    -- same transaction, and businesses-migration.sql section 3 backfilled +
-    -- gated the column before setting NOT NULL.)
+    -- same transaction; the cutover backfilled + gated the column before
+    -- setting NOT NULL.)
     business_id BIGINT NOT NULL,
     -- Member Status
     status VARCHAR(50) NOT NULL,
@@ -93,8 +93,8 @@ CREATE TABLE members (
     CONSTRAINT chk_members_latest_renewal_status CHECK (
         latest_renewal_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')
     ),
-    -- Name + definition mirror businesses-migration.sql section 3 — keep in
-    -- sync (the name also matches its manual-reverse DROP CONSTRAINT).
+    -- Name + definition date from the #72 cutover — keep both stable
+    -- (the name also matches its manual-reverse DROP CONSTRAINT).
     CONSTRAINT fk_members_business
         FOREIGN KEY (business_id) REFERENCES businesses (id) ON DELETE RESTRICT
     -- NOTE: chk_members_position is GONE — replaced by the FK to positions.
