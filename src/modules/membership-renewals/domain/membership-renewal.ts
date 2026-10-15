@@ -246,6 +246,10 @@ export class MembershipRenewal {
 				status: "APPROVED",
 				memberStatusOnRenewal: "ACTIVE",
 				expiresAt: computeMembershipExpiry(input.now),
+				// A manual submission is always solo — the NULL marker is stated here
+				// (not left to the getter's undefined fallthrough) so the factory,
+				// not the repository's ??-normalization, owns the fact (ADR-0026).
+				groupId: null,
 			})
 		)
 	}
