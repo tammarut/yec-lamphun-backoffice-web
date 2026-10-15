@@ -25,11 +25,11 @@ export async function getMemberStatusForRenewal(sql: Sql, args: GetMemberStatusF
 export const getMemberStatusesForRenewalQuery = `-- name: GetMemberStatusesForRenewal :many
 SELECT id, status
 FROM members
-WHERE id = ANY($1::bigint[])
+WHERE id = ANY(string_to_array($1, ',')::bigint[])
   AND deleted_at IS NULL`
 
 export interface GetMemberStatusesForRenewalArgs {
-	ids: string[]
+	ids: string
 }
 
 export interface GetMemberStatusesForRenewalRow {

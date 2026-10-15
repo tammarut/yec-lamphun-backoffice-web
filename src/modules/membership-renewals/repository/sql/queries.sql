@@ -34,9 +34,15 @@ WHERE id = $1
 -- query for the whole member_ids array instead of N single reads. The service
 -- matches rows back against the request order and narrows a missing id → 404
 -- (no row when the member does not exist or is soft-deleted).
+-- The ids arrive as ONE scalar CSV string ("12,15,18") split by string_to_array
+-- — deliberately NOT a JS array parameter: under the bun:sql driver,
+-- sql.unsafe() binds a JS array as its joined scalar text, which fails the
+-- bigint[] cast (pg 22P02 malformed array literal). A scalar bind is
+-- driver-proof (postgres.js and bun:sql behave identically), and the CSV is
+-- injection-safe because every id is route-validated as a positive integer.
 SELECT id, status
 FROM members
-WHERE id = ANY(@ids::bigint[])
+WHERE id = ANY(string_to_array(@ids, ',')::bigint[])
   AND deleted_at IS NULL;
 
 -- name: InsertMembershipRenewal :many
