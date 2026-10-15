@@ -102,6 +102,20 @@ describe("MembershipRenewal.createManual", () => {
 			expect(renewal.expiresAt?.toISOString()).toBe(expected)
 		})
 	})
+
+	describe("Renewal Group marker (ADR-0026)", () => {
+		test("solo submission defaults the marker to NULL", () => {
+			const renewal = MembershipRenewal.createManual({ ...baseInput })._unsafeUnwrap()
+
+			expect(renewal.groupId).toBeNull()
+		})
+
+		test("carries the minted marker on a bulk submission", () => {
+			const result = MembershipRenewal.createManual({ ...baseInput, groupId: "01900000-0000-7000-8000-000000000001" })
+
+			expect(result._unsafeUnwrap().groupId).toBe("01900000-0000-7000-8000-000000000001")
+		})
+	})
 })
 
 describe("MembershipRenewal.review (ADR-0018)", () => {
