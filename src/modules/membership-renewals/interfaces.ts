@@ -24,37 +24,27 @@ export type CreatedRenewalRow = {
 /**
  * Repository contract for the membership-renewals module.
  *
- * The create-renewal flow is split across two methods mirroring the create-member
+ * The create-renewal flows are split across methods mirroring the create-member
  * convention (grilling Q2): a cheap READ for the service-side status pre-check
  * (outside the transaction), and a WRITE that owns the cross-table transaction
  * (ADR-0014). The service orchestrates the 404/403/409 domain decisions and
- * assembles the {@link MembershipRenewal} aggregate; the repository owns
+ * assembles the {@link MembershipRenewal} aggregates; the repository owns
  * atomicity and the Postgres 23505 catch, reading the status pair from the
- * aggregate's getters.
+ * aggregates' getters.
  *
- * The MANUAL create-renewal flow (ADR-0016) reuses the same READ for its
- * pre-check and adds its own WRITE — {@link createManualRenewal} — because the
- * manual write advances the membership clock (`expires_at` +
- * `renewal_successful_count`) on top of the shared status/`latest_renewal_status`
- * cache-column write.
+ * Both create flows are bulk-aware (ADR-0026): one submission of 1..6 members
+ * shares one pre-check READ ({@link getMemberStatusesForRenewal}) and one
+ * all-or-nothing WRITE transaction. The public write ({@link createRenewals})
+ * updates the two status cache columns per member; the manual write
+ * ({@link createManualRenewals}) additionally advances the membership clock
+ * (`expires_at` + `renewal_successful_count`, ADR-0016).
  */
 export interface IMembershipRenewalRepository {
 	/**
-	 * Pre-check read (runs OUTSIDE the create-renewal transaction): fetch the
-	 * member's current status for the service's 404/403/409 early-exit branches.
-	 *
-	 * Shared by the public and manual flows. Returns `null` when the member does
-	 * not exist or is soft-deleted (the two are indistinguishable to the client
-	 * → 404). Returns the status string otherwise (e.g. "ACTIVE", "RESIGNED",
-	 * "PENDING_RENEWAL").
-	 */
-	getMemberStatusForRenewal(memberId: number): Promise<Result<string | null, DatabaseError>>
-
-	/**
-	 * Batched variant of the pre-check read (ADR-0026): one query for the whole
-	 * member_ids array. Missing (or soft-deleted) ids simply come back absent —
-	 * the service matches rows against the request order and narrows the first
-	 * missing id → 404.
+	 * Batched pre-check read (runs OUTSIDE both create-renewal transactions;
+	 * ADR-0026): one query for the whole member_ids array. Missing (or
+	 * soft-deleted) ids simply come back absent — the service matches rows
+	 * against the request order and narrows the first missing id → 404.
 	 */
 	getMemberStatusesForRenewal(memberIds: readonly number[]): Promise<Result<ReadonlyArray<MemberStatusRow>, DatabaseError>>
 
@@ -82,13 +72,14 @@ export interface IMembershipRenewalRepository {
 	createRenewals(renewals: readonly MembershipRenewal[]): Promise<Result<ReadonlyArray<CreatedRenewalRow>, PendingRenewalExistsError | DatabaseError>>
 
 	/**
-	 * Atomically create a MANUAL renewal and advance the member's membership
-	 * clock in one transaction (ADR-0016). Reads status values AND the computed
-	 * expiresAt from the aggregate (built by the service via
+	 * Atomically create the MANUAL renewals for ONE staff submission and advance
+	 * every member's membership clock in one transaction (ADR-0016 bulk form —
+	 * ADR-0026 all-or-nothing). Reads status values AND the computed expiresAt
+	 * from each aggregate (built by the service via
 	 * `MembershipRenewal.createManual`, which fixes APPROVED/ACTIVE and computes
-	 * the end-of-next-year expiry):
+	 * the end-of-next-year expiry); per member:
 	 *   1. INSERT INTO membership_renewals (member_id, payment_slip_file_path,
-	 *      payment_date_at, status='APPROVED') RETURNING id
+	 *      payment_date_at, status='APPROVED', group_id) RETURNING id
 	 *   2. UPDATE members SET status='ACTIVE', latest_renewal_status='APPROVED',
 	 *      expires_at=renewal.expiresAt,
 	 *      renewal_successful_count=renewal_successful_count+1
@@ -104,9 +95,9 @@ export interface IMembershipRenewalRepository {
 	 * can NEVER raise Postgres 23505 — its error type is just `DatabaseError`.
 	 * (The only PendingRenewalExistsError on the manual path comes from the
 	 * service pre-check, `member.status === PENDING_RENEWAL`, never from here.)
-	 * On success returns `ok(newRenewalId)`.
+	 * On success returns one row per member, in request order.
 	 */
-	createManualRenewal(renewal: MembershipRenewal): Promise<Result<number, DatabaseError>>
+	createManualRenewals(renewals: readonly MembershipRenewal[]): Promise<Result<ReadonlyArray<CreatedRenewalRow>, DatabaseError>>
 
 	/**
 	 * The Expired Membership List read for GET /api/v1/membership/renewals/expired
@@ -164,7 +155,7 @@ export interface IMembershipRenewalRepository {
 	/**
 	 * Pre-check read for the review-renewal flow (ADR-0018), running OUTSIDE
 	 * that flow's transaction — the review-flow twin of
-	 * {@link getMemberStatusForRenewal}. Returns exactly the three columns
+	 * {@link getMemberStatusesForRenewal}. Returns exactly the three columns
 	 * {@link MembershipRenewalDbProps} carries (`GetRenewalForReview`: id,
 	 * member_id, status), which is all the domain transition needs; the service
 	 * feeds the row straight into `MembershipRenewal.fromDb`. Returns `null`

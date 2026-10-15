@@ -18,22 +18,11 @@
 -- references this schema for the cascade soft-delete).
 -- ============================================================================
 
--- name: GetMemberStatusForRenewal :many
--- Pre-check read (runs OUTSIDE the create-renewal transaction). Fetches only the
--- status column the service needs for its 404/403/409 early-exit branches.
--- Returns no row when the member does not exist or is soft-deleted (the repo
--- narrows that to null → the service maps to 404).
--- Single-member variant — still used by the manual flow (until it goes bulk).
-SELECT status
-FROM members
-WHERE id = $1
-  AND deleted_at IS NULL;
-
 -- name: GetMemberStatusesForRenewal :many
--- Batched pre-check read for the bulk-aware create-renewal flow (ADR-0026): one
--- query for the whole member_ids array instead of N single reads. The service
--- matches rows back against the request order and narrows a missing id → 404
--- (no row when the member does not exist or is soft-deleted).
+-- Pre-check read for BOTH create-renewal flows (public ADR-0026 / manual, both
+-- bulk-aware): one query for the whole member_ids array instead of N single
+-- reads. The service matches rows back against the request order and narrows a
+-- missing id → 404 (no row when the member does not exist or is soft-deleted).
 -- The ids arrive as ONE scalar CSV string ("12,15,18") split by string_to_array
 -- — deliberately NOT a JS array parameter: under the bun:sql driver,
 -- sql.unsafe() binds a JS array as its joined scalar text, which fails the

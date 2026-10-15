@@ -217,10 +217,10 @@ describe("RenewalFormDialog", () => {
 			expect(screen.getByText("สถานะ: ต่ออายุสำเร็จ (ปกติ)")).toBeTruthy()
 			const manualIndex = fetchMock.mock.calls.findIndex(([url]) => String(url) === "/api/v1/membership/renewals/manual")
 			expect(manualIndex).toBeGreaterThanOrEqual(0)
-			// Manual mode keeps the OLD member_id contract until its bulk flip (#85) —
-			// the fork in use-create-renewal must not leak member_ids onto /manual.
+			// Both endpoints speak the SAME member_ids contract since #85 (ADR-0026) —
+			// a solo submission sends the one-element array.
 			expect(JSON.parse(String(fetchMock.mock.calls[manualIndex]?.[1]?.body))).toEqual({
-				member_id: 202,
+				member_ids: [202],
 				payment_slip: "members/documents/payment_slip_test.jpg",
 			})
 		})
