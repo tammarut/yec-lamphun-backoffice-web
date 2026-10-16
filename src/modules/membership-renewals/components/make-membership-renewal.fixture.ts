@@ -19,6 +19,8 @@ export function makeMembershipRenewal(overrides: Partial<MembershipRenewalRespon
 		status: "PENDING_REVIEW",
 		member_since: "2024-06-01T00:00:00.000Z",
 		payment_date_at: "2026-09-10T03:30:00.000Z",
+		group_id: null,
+		group_size: 1,
 		...overrides,
 	}
 }

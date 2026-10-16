@@ -368,6 +368,8 @@ const listPage: ListMembershipRenewalPageResponse = {
 			status: "PENDING_REVIEW",
 			member_since: "2019-12-20T16:45:39.000Z",
 			payment_date_at: "2025-12-18T07:30:00.000Z",
+			group_id: null,
+			group_size: 1,
 		},
 	],
 	has_more: true,

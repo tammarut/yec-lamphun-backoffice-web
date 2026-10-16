@@ -444,6 +444,13 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		// 3. Main query. Fixed sort: payment_date_at DESC, member id DESC as the
 		//    tiebreak (a total order — member id is unique, and payment_date_at is
 		//    NOT NULL on membership_renewals, so no NULLS handling is needed).
+		//
+		//    group_size (ADR-0026) is a correlated sibling COUNT served by the
+		//    partial index on group_id — deliberately NOT a window over this
+		//    query: PARTITION BY would lump every NULL group_id into one shared
+		//    partition, and a window only sees this query's status/search-
+		//    filtered set, shrinking the reported group. Solo rows (group_id IS
+		//    NULL) short-circuit to 1.
 		const mainResult = await ResultAsync.fromPromise(
 			dbConnection`
 				SELECT m.id, m.profile_avatar, m.title_name_th, m.first_name_th, m.last_name_th,
@@ -451,10 +458,15 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 				       m.latest_renewal_status AS status,
 				       mr_latest.id AS renewal_id,
 				       mr_latest.payment_date_at,
+				       mr_latest.group_id,
+				       CASE WHEN mr_latest.group_id IS NULL THEN 1
+				            ELSE (SELECT COUNT(*) FROM membership_renewals g
+				                  WHERE g.group_id = mr_latest.group_id AND g.deleted_at IS NULL)
+				       END AS group_size,
 				       m.member_since
 				FROM members m
 				LEFT JOIN LATERAL (
-					SELECT id, payment_date_at
+					SELECT id, payment_date_at, group_id
 					FROM membership_renewals
 					WHERE member_id = m.id AND deleted_at IS NULL
 					ORDER BY created_at DESC, id DESC
@@ -763,5 +775,9 @@ function rowToMembershipRenewalListRow(row: Record<string, unknown>): Membership
 		status: row["status"] as MembershipRenewalListRow["status"],
 		memberSince: row["member_since"] as Date,
 		paymentDateAt: row["payment_date_at"] as Date,
+		// uuid arrives as a string under Bun.SQL; COUNT(*) is bigint → string,
+		// so the mapper coerces it (same as the id columns above).
+		groupId: (row["group_id"] as string | null) ?? null,
+		groupSize: Number(row["group_size"]),
 	}
 }
