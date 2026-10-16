@@ -22,8 +22,15 @@ export const dynamic = "force-dynamic"
 
 const logger = createLogger(["membership-renewals", "route", "create-manual"])
 
+type CreatedRenewalRowResponse = {
+	readonly member_id: number
+	readonly renewal_id: number
+}
+
 type CreatedRenewalResponse = {
-	readonly id: number
+	readonly renewals: ReadonlyArray<CreatedRenewalRowResponse>
+	/** Shared Renewal Group marker (ADR-0026); null on a solo submission. */
+	readonly group_id: string | null
 }
 
 // ============================================================================
@@ -36,13 +43,20 @@ type CreatedRenewalResponse = {
 // submission is always an Admin Submission, so there is no submission-kind
 // fork here and no isAdmin flag on the DTO — withAuth already proved staff.
 //
+// Since #85 the body is the SAME bulk contract as the public route
+// (ADR-0026): member_ids[1..6] — one renewal row per member, all sharing the
+// slip, ONE server-stamped payment date and (at N>1) ONE minted Renewal Group
+// marker; every member's membership clock advances in the same transaction.
+//
 // Flow:
-//   1. Parse + structurally validate the JSON body (member_id, payment_slip).
-//   2. Hand the DTO to the use case, which runs the SAME status pre-check as the
-//      public flow (404/403/409) then the manual atomic write (INSERT renewal +
-//      UPDATE four member cache columns, including expires_at and
-//      renewal_successful_count, ADR-0016).
-// Success → 201 { id }. Errors → { error_message } with the matching status.
+//   1. Parse + structurally validate the JSON body (member_ids, payment_slip).
+//   2. Hand the DTO to the use case, which runs the SAME batched status
+//      pre-check as the public flow (404/403/409 naming the member) then the
+//      manual atomic write (INSERT renewal + UPDATE the four member cache
+//      columns per member, including expires_at and renewal_successful_count,
+//      ADR-0016).
+// Success → 201 { renewals, group_id }. Errors → { error_message } with the
+// matching status.
 // ============================================================================
 export const POST = withAuth<CreatedRenewalResponse | ResponseBodyError>(async function POST(
 	request: NextRequest
@@ -68,7 +82,7 @@ export const POST = withAuth<CreatedRenewalResponse | ResponseBodyError>(async f
 	//    service fixes the APPROVED/ACTIVE pair via MembershipRenewal.createManual.
 	const service = container.resolve<CreateManualRenewalService>(REGISTER_KEY.CREATE_MANUAL_RENEWAL_SERVICE)
 	const createManualRenewalReq: CreateManualRenewalRequest = {
-		memberId: parsed.output.member_id,
+		memberIds: parsed.output.member_ids,
 		paymentSlip: parsed.output.payment_slip,
 	}
 	const result = await service.execute(createManualRenewalReq)
@@ -76,7 +90,16 @@ export const POST = withAuth<CreatedRenewalResponse | ResponseBodyError>(async f
 		return mapError(result.error)
 	}
 
-	const createdRenewalResponse: CreatedRenewalResponse = { id: result.value }
+	// 4. Relay the per-member outcome in the shared snake_case contract: one
+	//    (member_id, renewal_id) pair per member, in request order, plus the
+	//    group marker (null on a solo submission).
+	const createdRenewalResponse: CreatedRenewalResponse = {
+		renewals: result.value.renewals.map((renewal) => ({
+			member_id: renewal.memberId,
+			renewal_id: renewal.renewalId,
+		})),
+		group_id: result.value.groupId,
+	}
 	return NextResponse.json(createdRenewalResponse, { status: 201 })
 })
 

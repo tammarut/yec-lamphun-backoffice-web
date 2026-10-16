@@ -157,6 +157,37 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(response.status).toBe(201)
 			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: false }))
 		})
+
+		it("3-member group (fan-out live, #85): returns 201 with one row per member + the minted group_id", async () => {
+			// Arrange — the service mints the marker and returns one row per member,
+			// in request order; the route relays it verbatim.
+			const groupBody = { ...validBody, member_ids: [15, 16, 17] }
+			mockService.execute.mockResolvedValue(
+				ok({
+					renewals: [
+						{ memberId: 15, renewalId: 81 },
+						{ memberId: 16, renewalId: 82 },
+						{ memberId: 17, renewalId: 83 },
+					],
+					groupId: "01900000-0000-7000-8000-000000000001",
+				})
+			)
+			const request = makeRequest(groupBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(201)
+			expect(await response.json()).toEqual({
+				renewals: [
+					{ member_id: 15, renewal_id: 81 },
+					{ member_id: 16, renewal_id: 82 },
+					{ member_id: 17, renewal_id: 83 },
+				],
+				group_id: "01900000-0000-7000-8000-000000000001",
+			})
+		})
 	})
 
 	describe("Unhappy cases", () => {

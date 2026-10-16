@@ -1,28 +1,8 @@
 import { Sql } from "postgres"
 
-export const getMemberStatusForRenewalQuery = `-- name: GetMemberStatusForRenewal :many
-
-
-SELECT status
-FROM members
-WHERE id = $1
-  AND deleted_at IS NULL`
-
-export interface GetMemberStatusForRenewalArgs {
-	id: string
-}
-
-export interface GetMemberStatusForRenewalRow {
-	status: string
-}
-
-export async function getMemberStatusForRenewal(sql: Sql, args: GetMemberStatusForRenewalArgs): Promise<GetMemberStatusForRenewalRow[]> {
-	return (await sql.unsafe(getMemberStatusForRenewalQuery, [args.id]).values()).map((row) => ({
-		status: row[0],
-	}))
-}
-
 export const getMemberStatusesForRenewalQuery = `-- name: GetMemberStatusesForRenewal :many
+
+
 SELECT id, status
 FROM members
 WHERE id = ANY(string_to_array($1, ',')::bigint[])

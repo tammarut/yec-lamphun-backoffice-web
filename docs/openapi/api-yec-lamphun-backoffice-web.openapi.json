@@ -1229,7 +1229,7 @@
 		},
 		"/api/v1/business/search": {
 			"get": {
-				"summary": "Search live businesses for the picker (/api/v1/business/search)",
+				"summary": "Search live businesses (/api/v1/business/search)",
 				"deprecated": false,
 				"description": "Live-business prefix search for the wizard's business picker (#68). Staff-only (withAuth). Matches on `name` **and** `juristic_registration_no`, live rows only (`deleted_at IS NULL`), ordered by name then id, capped at `limit`.\n\n## ✍️ Pseudocode\n1. `withAuth` validates the `session_id` cookie → `401 { error_message: \"Unauthorized\" }` on missing/invalid.\n2. Parse query string into `{ search, limit }`.\n3. Valibot `safeParse`: `limit` = string→Number→integer, 1–50; `search` = optional string. Failure → `400 { error_message: <first issue message> }`.\n4. `search = search?.trim() || null` (empty/missing = no filter); `limit ?? 10`.\n5. `SearchBusinessesService.execute({ limit, search })` → `BusinessSearchRepository.searchLiveBusinesses`.\n6. Repository escapes `\\ % _` in the search term and appends `%` (prefix), bound as a parameter.\n7. SQL `SearchLiveBusinesses`: live businesses only; `name ILIKE $1 OR juristic_registration_no ILIKE $1` (skipped when null; no explicit ESCAPE clause — Postgres's default LIKE escape char is the backslash); `member_count` + `owner_names` from live linked members; `INNER JOIN business_categories`; `ORDER BY name ASC, id ASC`; `LIMIT $2`.\n8. `200 { businesses: [...] }` — snake_case items.\n9. `DatabaseError` → `500 { error_message: \"Internal Server Error\" }`.\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant C as Wizard picker (#70)\n    participant R as GET /api/v1/business/search\n    participant A as withAuth\n    participant S as SearchBusinessesService\n    participant DB as Postgres · SearchLiveBusinesses\n    C->>R: GET ?search=…&limit=…\n    R->>A: session_id cookie\n    alt missing / invalid session\n        A-->>C: 401 { error_message: \"Unauthorized\" }\n    end\n    R->>R: safeParse · limit 1–50 (default 10)\n    alt invalid limit\n        R-->>C: 400 { error_message }\n    end\n    Note over R: search.trim() — empty/missing → null = no filter\n    R->>S: execute({ limit, search: trimmed || null })\n    S->>DB: escape \\ % _ → \"q%\" · live-only ILIKE name OR juristic_no<br/>+ member_count + owner_names rollups\n    DB-->>S: rows (ORDER BY name, id · LIMIT)\n    S-->>R: ok(items)\n    R-->>C: 200 { businesses: [...] }\n```",
 				"tags": [],
@@ -1834,9 +1834,9 @@
 				"security": []
 			},
 			"post": {
-				"summary": "Create a new renewal request (/api/v1/membership/renewals)",
+				"summary": "Create bulk new renewal requests by member_ids (/api/v1/membership/renewals)",
 				"deprecated": false,
-				"description": "## API Business Logic\n\n(PUBLIC route — no withAuth; session_id cookie is OPTIONAL)\n\n> Execute under the same DB transaction\n\n## ✍️Pseudocode\n\n1. Receive request body:\n    -> member_id = body.member_id\n    -> payment_slip = body.payment_slip\n\n2. Resolve isAdmin (inline soft session check — NO 401 path):\n```typescript\nsessionId = request.cookies[\"session_id\"]   // optional\nisAdmin = false\n    if sessionId is present:\n        sessionResult = authService.validateSession(sessionId)\n        isAdmin = sessionResult.isOk()          // valid  -> admin\n                                                // invalid-> not admin (≡ absent)\n// A present-but-invalid cookie is treated identically to no cookie.\n```\n\n3. Select the status pair from `isAdmin`:\n```typescript\nrenewalStatus = isAdmin ? \"APPROVED\" : \"PENDING_REVIEW\"\nmemberStatus  = isAdmin ? \"ACTIVE\" : \"PENDING_RENEWAL\"\n```\n\n4. Check member exists + validate status (OUTSIDE the transaction):\n```typescript\nSELECT status FROM members WHERE id = $1 AND deleted_at IS NULL\n    -> break not found (null):        Return 404 Not Found\n    -> break status = \"RESIGNED\":     Return 403 Forbidden\n                                        { error_message: \"resigned members cannot submit renewal requests\" }\n    -> break status = \"PENDING_RENEWAL\": Return 409 Conflict\n                                        { error_message: \"You already have a pending renewal request\" }\n// ACTIVE/EXPIRED proceed. Uniform for BOTH public and admin paths.\n```\n\n5. Begin DB transaction: `BEGIN`\n6. Insert renewal record (status is now a parameter, not a literal):\n```sql\nINSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status)\nVALUES ($1, $2, NOW(), $3)        -- $3 = renewalStatus\nRETURNING id\n\n-- Race-catch (only fires on the PUBLIC path):\n-- The partial unique index idx_one_pending_renewal_per_member covers\n-- status = 'PENDING_REVIEW' ONLY, so:\n--   public  insert ('PENDING_REVIEW') -> 23505 possible -> 409\n--   admin   insert ('APPROVED')      -> 23505 impossible (index excludes it)\n-> if Postgres error code = 23505:\n    ROLLBACK\n    Return 409 Conflict { error_message: \"You already have a pending renewal request\" }\n```\n        \n7. Update member status (status values are parameters, not literals):\n```sql\nUPDATE members\nSET status = $2,                  -- $2 = memberStatus\n    latest_renewal_status = $3,   -- $3 = renewalStatus\n    updated_at = NOW()\nWHERE id = $1 AND deleted_at IS NULL\n// NOTE: expires_at and renewal_successful_count are NOT touched\n// (out of scope — owned by the future review/approve API).\n```\n8. Commit transaction: `COMMIT`\n9. Return 201 Created\n\n## 🖼️Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/membership/renewals<br/>{ member_id, payment_slip }<br/>Cookie: session_id=? (optional)\n\n    nextjsapi-->>nextjsapi: Validate request body:<br/>1. member_id required, positive integer<br/>2. payment_slip required, non-empty\n\n    break if validation fails\n        nextjsapi-->>browser: 400 Bad Request { error_message }\n    end\n\n    nextjsapi-->>nextjsapi: Resolve isAdmin (soft check, NO 401):<br/>cookie present & validateSession() OK -> isAdmin=true<br/>cookie absent OR invalid -> isAdmin=false\n\n    nextjsapi->>+database: SELECT status FROM members<br/>WHERE id = $1 AND deleted_at IS NULL\n    database-->>-nextjsapi: Return member status (or no row)\n\n    break if member not found\n        nextjsapi-->>browser: 404 Not Found { error_message: 'not found this member id' }\n    end\n\n    break if member.status = 'RESIGNED'\n        nextjsapi-->>browser: 403 Forbidden { error_message: 'resigned members cannot submit renewal requests' }\n    end\n\n    break if member.status = 'PENDING_RENEWAL' (pre-check)\n        nextjsapi-->>browser: 409 Conflict { error_message: 'You already have a pending renewal request' }\n    end\n\n    Note over nextjsapi: Pick status pair from isAdmin:<br/>public -> PENDING_REVIEW / PENDING_RENEWAL<br/>admin -> APPROVED / ACTIVE\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: Execute under one DB transaction (ADR-0014)\n\n        nextjsapi->>database: INSERT INTO membership_renewals<br/>(member_id, payment_slip_file_path, payment_date_at, status)<br/>VALUES ($1, $2, NOW(), $3) -- $3 = renewalStatus<br/>RETURNING id\n\n        break Postgres error code 23505 (PUBLIC path only - index covers 'PENDING_REVIEW' only)\n            database-->>nextjsapi: Error: duplicate key violates idx_one_pending_renewal_per_member\n            nextjsapi->>database: ROLLBACK\n            nextjsapi-->>browser: 409 Conflict { error_message: 'You already have a pending renewal request' }\n        end\n\n        database-->>nextjsapi: Return membership_renewals.id\n\n        nextjsapi->>database: UPDATE members<br/>SET status = $2, latest_renewal_status = $3, updated_at = NOW()<br/>WHERE id = $1 AND deleted_at IS NULL<br/>(expires_at & renewal_successful_count NOT touched)\n        database-->>nextjsapi: OK\n    end\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: OK\n\n    nextjsapi-->>browser: 201 Created { id }\n```",
+				"description": "## API Business Logic (Public route - cookie session_id is optional)\n\n:::highlight orange 📌\n**BREAKING (ADR-0026, #84):** the body takes `member_ids` — an array of 1–6 UNIQUE positive\nintegers, index 0 = main member — instead of `member_id`.\n\nOld-shape bodies return 400 Bad Request\n\n**One submission = one payment slip covering every member of the array**; each member gets its\nown renewal row;\n- All rows share one `group_id` (`NULL` while submissions are solo, N=1).\n:::\n\n> Execute under the same DB transaction (one transaction for ALL members)\n\n## ✍️Pseudocode\n\n1. Receive request body:\n    -> member_ids = body.member_ids   (array)\n    -> payment_slip = body.payment_slip\n\n2. Validate (Valibot, structure only):\n```typescript\nmember_ids: array of positive integers, minLength 1, maxLength 6, all unique\n   -> break unparseable JSON:      Return 400 { error_message: \"Invalid request body\" }\n   -> break member_ids missing / old member_id shape:\n                                   Return 400 { error_message: \"member_ids …\" (first issue) }\n   -> break empty:                 Return 400 { error_message: \"member_ids must not be empty\" }\n   -> break > 6 entries:           Return 400 { error_message: \"member_ids must contain at most 6 members\" }\n   -> break duplicates:            Return 400 { error_message: \"member_ids must be unique\" }\n   -> break entry <= 0 / non-integer:\n                                   Return 400 { error_message: \"member_ids must contain positive integers\" }\n   -> break payment_slip missing:  Return 400 { error_message: \"payment_slip is required\" }\n```\n\n3. Resolve isAdmin (inline soft session check — NO 401 path):\n```typescript\nsessionId = request.cookies[\"session_id\"]   // optional\nisAdmin = false\n    if sessionId is present:\n        sessionResult = authService.validateSession(sessionId)\n        isAdmin = sessionResult.isOk()          // valid -> admin; invalid ≡ absent\n```\n\n4. Select the status pair from `isAdmin` (uniform for every member):\n```typescript\nrenewalStatus = isAdmin ? \"APPROVED\" : \"PENDING_REVIEW\"\nmemberStatus  = isAdmin ? \"ACTIVE\"   : \"PENDING_RENEWAL\"\n```\n\n5. Batched eligibility pre-check (ONE query, OUTSIDE the transaction):\n```sql\nSELECT id, status FROM members\nWHERE id = ANY(string_to_array($1, ',')::bigint[]) AND deleted_at IS NULL\n```\nWalk member_ids in REQUEST order; the first offender aborts the whole submission and is\nnamed in error_message:\n```typescript\n    -> break id absent from result:        Return 404 { error_message: \"member_id {id} not found\" }\n    -> break status = \"RESIGNED\":          Return 403 { error_message: \"member_id {id} is resigned — resigned members cannot submit renewal requests\" }\n    -> break status = \"PENDING_RENEWAL\":   Return 409 { error_message: \"member_id {id} already has a pending renewal request\" }\n// ACTIVE / EXPIRED proceed.\n```\n\n6. Mint the Renewal Group marker once (ADR-0026): group_id = member_ids.length > 1 ?\n   UUIDv7 (via the injected id generator) : NULL. Solo submissions stamp no marker.\n\n7. Begin DB transaction: `BEGIN`\n8. FOR EACH member (request order) — INSERT renewal + update that member's cache columns:\n```sql\nINSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, group_id)\nVALUES ($1, $2, NOW(), $3, $4)    -- $3 = renewalStatus, $4 = group_id\nRETURNING id\n\nUPDATE members\nSET status = $2, latest_renewal_status = $3, updated_at = NOW()\nWHERE id = $1 AND deleted_at IS NULL\n-- expires_at and renewal_successful_count are NOT touched (ADR-0015).\n```\n```typescript\n-> if Postgres error code = 23505 on \n member's INSERT (race beats the pre-check;\n   public path only — the partial unique index covers 'PENDING_REVIEW' only):\n       ROLLBACK (the whole batch)\n       Return 409 { error_message: \"member_id {id} already has a pending renewal request\" }\n```\n9. Commit transaction: `COMMIT`\n10. Return 201 Created\n```json\n{ \"renewals\": [{ \"member_id\": 197, \"renewal_id\": 71 }], \"group_id\": null }\n```\n\n## 🖼️Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/membership/renewals<br/>{ member_ids[1..6], payment_slip }<br/>Cookie: session_id=? (optional)\n\n    nextjsapi-->>nextjsapi: Validate body (Valibot):<br/>member_ids: non-empty, ≤6, unique, positive ints<br/>payment_slip: non-empty\n\n    break if validation fails (incl. OLD member_id shape)\n        nextjsapi-->>browser: 400 Bad Request { error_message }\n    end\n\n    nextjsapi-->>nextjsapi: Resolve isAdmin (soft check, NO 401):<br/>cookie valid -> true<br/>absent/invalid -> false\n\n    nextjsapi->>+database: SELECT id, status FROM members<br/>WHERE id = ANY(string_to_array($1, ',')::bigint[]) AND deleted_at IS NULL\n    database-->>-nextjsapi: rows [{ id, status }]\n\n    break first offender in REQUEST order: id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"member_id {id} not found\" }\n    end\n    break status = 'RESIGNED'\n        nextjsapi-->>browser: 403 Forbidden { error_message: \"member_id {id} is resigned — …\" }\n    end\n    break status = 'PENDING_RENEWAL'\n        nextjsapi-->>browser: 409 Conflict { error_message: \"member_id {id} already has a pending renewal request\" }\n    end\n\n    Note over nextjsapi: group_id = (N > 1) ? UUIDv7() : NULL<br/>status pair from isAdmin:<br/>public -> PENDING_REVIEW / PENDING_RENEWAL<br/>admin -> APPROVED / ACTIVE\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: One transaction for ALL members (ADR-0014 / ADR-0026)\n\n        loop each member in request order\n            nextjsapi->>database: INSERT INTO membership_renewals<br/>(member_id, payment_slip_file_path, NOW(), status, group_id)<br/>RETURNING id\n            break Postgres 23505 (PUBLIC path only)\n                database-->>nextjsapi: duplicate key → idx_one_pending_renewal_per_member\n                nextjsapi->>database: ROLLBACK (whole batch)\n                nextjsapi-->>browser: 409 Conflict { error_message: \"member_id {id} already has…\" }\n            end\n            database-->>nextjsapi: renewal id\n\n            nextjsapi->>database: UPDATE members<br/>SET status, latest_renewal_status, updated_at = NOW()<br/>WHERE id = member AND deleted_at IS NULL\n            database-->>nextjsapi: OK\n        end\n    end\n    nextjsapi->>database: COMMIT\n\n    nextjsapi-->>browser: 201 Created { renewals: [{ member_id, renewal_id }], group_id }\n\n```",
 				"tags": [],
 				"parameters": [
 					{
@@ -1856,20 +1856,39 @@
 							"schema": {
 								"type": "object",
 								"properties": {
-									"member_id": {
-										"type": "integer",
-										"format": "uint"
+									"member_ids": {
+										"type": "array",
+										"items": {
+											"type": "integer",
+											"format": "uint",
+											"minimum": 1
+										},
+										"minItems": 1,
+										"maxItems": 6,
+										"uniqueItems": true
 									},
 									"payment_slip": {
 										"type": "string",
 										"examples": ["members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"]
 									}
 								},
-								"required": ["member_id", "payment_slip"]
+								"required": ["member_ids", "payment_slip"]
 							},
-							"example": {
-								"member_id": 197,
-								"payment_slip": "members/documents/payment_slip_01KZG6P7ZDNHJ7AQ8CGSZW4ZFH.webp"
+							"examples": {
+								"1": {
+									"value": {
+										"member_ids": [11],
+										"payment_slip": "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"
+									},
+									"summary": "Solo"
+								},
+								"2": {
+									"value": {
+										"member_ids": [46498051, 58694757, 78967621],
+										"payment_slip": "members/documents/payment_slip_01M51KYYYK8PJ6TK0HKK9584E2.jpg"
+									},
+									"summary": "Group"
+								}
 							}
 						}
 					},
@@ -1883,15 +1902,60 @@
 								"schema": {
 									"type": "object",
 									"properties": {
-										"id": {
-											"type": "integer",
-											"format": "uint"
+										"renewals": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"member_id": {
+														"type": "integer",
+														"format": "uint"
+													},
+													"renewal_id": {
+														"type": "integer",
+														"format": "uint"
+													}
+												},
+												"required": ["member_id", "renewal_id"]
+											}
+										},
+										"group_id": {
+											"type": ["string", "null"],
+											"format": "uuid",
+											"examples": ["01a1433e-4e68-76e5-baba-24b1b726c5aa"]
 										}
 									},
-									"required": ["id"]
+									"required": ["renewals", "group_id"]
 								},
-								"example": {
-									"id": 71
+								"examples": {
+									"1": {
+										"summary": "Group",
+										"value": {
+											"renewals": [
+												{
+													"member_id": 11,
+													"renewal_id": 35
+												},
+												{
+													"member_id": 10,
+													"renewal_id": 45
+												}
+											],
+											"group_id": "01a1433d-732d-728d-9588-48f6bccc5d44"
+										}
+									},
+									"2": {
+										"summary": "Solo",
+										"value": {
+											"renewals": [
+												{
+													"member_id": 30,
+													"renewal_id": 38
+												}
+											],
+											"group_id": null
+										}
+									}
 								}
 							}
 						},
@@ -1919,7 +1983,7 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"example": {
-									"error_message": "resigned members cannot submit renewal requests"
+									"error_message": "member_id 12 is resigned — resigned members cannot submit renewal requests"
 								}
 							}
 						},
@@ -1933,7 +1997,7 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"example": {
-									"error_message": "not found this member id"
+									"error_message": "member_id 999999999 not found"
 								}
 							}
 						},
@@ -1947,16 +2011,16 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"examples": {
-									"5": {
+									"6": {
 										"summary": "status = PENDING_RENEWAL (pre-check)",
 										"value": {
-											"error_message": "You already have a pending renewal request"
+											"error_message": "member_id <id> already has a pending renewal request"
 										}
 									},
-									"6": {
+									"7": {
 										"summary": "Unique-violation 23505 on INSERT",
 										"value": {
-											"error_message": "You already have a pending renewal request"
+											"error_message": "member_id <id> already has a pending renewal request"
 										}
 									}
 								}
@@ -2143,9 +2207,9 @@
 		},
 		"/api/v1/membership/renewals/manual": {
 			"post": {
-				"summary": "Create a new manual renewal by member_id (/api/v1/membership/renewals/manual)",
+				"summary": "Create bulk manual renewals by member_ids (/api/v1/membership/renewals/manual)",
 				"deprecated": false,
-				"description": "## Business Logic\n\n> Execute under the same DB transaction\n\n1. Validate the `session_id` cookie (staff-only). If missing or invalid → `401 Unauthorized`\n2. Receive request body, validate required fields and types → `400 Bad Request` on failure\n3. Check the member exists and validate its status (read **outside** the transaction):\n   - not found / soft-deleted → `404 Not Found`\n   - `status = RESIGNED` → `403 Forbidden`\n   - `status = PENDING_RENEWAL` → `409 Conflict` (already has a pending renewal)\n   - `ACTIVE` / `EXPIRED` → proceed\n4. Calculate the new `expires_at` — **end of the NEXT calendar year**:\n   - `expires_at = `${currentYear + 1}-12-31T23:59:59` (e.g. a 2026 submission → `2027-12-31T23:59:59+07:00`)\n5. Begin DB transaction:\n   1. Insert a new record into `membership_renewals`:\n      - `member_id` = input\n      - `payment_slip_file_path` = input\n      - `payment_date_at` = `NOW()`\n      - `status` = `APPROVED`\n   2. Update the member by id:\n      - `status` = `ACTIVE`\n      - `latest_renewal_status` = `APPROVED`\n      - `expires_at` = the value from step 4\n      - `renewal_successful_count` = `renewal_successful_count + 1`\n      - `updated_at` = `NOW()`\n6. Commit transaction\n7. Return `201 Created` with the inserted `renewal_id`\n\n> Note: Because the renewal is inserted with `status = 'APPROVED'`, it is **excluded** from the partial unique index `idx_one_pending_renewal_per_member` (which only covers `PENDING_REVIEW`). So the INSERT on this endpoint can never raise a unique-violation — the only `409` comes from the status pre-check in step 3.\n\n\n## ✍️Pseudocode\n\n1. Receive and authenticate the request:\n    - `session_id` cookie required (staff session)\n    - missing or invalid `session_id` → `401 Unauthorized`\n\n2. Receive request body:\n    - `member_id` = body.member_id\n    - `payment_slip` = body.payment_slip\n\n3. Validate required fields:\n    - break `member_id` missing or not a positive integer → `400 Bad Request`\n    - break `payment_slip` missing or empty → `400 Bad Request`\n\n4. Check member exists and validate status:\n    ```sql\n    SELECT status\n    FROM members\n    WHERE id = $1\n      AND deleted_at IS NULL;\n    ```\n    - break not found member → `404 Not Found`\n    - break `member.status = 'RESIGNED'` → `403 Forbidden`\n      `{ error_message: \"resigned members cannot submit renewal requests\" }`\n    - break `member.status = 'PENDING_RENEWAL'` → `409 Conflict`\n      `{ error_message: \"You already have a pending renewal request\" }`\n\n5. Calculate new `expires_at` (End of NEXT calendar year):\n    - `next_year = current_year + 1`\n    - `expires_at = `${next_year}-12-31T23:59:59+07:00``\n    - e.g. submission in 2026 → `2027-12-31T23:59:59+07:00`\n\n6. Begin DB transaction: `BEGIN`\n\n7. Insert a new renewal record:\n    ```sql\n    INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status)\n    VALUES ($1, $2, NOW(), 'APPROVED')\n    RETURNING id;\n    ```\n\n8. Update member status and membership clock:\n    ```sql\n    UPDATE members\n    SET\n      status = 'ACTIVE',\n      latest_renewal_status = 'APPROVED',\n      expires_at = $3,\n      renewal_successful_count = renewal_successful_count + 1,\n      updated_at = NOW()\n    WHERE id = $1\n      AND deleted_at IS NULL;\n    ```\n\n9. Commit transaction: `COMMIT`\n\n10. Return `201 Created`\n    `{ id: <renewal_id> }`\n\n## Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin)\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/membership/renewals/manual<br/>{ member_id: 15, payment_slip: \"...\" }<br/>Cookie: session_id=...\n\n    nextjsapi -->> nextjsapi: Validate session_id cookie (withAuth)\n\n    break Missing or invalid session_id\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Validate request body:<br/>1. member_id required, positive integer<br/>2. payment_slip required\n\n    break Validate request body failed\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"...\" }\n    end\n\n    nextjsapi->>+database: SELECT status FROM members<br/>WHERE id = 15 AND deleted_at IS NULL\n    database-->>-nextjsapi: Return member row { id: 15, status: 'EXPIRED' }\n\n    break Member not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"not found this member id\" }\n    end\n\n    break member.status = 'RESIGNED'\n        nextjsapi-->>browser: 403 Forbidden { error_message: \"resigned members cannot submit renewal requests\" }\n    end\n\n    break member.status = 'PENDING_RENEWAL'\n        nextjsapi-->>browser: 409 Conflict { error_message: \"You already have a pending renewal request\" }\n    end\n\n    nextjsapi -->> nextjsapi: Calculate expires_at:<br/>next_year = current_year + 1<br/>expires_at = `${next_year}-12-31T23:59:59+07:00`<br/>(2026 -> 2027-12-31T23:59:59+07:00)\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n    Note over nextjsapi,database: Execute Under Database Transaction\n\n    nextjsapi->>+database: INSERT INTO membership_renewals<br/>(member_id, payment_slip_file_path, payment_date_at, status)<br/>VALUES (15, '...', NOW(), 'APPROVED')<br/>RETURNING id\n    database-->>-nextjsapi: Return inserted_id { id: 71 }\n\n    nextjsapi->+database: UPDATE members<br/>SET status = 'ACTIVE',<br/>latest_renewal_status = 'APPROVED',<br/>expires_at = '2027-12-31T23:59:59+07:00',<br/>renewal_successful_count = renewal_successful_count + 1,<br/>updated_at = NOW()<br/>WHERE id = 15 AND deleted_at IS NULL\n    database-->>-nextjsapi: Return OK\n\n    end\n    nextjsapi->>database: COMMIT\n    database-->>nextjsapi: OK\n\n    nextjsapi-->>browser: 201 Created { id: 71 }\n```",
+				"description": "## Business Logic (ADMIN-ONLY — cookie `session_id`)\n\n:::highlight orange 📌\n**BREAKING (ADR-0026, #85):** the body takes `member_ids` — an array of `1–6 UNIQUE positive\nintegers`, index 0 = main member — instead of `member_id`.\nOld-shape bodies return `400 Bad Request`\n\nThe `201` body is now IDENTICAL to the public create endpoint: one `renewals` row per member\nplus the shared `group_id`.\n:::\n\n**One submission = one payment slip covering every member**; each member gets its own renewal\nrow with status `APPROVED`; all rows share one `group_id` (`NULL` while solo, N=1).\n\n**Manual-only behavior (ADR-0016):**\nEVERY member's membership clock advances in the same\ntransaction\n- `expires_at` = end of the NEXT calendar year\n- `renewal_successful_count` + 1.\n\n> Execute under the same DB transaction (one transaction for ALL members)\n\n## ✍️Pseudocode\n\n1. Authenticate (withAuth — BEFORE the body is read):\n   - missing or invalid `session_id` cookie → `401 { error_message: \"Unauthorized\" }`\n\n2. Receive request body:\n    -> `member_ids = body.member_ids`   (array)\n    -> `payment_slip = body.payment_slip`\n\n3. Validate (Valibot, structure only):\n```typescript\nmember_ids: array of positive integers, minLength 1, maxLength 6, all unique\n   -> break unparseable JSON:      Return 400 { error_message: \"Invalid request body\" }\n   -> break member_ids missing / old member_id shape:\n                                   Return 400 { error_message: 'Invalid key: Expected \"member_ids\" but received undefined' }\n   -> break empty:                 Return 400 { error_message: \"member_ids must not be empty\" }\n   -> break > 6 entries:           Return 400 { error_message: \"member_ids must contain at most 6 members\" }\n   -> break duplicates:            Return 400 { error_message: \"member_ids must be unique\" }\n   -> break entry <= 0 / non-integer:\n                                   Return 400 { error_message: \"member_ids must contain positive integers\" }\n   -> break payment_slip missing:  Return 400 { error_message: 'Invalid key: Expected \"payment_slip\" but received undefined' }\n```\n\n4. Batched eligibility pre-check (ONE query, OUTSIDE the transaction):\n```sql\nSELECT id, status FROM members\nWHERE id = ANY(string_to_array($1, ',')::bigint[]) AND deleted_at IS NULL\n```\nWalk member_ids in REQUEST order; the first offender aborts the whole submission and is\nnamed in error_message (SAME vocabulary as the public endpoint):\n```typescript\n    -> break id absent from result:        Return 404 { error_message: \"member_id {id} not found\" }\n    -> break status = \"RESIGNED\":          Return 403 { error_message: \"member_id {id} is resigned — resigned members cannot submit renewal requests\" }\n    -> break status = \"PENDING_RENEWAL\":   Return 409 { error_message: \"member_id {id} already has a pending renewal request\" }\n// ACTIVE / EXPIRED proceed.\n```\n\n5. Mint the Renewal Group marker once (ADR-0026): group_id = member_ids.length > 1 ?\n   UUIDv7 (via the injected id generator) : NULL. Solo submissions stamp no marker.\n\n6. Stamp ONE shared server `now` for the whole submission — every member advances off the\n   same instant:\n```typescript\npayment_date_at = NOW()                        // one server instant for the whole batch\nexpires_at      = end of NEXT calendar year    // 2026 submission -> 2027-12-31T23:59:59.999Z (UTC)\n```\n\n7. Begin DB transaction: `BEGIN`\n\n8. FOR EACH member (request order) — INSERT renewal + advance that member's clock:\n```sql\nINSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, group_id)\nVALUES ($1, $2, NOW(), 'APPROVED', $3)\nRETURNING id;\n\nUPDATE members\nSET status = 'ACTIVE',\n    latest_renewal_status = 'APPROVED',\n    expires_at = $2,\n    renewal_successful_count = renewal_successful_count + 1,\n    updated_at = NOW()\nWHERE id = $1\n  AND deleted_at IS NULL;\n```\n\n:::note[Note: NO 23505 branch here]\nINSERT is `status = 'APPROVED'`, EXCLUDED from the partial unique index `idx_one_pending_renewal_per_member` (which only covers`PENDING_REVIEW`).\n\nThe write can never raise a unique-violation; step 4's pre-check is the ONLY 409 source on this endpoint (unlike the public path)\n:::\n\n9. Commit transaction: `COMMIT`\n\n10. Return `201 Created`\n```json\n{\n    \"renewals\": [\n        { \"member_id\": 197, \"renewal_id\": 71 }\n    ],\n    \"group_id\": null\n}\n```\n\n## 🖼️Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin)\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/membership/renewals/manual<br/>{ member_ids[1..6], payment_slip }<br/>Cookie: session_id=... (REQUIRED)\n\n    nextjsapi -->> nextjsapi: Validate session_id cookie (withAuth)\n\n    break Missing or invalid session_id\n        nextjsapi-->>browser: 401 Unauthorized { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Validate body (Valibot):<br/>member_ids: non-empty, ≤6, unique, positive ints<br/>payment_slip: non-empty\n\n    break if validation fails (incl. OLD member_id shape)\n        nextjsapi-->>browser: 400 Bad Request { error_message }\n    end\n\n    nextjsapi->>+database: SELECT id, status FROM members<br/>WHERE id = ANY(string_to_array($1, ',')::bigint[])<br/>AND deleted_at IS NULL\n    database-->>-nextjsapi: rows [{ id, status }]\n\n    break first offender in REQUEST order: id not found / soft-deleted\n        nextjsapi-->>browser: 404 Not Found { error_message: \"member_id {id} not found\" }\n    end\n    break status = 'RESIGNED'\n        nextjsapi-->>browser: 403 Forbidden { error_message: \"member_id {id} is resigned — …\" }\n    end\n    break status = 'PENDING_RENEWAL'\n        nextjsapi-->>browser: 409 Conflict { error_message: \"member_id {id} already has a pending renewal request\" }\n    end\n\n    Note over nextjsapi: group_id = (N > 1) ? UUIDv7() : NULL<br/>status pair FIXED (staff): APPROVED / ACTIVE<br/>one shared `now` for the whole batch<br/>expires_at = end of NEXT calendar year\n\n    nextjsapi->>database: BEGIN Transaction\n    rect rgb(235, 245, 255)\n        Note over nextjsapi,database: One transaction for ALL members —<br/>INSERT + CLOCK ADVANCE per member<br/>(ADR-0014 / ADR-0016 / ADR-0026)\n\n        loop each member in request order\n            nextjsapi->>database: INSERT INTO membership_renewals<br/>(member_id, payment_slip_file_path, NOW(), 'APPROVED', group_id)<br/>RETURNING id\n            database-->>nextjsapi: renewal id\n\n            nextjsapi->>database: UPDATE members<br/>SET status='ACTIVE', latest_renewal_status='APPROVED',<br/>expires_at='2027-12-31T23:59:59.999Z',<br/>renewal_successful_count = renewal_successful_count + 1,<br/>updated_at = NOW()<br/>WHERE id = member AND deleted_at IS NULL\n            database-->>nextjsapi: OK\n        end\n    end\n    nextjsapi->>database: COMMIT\n\n    nextjsapi-->>browser: 201 Created { renewals: [{ member_id, renewal_id }], group_id }\n```",
 				"tags": [],
 				"parameters": [
 					{
@@ -2165,20 +2229,39 @@
 							"schema": {
 								"type": "object",
 								"properties": {
-									"member_id": {
-										"type": "integer",
-										"format": "uint"
+									"member_ids": {
+										"type": "array",
+										"items": {
+											"type": "integer",
+											"format": "uint",
+											"minimum": 1
+										},
+										"minItems": 1,
+										"maxItems": 6,
+										"uniqueItems": true
 									},
 									"payment_slip": {
 										"type": "string",
 										"examples": ["members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"]
 									}
 								},
-								"required": ["member_id", "payment_slip"]
+								"required": ["member_ids", "payment_slip"]
 							},
-							"example": {
-								"member_id": 197,
-								"payment_slip": "members/documents/payment_slip_01KZG6P7ZDNHJ7AQ8CGSZW4ZFH.webp"
+							"examples": {
+								"1": {
+									"value": {
+										"member_ids": [49],
+										"payment_slip": "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg"
+									},
+									"summary": "Solo"
+								},
+								"2": {
+									"value": {
+										"member_ids": [197, 198, 199],
+										"payment_slip": "members/documents/payment_slip_01KZG6P7ZDNHJ7AQ8CGSZW4ZFH.webp"
+									},
+									"summary": "Group"
+								}
 							}
 						}
 					},
@@ -2192,15 +2275,60 @@
 								"schema": {
 									"type": "object",
 									"properties": {
-										"id": {
-											"type": "integer",
-											"format": "uint"
+										"renewals": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"member_id": {
+														"type": "integer",
+														"format": "uint"
+													},
+													"renewal_id": {
+														"type": "integer",
+														"format": "uint"
+													}
+												},
+												"required": ["member_id", "renewal_id"]
+											}
+										},
+										"group_id": {
+											"type": ["string", "null"],
+											"format": "uuid",
+											"examples": ["01a14335-88d6-7047-b705-7ada8c14b073"]
 										}
 									},
-									"required": ["id"]
+									"required": ["renewals", "group_id"]
 								},
-								"example": {
-									"id": 71
+								"examples": {
+									"1": {
+										"summary": "Solo",
+										"value": {
+											"renewals": [
+												{
+													"member_id": 197,
+													"renewal_id": 301
+												}
+											],
+											"group_id": null
+										}
+									},
+									"2": {
+										"summary": "Group",
+										"value": {
+											"renewals": [
+												{
+													"member_id": 51,
+													"renewal_id": 98
+												},
+												{
+													"member_id": 4,
+													"renewal_id": 86
+												}
+											],
+											"group_id": "01a14335-88d6-7047-b705-7ada8c14b073"
+										}
+									}
 								}
 							}
 						},
@@ -2213,8 +2341,31 @@
 								"schema": {
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
-								"example": {
-									"error_message": "A detailed error message."
+								"examples": {
+									"3": {
+										"summary": "Unparseable JSON",
+										"value": {
+											"error_message": "Invalid request body"
+										}
+									},
+									"4": {
+										"summary": "Old member_id body / key missing",
+										"value": {
+											"error_message": "Invalid key: Expected <member_ids> but received undefined"
+										}
+									},
+									"5": {
+										"summary": "member_ids not array",
+										"value": {
+											"error_message": "Invalid type: Expected Array but received \"abc\""
+										}
+									},
+									"6": {
+										"summary": "Missing payment_slip",
+										"value": {
+											"error_message": "payment_slip is required"
+										}
+									}
 								}
 							}
 						},
@@ -2242,7 +2393,7 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"example": {
-									"error_message": "resigned members cannot submit renewal requests"
+									"error_message": "member_id N is resigned — resigned members cannot submit renewal requests"
 								}
 							}
 						},
@@ -2256,7 +2407,7 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"example": {
-									"error_message": "not found this member id"
+									"error_message": "member_id N not found"
 								}
 							}
 						},
@@ -2270,10 +2421,11 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"example": {
-									"error_message": "You already have a pending renewal request"
+									"error_message": "member_id N already has a pending renewal request"
 								}
 							}
-						}
+						},
+						"headers": {}
 					},
 					"500": {
 						"description": "",

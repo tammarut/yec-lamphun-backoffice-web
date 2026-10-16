@@ -14,7 +14,6 @@ import type { ListMembershipRenewalFilter, MembershipRenewalListPage, Membership
 import type { RenewalStatRow } from "../use-case/get-renewal-stat/get-renewal-stat.types"
 import { RenewalAlreadyReviewedError } from "../use-case/review-renewal/review-renewal.errors"
 import {
-	getMemberStatusForRenewal,
 	getMemberStatusesForRenewal,
 	getRenewalForReview,
 	getRenewalStat,
@@ -51,16 +50,6 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		return this.dbClient.getRwConnection() as unknown as Sql
 	}
 
-	async getMemberStatusForRenewal(memberId: number) {
-		const result = await ResultAsync.fromPromise(getMemberStatusForRenewal(this.sql, { id: String(memberId) }), (error) => error as Error)
-		if (result.isErr()) {
-			return err(new DatabaseError(result.error.message, result.error.cause))
-		}
-		const row = result.value[0]
-		// No row → not found or soft-deleted; the service narrows null → 404.
-		return ok(row ? row.status : null)
-	}
-
 	async getMemberStatusesForRenewal(memberIds: readonly number[]) {
 		// Batched variant of the pre-check read (ADR-0026): one query for the
 		// whole member_ids array. Missing ids simply come back absent — the
@@ -71,6 +60,13 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		// which fails the bigint[] cast (pg 22P02 malformed array literal). Every
 		// id is route-validated as a positive integer, so the CSV is
 		// injection-safe.
+		// An empty array would join to "" and string_to_array('', ',') yields
+		// {''}, whose bigint[] cast raises 22P02 — guarded here so the method's
+		// contract is total (ok([])). Both routes reject empty via Valibot, so
+		// this is unreachable over HTTP; it keeps direct callers safe.
+		if (memberIds.length === 0) {
+			return ok([])
+		}
 		const result = await ResultAsync.fromPromise(getMemberStatusesForRenewal(this.sql, { ids: memberIds.join(",") }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
@@ -113,26 +109,32 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		}
 	}
 
-	async createManualRenewal(renewal: MembershipRenewal) {
-		// Same transaction shape as createRenewal: insert renewal → update member.
-		// The manual write ALSO sets expires_at and bumps renewal_successful_count
-		// (the clock-advancing write, ADR-0016) via a dedicated member UPDATE
-		// query. The status values and expiresAt are read from the aggregate's
+	async createManualRenewals(renewals: readonly MembershipRenewal[]) {
+		// Bulk form of the manual write (ADR-0026): per member, insert renewal →
+		// advance the membership clock, all inside ONE tx (all-or-nothing).
+		// bun:sql auto-commits on success, auto-rollbacks on throw.
+		// The manual write sets expires_at and bumps renewal_successful_count
+		// (the clock-advancing write, ADR-0016) via the shared member UPDATE
+		// query. The status values and expiresAt are read from each aggregate's
 		// getters — built by MembershipRenewal.createManual() (APPROVED/ACTIVE +
 		// end-of-next-year expiry); the repo does not interpret them.
 		//
-		// Unlike createRenewal there is NO PendingRenewalExistsError catch here:
+		// Unlike createRenewals there is NO PendingRenewalExistsError catch here:
 		// the manual INSERT is status='APPROVED', excluded from the partial unique
 		// index, so it can never raise Postgres 23505.
 		try {
-			const renewalId = await this.dbClient.transaction(async (tx) => {
+			const created = await this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
-				const newId = await this.doInsertRenewal(sql, renewal)
-				await this.doUpdateMemberOnApprovedRenewal(sql, renewal.memberId, renewal.expiresAt)
-				return newId
+				const results: CreatedRenewalRow[] = []
+				for (const renewal of renewals) {
+					const newId = await this.doInsertRenewal(sql, renewal)
+					await this.doUpdateMemberOnApprovedRenewal(sql, renewal.memberId, renewal.expiresAt)
+					results.push({ memberId: renewal.memberId, renewalId: newId })
+				}
+				return results
 			})
 
-			return ok(renewalId)
+			return ok(created)
 		} catch (error) {
 			if (error instanceof DatabaseError) {
 				return err(error)
@@ -515,7 +517,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 
 	/**
 	 * The review flow's pre-check read (ADR-0018) — the review-flow twin of
-	 * {@link getMemberStatusForRenewal}. Runs OUTSIDE the review transaction and
+	 * {@link getMemberStatusesForRenewal}. Runs OUTSIDE the review transaction and
 	 * returns exactly the {@link MembershipRenewalDbProps} three columns, which
 	 * the service feeds straight into `MembershipRenewal.fromDb`. No row → the
 	 * renewal does not exist or is soft-deleted; the service narrows null → 404.

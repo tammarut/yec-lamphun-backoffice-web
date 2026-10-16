@@ -233,11 +233,17 @@ export class MembershipRenewal {
 	 * `renewal_successful_count` in the same transaction. The public path
 	 * leaves both untouched (ADR-0015).
 	 *
+	 * `groupId` is the shared Renewal Group marker (ADR-0026): the service mints
+	 * ONE marker per N>1 submission (via the IIdGenerator seam) and passes it to
+	 * every aggregate of the batch; a solo submission omits it and stamps NULL
+	 * here, so the factory — not the repository's ??-normalization — owns the
+	 * NULL = solo fact.
+	 *
 	 * Returns `ok` unconditionally today — the `Result` shape mirrors
 	 * {@link create} so a future transition-validation can fail here without a
 	 * signature change.
 	 */
-	static createManual(input: { memberId: number; paymentSlipFilePath: string; now: Date }): Result<MembershipRenewal, never> {
+	static createManual(input: { memberId: number; paymentSlipFilePath: string; now: Date; groupId?: string | null }): Result<MembershipRenewal, never> {
 		return ok(
 			new MembershipRenewal({
 				memberId: input.memberId,
@@ -246,10 +252,7 @@ export class MembershipRenewal {
 				status: "APPROVED",
 				memberStatusOnRenewal: "ACTIVE",
 				expiresAt: computeMembershipExpiry(input.now),
-				// A manual submission is always solo — the NULL marker is stated here
-				// (not left to the getter's undefined fallthrough) so the factory,
-				// not the repository's ??-normalization, owns the fact (ADR-0026).
-				groupId: null,
+				groupId: input.groupId ?? null,
 			})
 		)
 	}
