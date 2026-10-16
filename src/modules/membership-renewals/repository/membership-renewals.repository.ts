@@ -60,6 +60,13 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		// which fails the bigint[] cast (pg 22P02 malformed array literal). Every
 		// id is route-validated as a positive integer, so the CSV is
 		// injection-safe.
+		// An empty array would join to "" and string_to_array('', ',') yields
+		// {''}, whose bigint[] cast raises 22P02 — guarded here so the method's
+		// contract is total (ok([])). Both routes reject empty via Valibot, so
+		// this is unreachable over HTTP; it keeps direct callers safe.
+		if (memberIds.length === 0) {
+			return ok([])
+		}
 		const result = await ResultAsync.fromPromise(getMemberStatusesForRenewal(this.sql, { ids: memberIds.join(",") }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))

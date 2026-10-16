@@ -45,6 +45,10 @@ export interface IMembershipRenewalRepository {
 	 * ADR-0026): one query for the whole member_ids array. Missing (or
 	 * soft-deleted) ids simply come back absent — the service matches rows
 	 * against the request order and narrows the first missing id → 404.
+	 * An empty array short-circuits to `ok([])` without touching the database
+	 * (a bound empty CSV would fail the bigint[] cast with pg 22P02); both
+	 * routes reject empty arrays via Valibot, so this only guards direct
+	 * callers.
 	 */
 	getMemberStatusesForRenewal(memberIds: readonly number[]): Promise<Result<ReadonlyArray<MemberStatusRow>, DatabaseError>>
 
