@@ -190,6 +190,55 @@ describe("RenewalTable", () => {
 		})
 	})
 
+	describe("Renewal Group badge", () => {
+		const GROUP_ID = "019a1433-588d-7047-b705-7ada8c14b073"
+
+		describe("Happy cases", () => {
+			it("grouped rows render the ส่งพร้อมกัน N คน badge with the group's count and the mockup tooltip", async () => {
+				// Arrange — two members of one 3-person group (the third sits on
+				// another status tab; the size comes from the server, not the page).
+				const { container } = renderTable({
+					sessionOk: true,
+					status: "PENDING_REVIEW",
+					listResponse: () =>
+						jsonResponse(
+							200,
+							renewalPage([
+								makeMembershipRenewal({ id: 201, first_name_th: "ธีรภัทร", nickname: "ธีร์", renewal_id: 9101, group_id: GROUP_ID, group_size: 3 }),
+								makeMembershipRenewal({ id: 202, first_name_th: "แพรวา", nickname: "แพรว", renewal_id: 9102, group_id: GROUP_ID, group_size: 3 }),
+							])
+						),
+				})
+
+				// Act
+				await screen.findByText("นายธีรภัทร ใจดี")
+
+				// Assert
+				const badges = container.querySelectorAll('[data-slot="renewal-group-badge"]')
+				expect(badges.length).toBe(2)
+				expect(badges[0]?.textContent).toContain("ส่งพร้อมกัน 3 คน / สลิปใบเดียวกัน")
+				expect(badges[1]?.textContent).toContain("ส่งพร้อมกัน 3 คน / สลิปใบเดียวกัน")
+				expect(badges[0]?.getAttribute("title")).toBe("สมาชิกกลุ่มนี้ส่งคำขอต่ออายุพร้อมกันด้วยสลิปการโอนเงินใบเดียวกัน")
+			})
+
+			it("solo rows (group_size 1) render no badge", async () => {
+				// Arrange
+				const { container } = renderTable({
+					sessionOk: true,
+					status: "PENDING_REVIEW",
+					listResponse: () => jsonResponse(200, renewalPage([makeMembershipRenewal()])),
+				})
+
+				// Act
+				await screen.findByText("นายสมชาย ใจดี")
+
+				// Assert
+				expect(container.querySelector('[data-slot="renewal-group-badge"]')).toBeNull()
+				expect(screen.queryByText(/ส่งพร้อมกัน/)).toBeNull()
+			})
+		})
+	})
+
 	describe("Unhappy cases", () => {
 		it("list failure shows the destructive alert and retry refetches", async () => {
 			const { fetchMock } = renderTable({
