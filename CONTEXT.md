@@ -79,7 +79,7 @@ A member's request to extend their membership tenure, submitted with a payment s
 _Avoid_: renewal, extension, membership extension, renewal record
 
 **Renewal Submission**:
-The act of creating a Membership Renewal. There are two submission channels: the public create-renewal endpoint (any caller may submit on behalf of a member_id; the Renewal Status assigned depends on WHO submits — see **Public Submission** and **Admin Submission**), and the manual create endpoint (staff-only, always an Admin Submission — see **Manual Renewal Submission**).
+The act of creating a Membership Renewal. There are two submission channels: the public create-renewal endpoint (any caller may submit on behalf of 1–6 members; the Renewal Status assigned depends on WHO submits — see **Public Submission** and **Admin Submission**), and the manual create endpoint (staff-only, always an Admin Submission — see **Manual Renewal Submission**). Both channels are bulk-aware (ADR-0026): one submission carries one payment slip covering the whole member list and creates one renewal row per member — the batch is a **Renewal Group** when it covers more than one.
 
 **Public Submission**:
 A Renewal Submission made without a valid staff session cookie. The renewal enters the review pipeline at Renewal Status `PENDING_REVIEW`, and the member's Member Status moves to `PENDING_RENEWAL`. A member may have at most one live `PENDING_REVIEW` renewal (enforced by a partial unique index).
@@ -90,7 +90,7 @@ A Renewal Submission made with a valid staff session cookie. The renewal skips t
 _Avoid_: instant renewal, auto-approval, staff submission
 
 **Manual Renewal Submission**:
-A Renewal Submission made by staff via `POST /api/v1/membership/renewals/manual`, which requires a valid staff session cookie (enforced by `withAuth`, unlike the public create-renewal endpoint's optional cookie). It is always an Admin Submission: the renewal is created at Renewal Status `APPROVED` and the member's Member Status moves to `ACTIVE`. Unlike a plain Admin Submission on the public endpoint, a Manual Renewal Submission ALSO advances the member's membership clock — it bumps `renewal_successful_count` by one and sets `expires_at` to the **Membership Expiry**. The public endpoint deliberately does neither (ADR-0015, ADR-0016).
+A Renewal Submission made by staff via `POST /api/v1/membership/renewals/manual`, which requires a valid staff session cookie (enforced by `withAuth`, unlike the public create-renewal endpoint's optional cookie). It is always an Admin Submission: the renewal is created at Renewal Status `APPROVED` and the member's Member Status moves to `ACTIVE`. Unlike a plain Admin Submission on the public endpoint, a Manual Renewal Submission ALSO advances the member's membership clock — it bumps `renewal_successful_count` by one and sets `expires_at` to the **Membership Expiry**. The public endpoint deliberately does neither (ADR-0015, ADR-0016). Since #85 (ADR-0026) the manual channel is bulk-aware exactly like the public one: one staff submission covers 1–6 members — each member gets its own `APPROVED` renewal row under the shared **Renewal Group** marker, and the clock advance above applies to EVERY member of the submission inside the same transaction.
 _Avoid_: manual renewal, backoffice renewal, staff-created renewal
 
 **Renewal Group**:
