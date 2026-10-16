@@ -2014,13 +2014,13 @@
 									"6": {
 										"summary": "status = PENDING_RENEWAL (pre-check)",
 										"value": {
-											"error_message": "member_id <id> already has a pending renewal request"
+											"error_message": "member_id 9 already has a pending renewal request"
 										}
 									},
 									"7": {
 										"summary": "Unique-violation 23505 on INSERT",
 										"value": {
-											"error_message": "member_id <id> already has a pending renewal request"
+											"error_message": "member_id 8 already has a pending renewal request"
 										}
 									}
 								}
