@@ -97,6 +97,10 @@ _Avoid_: manual renewal, backoffice renewal, staff-created renewal
 The set of Membership Renewals created together by one Renewal Submission covering several members under a single payment slip (one main member plus up to five additional). It is a payment fact, not a review fact: every renewal in the group keeps its independent lifecycle, and a Renewal Review always decides one record at a time — "approve the whole group" is a convenience over N decisions, never one decision. Members may come from different businesses (the same-business expectation is a form warning, never a block), and each member appears at most once per submission. Recorded as a shared group marker on each row; solo submissions carry none.
 _Avoid_: bulk renewal, batch, joint renewal, same-business renewal
 
+**Additional-Member Rate**:
+The display-only fee schedule of a Renewal Submission's group: the main member pays 5,000 baht; each additional member pays 4,000 baht (กิจการเดียวกัน ท่านที่ 2 ขึ้นไป) when from the main member's Business, or the full 5,000 baht when from a different business or when the main member's business is unknown (a Manual Renewal Submission preselect carries none); a working-team member (any Position other than สมาชิกทั่วไป) deducts 500 baht per member regardless of business. Display-only by construction — nothing fee-related is ever sent to or stored by the API (ADR-0026).
+_Avoid_: group discount, flat group rate, bulk price
+
 **Renewal Review**:
 The staff act of deciding a live `PENDING_REVIEW` Membership Renewal, via `PATCH /api/v1/membership/renewals/review/{renewal_id}` (staff session required). Approving sets the Renewal Status to `APPROVED`, moves the member to `ACTIVE`, re-stamps the Membership Expiry, and increments `renewal_successful_count`; rejecting sets `REJECTED` with a mandatory rejection reason and moves the member to `EXPIRED`. Both outcomes are terminal — deciding an already-decided renewal is refused as already reviewed.
 _Avoid_: approve api, renewal decision, moderation
