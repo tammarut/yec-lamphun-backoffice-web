@@ -531,9 +531,9 @@ describe("RenewalFormDialog", () => {
 				await pickAdditionalMember(/นายสมควร ใจดำ/, settleDebounce)
 				await pickAdditionalMember(/นายสมดี ใจงาม/, settleDebounce)
 
-				// Assert — six group cards total (main + 5), and the pick affordance is gone.
+				// Assert — five additional cards + the pick affordance is gone.
 				expect(screen.queryByRole("button", { name: "+ เพิ่มสมาชิก" })).toBeNull()
-				expect(screen.getAllByText(/ร้านสมชายการค้า|กิจการอื่น จำกัด/).length).toBeGreaterThanOrEqual(6)
+				expect(document.querySelectorAll('[data-slot="renewal-form-additional-member"]').length).toBe(5)
 			})
 
 			it("removing an additional member re-opens the pick affordance", async () => {
@@ -582,37 +582,23 @@ describe("RenewalFormDialog", () => {
 				expect(await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeTruthy()
 			})
 
-			it("same-business pick shows no warning, and manual mode suppresses it (no known main business)", async () => {
-				// Arrange — member mode, same-business pair.
+			it("same-business pick shows no warning", async () => {
+				// Arrange — both from ร้านสมชายการค้า.
 				const { settleDebounce } = renderDialog({})
 				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
 				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
 
 				// Assert
 				expect(screen.queryByText("ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก")).toBeNull()
+			})
 
-				// Arrange — manual mode: main preselected WITHOUT a business name.
-				cleanup()
-				renderDialog({
+			it("manual mode suppresses the warning — the preselect carries no business name", async () => {
+				// Arrange — manual main has businessName null; pick a cross-business member anyway.
+				const { settleDebounce } = renderDialog({
 					mode: "manual",
-					preselectedMember: expiredMembershipToFormMember({
-						id: 202,
-						profile_avatar: null,
-						title_name_th: "นางสาว",
-						first_name_th: "สมหญิง",
-						last_name_th: "ใจงาม",
-						nickname: "หญิง",
-						phone_no: "089-888-8888",
-						position: "TREASURER",
-						status: "EXPIRED",
-						latest_renewal_status: null,
-						member_since: "2024-06-01T00:00:00.000Z",
-						rejection_reason: null,
-						rejected_at: null,
-					}),
+					preselectedMember: expiredMembershipToFormMember({ ...MANUAL_MEMBER_ROW, position: "TREASURER" }),
 				})
-				const manualSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 350))
-				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, manualSettle)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
 
 				// Assert — cross-business pick, but the main's business is unknown.
 				expect(screen.queryByText("ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก")).toBeNull()
@@ -694,9 +680,8 @@ describe("RenewalFormDialog", () => {
 			it("manual success screen lists the group names and total under ต่ออายุสำเร็จ", async () => {
 				// Arrange — manual main 202 (preselected, general) + one additional (general):
 				// 5,000 + 4,000, no committee discount.
-				renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
-				const manualSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 350))
-				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, manualSettle)
+				const { settleDebounce } = renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
 				await stageSlipFile(pngFile())
 				fireEvent.click(screen.getByRole("checkbox"))
 

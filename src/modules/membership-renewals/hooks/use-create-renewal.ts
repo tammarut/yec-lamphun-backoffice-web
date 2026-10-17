@@ -33,8 +33,8 @@ export const RENEWALS_ROOT_QUERY_KEY = ["membership-renewals"] as const
 async function postRenewal(input: CreateRenewalInput): Promise<CreateRenewalResponse> {
 	const url = input.manual ? "/api/v1/membership/renewals/manual" : "/api/v1/membership/renewals"
 	// Both endpoints speak the SAME member_ids contract since #85 (ADR-0026) —
-	// main-first order (index 0 = main). The fan-out UI filling 2..6 members
-	// is ticket #87's form ② สมาชิกเพิ่มเติม.
+	// main-first order (index 0 = main); the form's ② สมาชิกเพิ่มเติม (#87)
+	// fills 2..6 entries for a group.
 	const body = { member_ids: [...input.member_ids], payment_slip: input.payment_slip }
 	const result = await fetchJson<CreateRenewalResponse>(url, {
 		method: "POST",

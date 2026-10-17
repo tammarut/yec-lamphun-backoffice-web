@@ -172,9 +172,10 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 
 	// Display-only fee math (nothing sent): main 5,000 + additional 4,000 each,
 	// −500 per working-team member across the whole group (per-member, not flat).
+	const group = [selected, ...additional]
 	const groupSize = 1 + additional.length
 	const subtotal = selected !== null ? FEE_PER_BUSINESS + ADDITIONAL_FEE_PER_MEMBER * additional.length : null
-	const committeeCount = [selected, ...additional].filter((member) => member !== null && member.position !== GENERAL_MEMBER_POSITION).length
+	const committeeCount = group.filter((member) => member !== null && member.position !== GENERAL_MEMBER_POSITION).length
 	const total = subtotal !== null ? subtotal - WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount : null
 	/** Success-screen roster — every renewed name, main-first, joined per the mockup. */
 	const renewedNames = selected === null ? null : [selected, ...additional].map((member) => fullNameTh(member)).join(", ")
