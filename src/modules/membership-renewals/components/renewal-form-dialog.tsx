@@ -21,10 +21,10 @@ import { cn } from "src/shared/lib/utils/utils"
 const MAX_SLIP_FILE_SIZE_BYTES = 7 * 1024 * 1024
 const SLIP_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"] as const
 
-/** Display-only fee rates (README §8 item 5 static copy — nothing is sent to the API). */
+/** Full per-member renewal rate (main member; also an additional from another business). */
 const FEE_PER_BUSINESS = 5000
-/** ② สมาชิกเพิ่มเติม rate per member (display-only; corrects the mockup's flat 4,000-at-2+). */
-const ADDITIONAL_FEE_PER_MEMBER = 4000
+/** กิจการเดียวกัน ท่านที่ 2 ขึ้นไป — same-business additional-member rate (display-only). */
+const SAME_BUSINESS_ADDITIONAL_FEE = 4000
 /** คณะทำงาน YEC Lamphun discount per person (position ≠ GENERAL_MEMBER). */
 const WORKING_TEAM_DISCOUNT_PER_MEMBER = 500
 
@@ -89,11 +89,16 @@ export function expiredMembershipToFormMember(member: ExpiredMembershipResponse)
 }
 
 /**
- * Cross-business amber warning predicate (ADR-0026 §5: same-business is a
- * warning, never a block). Fires only when BOTH business names are known —
- * the manual-mode preselect carries none (expired-worklist rows have no
- * business field), which suppresses the warning there by construction.
+ * Same-business predicate — TRUE only when BOTH business names are known and
+ * equal. Drives both the amber cross-business warning (via the negation seen
+ * from the card) and the 4,000 same-business additional rate; an unknown
+ * business (manual-mode main) therefore prices at full 5,000 with no warning.
  */
+function isSameBusiness(member: RenewalFormMember, main: RenewalFormMember | null): boolean {
+	return main !== null && member.businessName !== null && main.businessName !== null && member.businessName === main.businessName
+}
+
+/** Cross-business amber warning predicate (ADR-0026 §5: a warning, never a block). */
 function isCrossBusiness(member: RenewalFormMember, main: RenewalFormMember | null): boolean {
 	return main !== null && member.businessName !== null && main.businessName !== null && member.businessName !== main.businessName
 }
@@ -170,11 +175,13 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 	const [isUploading, setIsUploading] = useState(false)
 	const [copiedAccount, setCopiedAccount] = useState(false)
 
-	// Display-only fee math (nothing sent): main 5,000 + additional 4,000 each,
-	// −500 per working-team member across the whole group (per-member, not flat).
+	// Display-only fee math (nothing sent): main 5,000; each additional 4,000
+	// from the main's business, 5,000 otherwise (or when the business is
+	// unverifiable); −500 per working-team member across the whole group.
 	const group = [selected, ...additional]
 	const groupSize = 1 + additional.length
-	const subtotal = selected !== null ? FEE_PER_BUSINESS + ADDITIONAL_FEE_PER_MEMBER * additional.length : null
+	const additionalSubtotal = additional.reduce((sum, member) => sum + (isSameBusiness(member, selected) ? SAME_BUSINESS_ADDITIONAL_FEE : FEE_PER_BUSINESS), 0)
+	const subtotal = selected !== null ? FEE_PER_BUSINESS + additionalSubtotal : null
 	const committeeCount = group.filter((member) => member !== null && member.position !== GENERAL_MEMBER_POSITION).length
 	const total = subtotal !== null ? subtotal - WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount : null
 	/** Success-screen roster — every renewed name, main-first, joined per the mockup. */

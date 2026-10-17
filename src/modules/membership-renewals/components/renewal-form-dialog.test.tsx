@@ -604,9 +604,9 @@ describe("RenewalFormDialog", () => {
 				expect(screen.queryByText("ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก")).toBeNull()
 			})
 
-			it("fee rail prices the group: main 5,000 + additional 4,000 each − 500 per working-team member, in rail and footer", async () => {
-				// Arrange — main (general) + one committee + one other-business general:
-				// subtotal 5,000 + 2×4,000 = 13,000; discount 1×500 → total 12,500.
+			it("fee rail prices the group per member: same-business 4,000, cross-business 5,000, −500 per working-team member", async () => {
+				// Arrange — main (general, biz A) + same-biz committee + cross-biz general:
+				// subtotal 5,000 + 4,000 + 5,000 = 14,000; discount 1×500 → total 13,500.
 				const { settleDebounce } = renderDialog({})
 				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
 				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
@@ -614,25 +614,37 @@ describe("RenewalFormDialog", () => {
 
 				// Assert — rail.
 				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (3 คน)")).toBeTruthy()
-				expect(screen.getByText("13,000")).toBeTruthy()
+				expect(screen.getByText("14,000")).toBeTruthy()
 				expect(screen.getByText("ส่วนลดคณะทำงาน (1 คน × 500)")).toBeTruthy()
 				expect(screen.getByText("−500")).toBeTruthy()
-				expect(screen.getByText("12,500 ฿")).toBeTruthy()
+				expect(screen.getByText("13,500 ฿")).toBeTruthy()
 
 				// Assert — footer total.
 				const footerTotal = screen.getByText(/รวมทั้งสิ้น/)
-				expect(footerTotal.textContent?.includes("12,500")).toBe(true)
+				expect(footerTotal.textContent?.includes("13,500")).toBe(true)
 			})
 
-			it("solo stays 5,000 and main+1 general member reads (2 คน) 9,000", async () => {
-				// Arrange — main + one general additional: 5,000 + 4,000, no discount.
+			it("same-business additional gets the 4,000 rate — main + one same-biz general reads (2 คน) 9,000", async () => {
+				// Arrange — main + one general additional from the SAME business: 5,000 + 4,000, no discount.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมพร ใจเย็น/, settleDebounce)
+
+				// Assert
+				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (2 คน)")).toBeTruthy()
+				expect(screen.getByText("9,000 ฿")).toBeTruthy()
+				expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
+			})
+
+			it("cross-business additional pays the full 5,000 — main + one other-biz general reads (2 คน) 10,000", async () => {
+				// Arrange — main + one general additional from ANOTHER business: 5,000 + 5,000, no discount.
 				const { settleDebounce } = renderDialog({})
 				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
 				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
 
 				// Assert
 				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (2 คน)")).toBeTruthy()
-				expect(screen.getByText("9,000 ฿")).toBeTruthy()
+				expect(screen.getByText("10,000 ฿")).toBeTruthy()
 				expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
 			})
 
@@ -659,7 +671,7 @@ describe("RenewalFormDialog", () => {
 			})
 
 			it("member success screen lists every renewed name joined and repeats the group total", async () => {
-				// Arrange — main + committee + other-business general (total 12,500).
+				// Arrange — main + same-biz committee + cross-biz general (total 13,500).
 				const { settleDebounce } = renderDialog({})
 				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
 				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
@@ -673,13 +685,13 @@ describe("RenewalFormDialog", () => {
 
 				// Assert
 				expect(screen.getByText(/ต่ออายุ: นายสมชาย ใจดี, นายสมศรี ใจสู้, นายสมหมาย ใจเร็ว/)).toBeTruthy()
-				expect(screen.getByText("ยอดชำระ: 12,500 บาท")).toBeTruthy()
+				expect(screen.getByText("ยอดชำระ: 13,500 บาท")).toBeTruthy()
 				expect(screen.getByText("สถานะ: รอตรวจสอบการโอนเงิน")).toBeTruthy()
 			})
 
 			it("manual success screen lists the group names and total under ต่ออายุสำเร็จ", async () => {
-				// Arrange — manual main 202 (preselected, general) + one additional (general):
-				// 5,000 + 4,000, no committee discount.
+				// Arrange — manual main 202 (preselected, general, business UNKNOWN) + one
+				// additional (general): unknown business prices at full 5,000 → 10,000, no discount.
 				const { settleDebounce } = renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
 				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
 				await stageSlipFile(pngFile())
@@ -691,8 +703,19 @@ describe("RenewalFormDialog", () => {
 
 				// Assert
 				expect(screen.getByText(/ต่ออายุ: นางสาวสมหญิง ใจงาม, นายสมหมาย ใจเร็ว/)).toBeTruthy()
-				expect(screen.getByText("ยอดชำระ: 9,000 บาท")).toBeTruthy()
+				expect(screen.getByText("ยอดชำระ: 10,000 บาท")).toBeTruthy()
 				expect(screen.getByText("สถานะ: ต่ออายุสำเร็จ (ปกติ)")).toBeTruthy()
+			})
+
+			it("manual mode prices every additional at 5,000 — the main's business is unknown, so no same-business rate", async () => {
+				// Arrange — manual main (business unknown) + one additional.
+				const { settleDebounce } = renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
+				await pickAdditionalMember(/นายสมพร ใจเย็น/, settleDebounce)
+
+				// Assert — even a plausibly-same-business pick prices at full rate.
+				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (2 คน)")).toBeTruthy()
+				expect(screen.getByText("10,000 ฿")).toBeTruthy()
+				expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
 			})
 		})
 

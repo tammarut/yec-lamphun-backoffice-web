@@ -30,8 +30,15 @@ export function RenewalFeeBanner() {
 						<li className="flex items-start gap-2">
 							<HugeiconsIcon icon={CheckmarkCircleIcon} className="mt-0.5 size-4 shrink-0 opacity-80" />
 							<span>
-								<span className="font-semibold">สมาชิกเพิ่มเติม (ท่านที่ 2 ขึ้นไป)</span>
-								<span className="block text-xs opacity-90">ชำระ 4,000 บาท / คน — กิจการใดก็ได้</span>
+								<span className="font-semibold">กิจการเดียวกัน ท่านที่ 2</span>
+								<span className="block text-xs opacity-90">ลด 1,000 บาท (ชำระเพียง 4,000 บาท)</span>
+							</span>
+						</li>
+						<li className="flex items-start gap-2">
+							<HugeiconsIcon icon={InformationCircleIcon} className="mt-0.5 size-4 shrink-0 opacity-80" />
+							<span>
+								<span className="font-semibold">สมาชิกเพิ่มเติมต่างกิจการ</span>
+								<span className="block text-xs opacity-90">ชำระราคาปกติ 5,000 บาท / คน</span>
 							</span>
 						</li>
 						<li className="flex items-start gap-2">
