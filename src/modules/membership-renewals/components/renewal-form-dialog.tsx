@@ -21,13 +21,21 @@ import { cn } from "src/shared/lib/utils/utils"
 const MAX_SLIP_FILE_SIZE_BYTES = 7 * 1024 * 1024
 const SLIP_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"] as const
 
-/** Display-only fee rates (README §8 item 5 static copy — nothing is sent to the API). */
+/** Full per-member renewal rate (main member; also an additional from another business). */
 const FEE_PER_BUSINESS = 5000
+/** กิจการเดียวกัน ท่านที่ 2 ขึ้นไป — same-business additional-member rate (display-only). */
+const SAME_BUSINESS_ADDITIONAL_FEE = 4000
 /** คณะทำงาน YEC Lamphun discount per person (position ≠ GENERAL_MEMBER). */
 const WORKING_TEAM_DISCOUNT_PER_MEMBER = 500
 
 /** General-member position code — the only position without the working-team discount. */
 const GENERAL_MEMBER_POSITION = "GENERAL_MEMBER"
+
+/** ② caps at five additional members (one slip, six members total — ADR-0026). */
+const MAX_ADDITIONAL_MEMBERS = 5
+
+/** Amber non-blocking warning on a ② pick from a different business than the main member's. */
+const CROSS_BUSINESS_WARNING = "ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก"
 
 /** Static payment account (README §8 item 5 static copy); copied to the clipboard digits-only. */
 const BANK_ACCOUNT_DISPLAY = "207-8-13870-2"
@@ -80,6 +88,21 @@ export function expiredMembershipToFormMember(member: ExpiredMembershipResponse)
 	}
 }
 
+/**
+ * Same-business predicate — TRUE only when BOTH business names are known and
+ * equal. Drives both the amber cross-business warning (via the negation seen
+ * from the card) and the 4,000 same-business additional rate; an unknown
+ * business (manual-mode main) therefore prices at full 5,000 with no warning.
+ */
+function isSameBusiness(member: RenewalFormMember, main: RenewalFormMember | null): boolean {
+	return main !== null && member.businessName !== null && main.businessName !== null && member.businessName === main.businessName
+}
+
+/** Cross-business amber warning predicate (ADR-0026 §5: a warning, never a block). */
+function isCrossBusiness(member: RenewalFormMember, main: RenewalFormMember | null): boolean {
+	return main !== null && member.businessName !== null && main.businessName !== null && member.businessName !== main.businessName
+}
+
 /** The mockup's three missing-field summary items, in section order. */
 const MISSING_FIELD_LABELS = {
 	member: "เลือกสมาชิกที่ต่ออายุ",
@@ -120,10 +143,11 @@ type RenewalFormDialogProps = {
 }
 
 /**
- * The renewal form dialog (mockup v3, ①③④ + display-only right rail; ②
- * สมาชิกเพิ่มเติม stays deferred to #50). Submit is uploads-first: the slip
- * goes to POST /members/file/upload once, then the create endpoint receives
- * the returned `payment_slip_file_path` — the API takes only the opaque path.
+ * The renewal form dialog (mockup v3, ①②③④ + display-only right rail; ②
+ * สมาชิกเพิ่มเติม = #87's main + up to five additional members, one slip for
+ * all). Submit is uploads-first: the slip goes to POST /members/file/upload
+ * once, then the create endpoint receives the returned `payment_slip_file_path`
+ * and `member_ids` main-first (ADR-0026) — the API takes only the opaque path.
  * Rendered ONLY while open: every open mounts a fresh body, so form state
  * (selection, slip, consent, success screen) never leaks across opens.
  */
@@ -139,6 +163,8 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 	const createRenewal = useCreateRenewal()
 
 	const [selected, setSelected] = useState<RenewalFormMember | null>(preselectedMember)
+	const [additional, setAdditional] = useState<RenewalFormMember[]>([])
+	const [pickerOpen, setPickerOpen] = useState(false)
 	const [slip, setSlip] = useState<StagedSlip | null>(null)
 	const [slipError, setSlipError] = useState<string | null>(null)
 	const [consent, setConsent] = useState(false)
@@ -149,8 +175,17 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 	const [isUploading, setIsUploading] = useState(false)
 	const [copiedAccount, setCopiedAccount] = useState(false)
 
-	const committeeCount = selected !== null && selected.position !== GENERAL_MEMBER_POSITION ? 1 : 0
-	const total = selected !== null ? FEE_PER_BUSINESS - WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount : null
+	// Display-only fee math (nothing sent): main 5,000; each additional 4,000
+	// from the main's business, 5,000 otherwise (or when the business is
+	// unverifiable); −500 per working-team member across the whole group.
+	const group = [selected, ...additional]
+	const groupSize = 1 + additional.length
+	const additionalSubtotal = additional.reduce((sum, member) => sum + (isSameBusiness(member, selected) ? SAME_BUSINESS_ADDITIONAL_FEE : FEE_PER_BUSINESS), 0)
+	const subtotal = selected !== null ? FEE_PER_BUSINESS + additionalSubtotal : null
+	const committeeCount = group.filter((member) => member !== null && member.position !== GENERAL_MEMBER_POSITION).length
+	const total = subtotal !== null ? subtotal - WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount : null
+	/** Success-screen roster — every renewed name, main-first, joined per the mockup. */
+	const renewedNames = selected === null ? null : [selected, ...additional].map((member) => fullNameTh(member)).join(", ")
 
 	const missing: string[] = []
 	if (selected === null) {
@@ -189,6 +224,16 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 
 	const clearSlip = () => {
 		setSlip(null)
+	}
+
+	const addAdditional = (member: MemberListItemResponse) => {
+		setAdditional((previous) => [...previous, memberListItemToFormMember(member)])
+		setPickerOpen(false)
+		setSubmitAttempted(false)
+	}
+
+	const removeAdditional = (id: number) => {
+		setAdditional((previous) => previous.filter((member) => member.id !== id))
 	}
 
 	const handleCopyAccount = () => {
@@ -230,7 +275,13 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 		}
 
 		try {
-			await createRenewal.mutateAsync({ member_id: selected.id, payment_slip: slipPath, manual: isManual })
+			// Main-first display order (index 0 = main) — the only ordering the
+			// contract carries (ADR-0026 §4); the fee rail's roles are display-only.
+			await createRenewal.mutateAsync({
+				member_ids: [selected.id, ...additional.map((member) => member.id)],
+				payment_slip: slipPath,
+				manual: isManual,
+			})
 			setSucceeded(true)
 		} catch (error) {
 			setSubmitError(`ส่งข้อมูลไม่สำเร็จ: ${error instanceof ApiError ? error.message : "กรุณาลองใหม่อีกครั้ง"}`)
@@ -261,7 +312,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 						</span>
 						<h3 className="text-2xl font-bold">{isManual ? "ต่ออายุสำเร็จ" : "ส่งข้อมูลเรียบร้อยแล้ว"}</h3>
 						<div className="text-muted-foreground space-y-1 text-sm">
-							{selected !== null && <p>ต่ออายุ: {fullNameTh(selected)}</p>}
+							{renewedNames !== null && <p>ต่ออายุ: {renewedNames}</p>}
 							<p className="text-foreground text-base font-bold">ยอดชำระ: {total?.toLocaleString()} บาท</p>
 							<p>สถานะ: {isManual ? "ต่ออายุสำเร็จ (ปกติ)" : "รอตรวจสอบการโอนเงิน"}</p>
 						</div>
@@ -312,7 +363,12 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 											{!isManual && (
 												<button
 													type="button"
-													onClick={() => setSelected(null)}
+													onClick={() => {
+														// Additionals survive a main swap (user decision #87) —
+														// warnings and the fee recompute against the new main.
+														setSelected(null)
+														setPickerOpen(false)
+													}}
 													className="text-muted-foreground hover:text-destructive p-1.5"
 													aria-label="เปลี่ยนสมาชิก"
 													title="เปลี่ยนสมาชิก"
@@ -326,10 +382,80 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 										<RenewalMemberCombobox
 											onSelect={(member) => {
 												setSelected(memberListItemToFormMember(member))
+												setPickerOpen(false)
 												setSubmitAttempted(false)
 											}}
 										/>
 									)}
+								</div>
+
+								{/* ② สมาชิกเพิ่มเติม (#87) — label always visible; the picker
+								    appears only after a main member exists and caps at five.
+								    Same-business is a warning only (ADR-0026 §5), never a block. */}
+								<div>
+									<label className="mb-1 block text-sm font-medium">
+										② สมาชิกเพิ่มเติม <span className="text-muted-foreground text-xs font-normal">(4,000 บาท/คน)</span>
+									</label>
+									<div className="space-y-2">
+										{additional.map((member) => (
+											<div key={member.id} data-slot="renewal-form-additional-member" className="border-border flex items-center gap-3 rounded-xl border p-3">
+												<Avatar className="size-9 shrink-0">
+													{member.profile_avatar !== null && <AvatarImage src={member.profile_avatar} alt={fullNameTh(member)} />}
+													<AvatarFallback>{member.first_name_th.charAt(0)}</AvatarFallback>
+												</Avatar>
+												<div className="min-w-0 flex-1">
+													<div className="truncate text-sm font-bold">
+														{fullNameTh(member)}
+														{member.nickname !== "" && <span className="text-muted-foreground font-normal"> ({member.nickname})</span>}
+													</div>
+													{member.businessName !== null && <div className="text-muted-foreground truncate text-xs">{member.businessName}</div>}
+													{isCrossBusiness(member, selected) && (
+														<div className="text-warning mt-0.5 flex items-center gap-1 text-xs" data-slot="renewal-form-cross-business-warning">
+															<HugeiconsIcon icon={Alert02Icon} className="size-3.5 shrink-0" />
+															{CROSS_BUSINESS_WARNING}
+														</div>
+													)}
+												</div>
+												<button
+													type="button"
+													onClick={() => {
+														removeAdditional(member.id)
+														setSubmitAttempted(false)
+													}}
+													className="text-muted-foreground hover:text-destructive p-1"
+													aria-label={`นำ ${fullNameTh(member)} ออก`}
+													title="นำสมาชิกออก"
+													data-slot="renewal-form-remove-additional"
+												>
+													<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+												</button>
+											</div>
+										))}
+										{selected !== null &&
+											additional.length < MAX_ADDITIONAL_MEMBERS &&
+											(pickerOpen ? (
+												<RenewalMemberCombobox
+													onSelect={addAdditional}
+													excludeIds={[selected.id, ...additional.map((member) => member.id)]}
+													ariaLabel="ค้นหาสมาชิกเพิ่มเติม"
+													placeholder="ค้นหาสมาชิกเพิ่มเติม..."
+													inputDataSlot="renewal-additional-search"
+													optionDataSlot="renewal-additional-option"
+												/>
+											) : (
+												<button
+													type="button"
+													onClick={() => {
+														setPickerOpen(true)
+														setSubmitAttempted(false)
+													}}
+													className="border-border text-muted-foreground hover:border-primary hover:text-primary w-full rounded-xl border border-dashed py-2 text-sm transition"
+													data-slot="renewal-form-open-additional-picker"
+												>
+													+ เพิ่มสมาชิก
+												</button>
+											))}
+									</div>
 								</div>
 
 								{/* ③ หลักฐานการโอนเงิน (Slip) */}
@@ -422,8 +548,8 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 									<p className="mb-2 text-sm font-bold">สรุปค่าธรรมเนียม</p>
 									<div className="space-y-1.5 text-sm">
 										<div className="text-muted-foreground flex justify-between">
-											<span>ค่าธรรมเนียมต่ออายุ (1 คน)</span>
-											<span className="text-foreground font-semibold">{FEE_PER_BUSINESS.toLocaleString()}</span>
+											<span>ค่าธรรมเนียมต่ออายุ ({groupSize} คน)</span>
+											<span className="text-foreground font-semibold">{subtotal === null ? "—" : subtotal.toLocaleString()}</span>
 										</div>
 										<div className="text-success flex justify-between">
 											<span>

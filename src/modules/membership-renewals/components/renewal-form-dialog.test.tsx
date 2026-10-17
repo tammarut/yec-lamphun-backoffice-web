@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import { RenewalFormDialog, expiredMembershipToFormMember } from "src/modules/membership-renewals/components/renewal-form-dialog"
+import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import type { MemberListItemResponse, ListMembersPageResponse } from "src/modules/members/use-case/get-list-members/get-list-members.types"
 
 function jsonResponse(status: number, body?: unknown) {
@@ -28,7 +29,46 @@ const MEMBER: MemberListItemResponse = {
 	business: { name: "ร้านสมชายการค้า", description: "" },
 }
 
-const MEMBER_PAGE: ListMembersPageResponse = { data: [MEMBER], has_more: false, next_cursor: null }
+/** Fixture factory over MEMBER's shape — id/name/business/position overrides only. */
+function memberFixture(overrides: Partial<MemberListItemResponse> & Pick<MemberListItemResponse, "id" | "first_name_th" | "last_name_th">): MemberListItemResponse {
+	return {
+		...MEMBER,
+		nickname: "",
+		phone_no: "080-000-0000",
+		...overrides,
+	}
+}
+
+/** Working-team member (position ≠ GENERAL_MEMBER) from the MAIN member's business — earns the −500 discount. */
+const MEMBER_COMMITTEE = memberFixture({ id: 102, first_name_th: "สมศรี", last_name_th: "ใจสู้", nickname: "ศรี", position: "PRESIDENT" })
+/** General member from a DIFFERENT business — triggers the amber cross-business warning. */
+const MEMBER_OTHER_BIZ = memberFixture({ id: 103, first_name_th: "สมหมาย", last_name_th: "ใจเร็ว", business: { name: "กิจการอื่น จำกัด", description: "" } })
+const MEMBER_104 = memberFixture({ id: 104, first_name_th: "สมพร", last_name_th: "ใจเย็น" })
+const MEMBER_105 = memberFixture({ id: 105, first_name_th: "สมควร", last_name_th: "ใจดำ" })
+const MEMBER_106 = memberFixture({ id: 106, first_name_th: "สมดี", last_name_th: "ใจงาม" })
+
+const MEMBER_PAGE: ListMembersPageResponse = {
+	data: [MEMBER, MEMBER_COMMITTEE, MEMBER_OTHER_BIZ, MEMBER_104, MEMBER_105, MEMBER_106],
+	has_more: false,
+	next_cursor: null,
+}
+
+/** Expired-worklist row for manual-mode tests — carries NO business name (the API gap that suppresses the ② warning). */
+const MANUAL_MEMBER_ROW = {
+	id: 202,
+	profile_avatar: null,
+	title_name_th: "นางสาว",
+	first_name_th: "สมหญิง",
+	last_name_th: "ใจงาม",
+	nickname: "หญิง",
+	phone_no: "089-888-8888",
+	position: "GENERAL_MEMBER",
+	status: "EXPIRED",
+	latest_renewal_status: null,
+	member_since: "2024-06-01T00:00:00.000Z",
+	rejection_reason: null,
+	rejected_at: null,
+} satisfies ExpiredMembershipResponse
 
 const UPLOAD_BODY = {
 	id_card_image_file_path: null,
@@ -80,7 +120,7 @@ function renderDialog(options: { mode?: "member" | "manual"; preselectedMember?:
 			<RenewalFormDialog mode={options.mode ?? "member"} preselectedMember={options.preselectedMember ?? null} open={true} onClose={onClose} />
 		</QueryClientProvider>
 	)
-	const settleDebounce = () => new Promise((resolve) => setTimeout(resolve, 350))
+	const settleDebounce = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 350))
 	return { fetchMock, settleDebounce, onClose, ...view }
 }
 
@@ -93,6 +133,21 @@ function pickSlipFile(file: File) {
 async function stageSlipFile(file: File) {
 	pickSlipFile(file)
 	await screen.findByText(/ไฟล์ที่เลือก:/)
+}
+
+/** Search-and-pick in the ① main combobox (the only combobox while no member is selected). */
+async function pickMainMember(name: RegExp, settleDebounce: () => Promise<void>) {
+	fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+	await settleDebounce()
+	fireEvent.click(await screen.findByRole("option", { name }))
+}
+
+/** Open ②'s dashed button, search, and pick — the ② combobox is the only one while the main card shows. */
+async function pickAdditionalMember(name: RegExp, settleDebounce: () => Promise<void>) {
+	fireEvent.click(screen.getByRole("button", { name: "+ เพิ่มสมาชิก" }))
+	fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+	await settleDebounce()
+	fireEvent.click(await screen.findByRole("option", { name }))
 }
 
 beforeEach(() => {
@@ -247,8 +302,8 @@ describe("RenewalFormDialog", () => {
 					return jsonResponse(200, UPLOAD_BODY)
 				}
 				if (url === "/api/v1/membership/renewals/manual") {
-					// Manual still returns the OLD `{ id }` body until #85 — keep the
-					// stub faithful to the live contract.
+					// Minimal 201 body — the ADR-0026 shape is { renewals, group_id }
+					// but this flow never reads it back.
 					return jsonResponse(201, { id: 5001 })
 				}
 				return jsonResponse(404)
@@ -427,6 +482,262 @@ describe("RenewalFormDialog", () => {
 
 			// Assert
 			expect(screen.getByText(/รองรับเฉพาะไฟล์รูปภาพ/)).toBeTruthy()
+		})
+	})
+
+	describe("สมาชิกเพิ่มเติม ② — additional-member picker (#87)", () => {
+		describe("Happy cases", () => {
+			it("② label is always visible but the picker appears only after a main member is chosen", async () => {
+				// Arrange
+				const { settleDebounce } = renderDialog({})
+				expect(screen.getByText(/② สมาชิกเพิ่มเติม/)).toBeTruthy()
+
+				// Assert — gated before the main member exists.
+				expect(screen.queryByRole("button", { name: "+ เพิ่มสมาชิก" })).toBeNull()
+
+				// Act
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+
+				// Assert
+				expect(screen.getByRole("button", { name: "+ เพิ่มสมาชิก" })).toBeTruthy()
+			})
+
+			it("candidate list excludes the main member and already-picked additionals", async () => {
+				// Arrange — main 101 + additional 102 picked.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+
+				// Act — reopen the picker for the third pick.
+				fireEvent.click(screen.getByRole("button", { name: "+ เพิ่มสมาชิก" }))
+				fireEvent.change(screen.getByRole("combobox"), { target: { value: "สม" } })
+				await settleDebounce()
+				const options = await screen.findAllByRole("option")
+				const optionIds = options.map((option) => option.getAttribute("data-member-id"))
+
+				// Assert — 101/102 absent, unselected members still offered.
+				expect(optionIds).not.toContain("101")
+				expect(optionIds).not.toContain("102")
+				expect(optionIds).toContain("103")
+			})
+
+			it("caps at five additional members — the pick affordance disappears at the cap", async () => {
+				// Arrange — main + five additionals (the contract's 1..6 maximum).
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+				await pickAdditionalMember(/นายสมพร ใจเย็น/, settleDebounce)
+				await pickAdditionalMember(/นายสมควร ใจดำ/, settleDebounce)
+				await pickAdditionalMember(/นายสมดี ใจงาม/, settleDebounce)
+
+				// Assert — five additional cards + the pick affordance is gone.
+				expect(screen.queryByRole("button", { name: "+ เพิ่มสมาชิก" })).toBeNull()
+				expect(document.querySelectorAll('[data-slot="renewal-form-additional-member"]').length).toBe(5)
+			})
+
+			it("removing an additional member re-opens the pick affordance", async () => {
+				// Arrange — main + one additional.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+				expect(screen.getByText(/นายสมศรี ใจสู้/)).toBeTruthy()
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /นำ นายสมศรี ใจสู้ ออก/ }))
+
+				// Assert — card gone, pick affordance back.
+				expect(screen.queryByText(/นายสมศรี ใจสู้/)).toBeNull()
+				expect(screen.getByRole("button", { name: "+ เพิ่มสมาชิก" })).toBeTruthy()
+			})
+
+			it("clearing the main member keeps the additionals (they re-gate the picker)", async () => {
+				// Arrange — main + one additional, then swap the main out.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: "เปลี่ยนสมาชิก" }))
+
+				// Assert — the additional card survives; the picker is gated again.
+				expect(screen.getByText(/นายสมศรี ใจสู้/)).toBeTruthy()
+				expect(screen.queryByRole("button", { name: "+ เพิ่มสมาชิก" })).toBeNull()
+			})
+
+			it("amber cross-business warning renders on a different-business pick and never blocks submission", async () => {
+				// Arrange — main 101 (ร้านสมชายการค้า) + additional 103 (กิจการอื่น).
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+
+				expect(screen.getByText("ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก")).toBeTruthy()
+
+				// Act — a warned group still submits end to end.
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+				fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+
+				// Assert
+				expect(await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeTruthy()
+			})
+
+			it("same-business pick shows no warning", async () => {
+				// Arrange — both from ร้านสมชายการค้า.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+
+				// Assert
+				expect(screen.queryByText("ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก")).toBeNull()
+			})
+
+			it("manual mode suppresses the warning — the preselect carries no business name", async () => {
+				// Arrange — manual main has businessName null; pick a cross-business member anyway.
+				const { settleDebounce } = renderDialog({
+					mode: "manual",
+					preselectedMember: expiredMembershipToFormMember({ ...MANUAL_MEMBER_ROW, position: "TREASURER" }),
+				})
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+
+				// Assert — cross-business pick, but the main's business is unknown.
+				expect(screen.queryByText("ไม่ได้อยู่กิจการเดียวกันกับสมาชิกหลัก")).toBeNull()
+			})
+
+			it("fee rail prices the group per member: same-business 4,000, cross-business 5,000, −500 per working-team member", async () => {
+				// Arrange — main (general, biz A) + same-biz committee + cross-biz general:
+				// subtotal 5,000 + 4,000 + 5,000 = 14,000; discount 1×500 → total 13,500.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+
+				// Assert — rail.
+				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (3 คน)")).toBeTruthy()
+				expect(screen.getByText("14,000")).toBeTruthy()
+				expect(screen.getByText("ส่วนลดคณะทำงาน (1 คน × 500)")).toBeTruthy()
+				expect(screen.getByText("−500")).toBeTruthy()
+				expect(screen.getByText("13,500 ฿")).toBeTruthy()
+
+				// Assert — footer total.
+				const footerTotal = screen.getByText(/รวมทั้งสิ้น/)
+				expect(footerTotal.textContent?.includes("13,500")).toBe(true)
+			})
+
+			it("same-business additional gets the 4,000 rate — main + one same-biz general reads (2 คน) 9,000", async () => {
+				// Arrange — main + one general additional from the SAME business: 5,000 + 4,000, no discount.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมพร ใจเย็น/, settleDebounce)
+
+				// Assert
+				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (2 คน)")).toBeTruthy()
+				expect(screen.getByText("9,000 ฿")).toBeTruthy()
+				expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
+			})
+
+			it("cross-business additional pays the full 5,000 — main + one other-biz general reads (2 คน) 10,000", async () => {
+				// Arrange — main + one general additional from ANOTHER business: 5,000 + 5,000, no discount.
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+
+				// Assert
+				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (2 คน)")).toBeTruthy()
+				expect(screen.getByText("10,000 ฿")).toBeTruthy()
+				expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
+			})
+
+			it("submits member_ids main-first in one create POST", async () => {
+				// Arrange
+				const { fetchMock, settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+				await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")
+
+				// Assert
+				const createIndex = fetchMock.mock.calls.findIndex(([url]) => String(url) === "/api/v1/membership/renewals")
+				expect(createIndex).toBeGreaterThanOrEqual(0)
+				expect(JSON.parse(String(fetchMock.mock.calls[createIndex]?.[1]?.body))).toEqual({
+					member_ids: [101, 102, 103],
+					payment_slip: "members/documents/payment_slip_test.jpg",
+				})
+			})
+
+			it("member success screen lists every renewed name joined and repeats the group total", async () => {
+				// Arrange — main + same-biz committee + cross-biz general (total 13,500).
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+				await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")
+
+				// Assert
+				expect(screen.getByText(/ต่ออายุ: นายสมชาย ใจดี, นายสมศรี ใจสู้, นายสมหมาย ใจเร็ว/)).toBeTruthy()
+				expect(screen.getByText("ยอดชำระ: 13,500 บาท")).toBeTruthy()
+				expect(screen.getByText("สถานะ: รอตรวจสอบการโอนเงิน")).toBeTruthy()
+			})
+
+			it("manual success screen lists the group names and total under ต่ออายุสำเร็จ", async () => {
+				// Arrange — manual main 202 (preselected, general, business UNKNOWN) + one
+				// additional (general): unknown business prices at full 5,000 → 10,000, no discount.
+				const { settleDebounce } = renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
+				await screen.findByText("ต่ออายุสำเร็จ")
+
+				// Assert
+				expect(screen.getByText(/ต่ออายุ: นางสาวสมหญิง ใจงาม, นายสมหมาย ใจเร็ว/)).toBeTruthy()
+				expect(screen.getByText("ยอดชำระ: 10,000 บาท")).toBeTruthy()
+				expect(screen.getByText("สถานะ: ต่ออายุสำเร็จ (ปกติ)")).toBeTruthy()
+			})
+
+			it("manual mode prices every additional at 5,000 — the main's business is unknown, so no same-business rate", async () => {
+				// Arrange — manual main (business unknown) + one additional.
+				const { settleDebounce } = renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
+				await pickAdditionalMember(/นายสมพร ใจเย็น/, settleDebounce)
+
+				// Assert — even a plausibly-same-business pick prices at full rate.
+				expect(screen.getByText("ค่าธรรมเนียมต่ออายุ (2 คน)")).toBeTruthy()
+				expect(screen.getByText("10,000 ฿")).toBeTruthy()
+				expect(screen.getByText("ส่วนลดคณะทำงาน (0 คน × 500)")).toBeTruthy()
+			})
+		})
+
+		describe("Unhappy cases", () => {
+			it("grouped all-or-nothing rejection surfaces the API error_message inline", async () => {
+				// Arrange — the batch POST will 409 naming the offending member.
+				const { settleDebounce } = renderDialog({
+					renewalsResponse: () => jsonResponse(409, { error_message: "Member 103 already has a pending renewal" }),
+				})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+
+				// Assert — no success screen; the named-member reason shows inline.
+				expect(await screen.findByText("ส่งข้อมูลไม่สำเร็จ")).toBeTruthy()
+				expect(screen.getByText(/Member 103 already has a pending renewal/)).toBeTruthy()
+				expect(screen.queryByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeNull()
+			})
 		})
 	})
 })

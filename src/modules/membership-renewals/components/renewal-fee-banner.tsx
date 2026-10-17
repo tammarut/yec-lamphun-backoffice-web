@@ -35,6 +35,13 @@ export function RenewalFeeBanner() {
 							</span>
 						</li>
 						<li className="flex items-start gap-2">
+							<HugeiconsIcon icon={InformationCircleIcon} className="mt-0.5 size-4 shrink-0 opacity-80" />
+							<span>
+								<span className="font-semibold">สมาชิกเพิ่มเติมต่างกิจการ</span>
+								<span className="block text-xs opacity-90">ชำระราคาปกติ 5,000 บาท / คน</span>
+							</span>
+						</li>
+						<li className="flex items-start gap-2">
 							<HugeiconsIcon icon={CheckmarkCircleIcon} className="mt-0.5 size-4 shrink-0 opacity-80" />
 							<span>
 								<span className="font-semibold">คณะทำงาน YEC Lamphun</span>
