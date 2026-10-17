@@ -176,6 +176,8 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 	const subtotal = selected !== null ? FEE_PER_BUSINESS + ADDITIONAL_FEE_PER_MEMBER * additional.length : null
 	const committeeCount = [selected, ...additional].filter((member) => member !== null && member.position !== GENERAL_MEMBER_POSITION).length
 	const total = subtotal !== null ? subtotal - WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount : null
+	/** Success-screen roster — every renewed name, main-first, joined per the mockup. */
+	const renewedNames = selected === null ? null : [selected, ...additional].map((member) => fullNameTh(member)).join(", ")
 
 	const missing: string[] = []
 	if (selected === null) {
@@ -302,7 +304,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, open, onClose }
 						</span>
 						<h3 className="text-2xl font-bold">{isManual ? "ต่ออายุสำเร็จ" : "ส่งข้อมูลเรียบร้อยแล้ว"}</h3>
 						<div className="text-muted-foreground space-y-1 text-sm">
-							{selected !== null && <p>ต่ออายุ: {fullNameTh(selected)}</p>}
+							{renewedNames !== null && <p>ต่ออายุ: {renewedNames}</p>}
 							<p className="text-foreground text-base font-bold">ยอดชำระ: {total?.toLocaleString()} บาท</p>
 							<p>สถานะ: {isManual ? "ต่ออายุสำเร็จ (ปกติ)" : "รอตรวจสอบการโอนเงิน"}</p>
 						</div>

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import { RenewalFormDialog, expiredMembershipToFormMember } from "src/modules/membership-renewals/components/renewal-form-dialog"
+import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import type { MemberListItemResponse, ListMembersPageResponse } from "src/modules/members/use-case/get-list-members/get-list-members.types"
 
 function jsonResponse(status: number, body?: unknown) {
@@ -51,6 +52,23 @@ const MEMBER_PAGE: ListMembersPageResponse = {
 	has_more: false,
 	next_cursor: null,
 }
+
+/** Expired-worklist row for manual-mode tests — carries NO business name (the API gap that suppresses the ② warning). */
+const MANUAL_MEMBER_ROW = {
+	id: 202,
+	profile_avatar: null,
+	title_name_th: "นางสาว",
+	first_name_th: "สมหญิง",
+	last_name_th: "ใจงาม",
+	nickname: "หญิง",
+	phone_no: "089-888-8888",
+	position: "GENERAL_MEMBER",
+	status: "EXPIRED",
+	latest_renewal_status: null,
+	member_since: "2024-06-01T00:00:00.000Z",
+	rejection_reason: null,
+	rejected_at: null,
+} satisfies ExpiredMembershipResponse
 
 const UPLOAD_BODY = {
 	id_card_image_file_path: null,
@@ -652,6 +670,44 @@ describe("RenewalFormDialog", () => {
 					member_ids: [101, 102, 103],
 					payment_slip: "members/documents/payment_slip_test.jpg",
 				})
+			})
+
+			it("member success screen lists every renewed name joined and repeats the group total", async () => {
+				// Arrange — main + committee + other-business general (total 12,500).
+				const { settleDebounce } = renderDialog({})
+				await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+				await pickAdditionalMember(/นายสมศรี ใจสู้/, settleDebounce)
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, settleDebounce)
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /ส่งข้อมูล/ }))
+				await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")
+
+				// Assert
+				expect(screen.getByText(/ต่ออายุ: นายสมชาย ใจดี, นายสมศรี ใจสู้, นายสมหมาย ใจเร็ว/)).toBeTruthy()
+				expect(screen.getByText("ยอดชำระ: 12,500 บาท")).toBeTruthy()
+				expect(screen.getByText("สถานะ: รอตรวจสอบการโอนเงิน")).toBeTruthy()
+			})
+
+			it("manual success screen lists the group names and total under ต่ออายุสำเร็จ", async () => {
+				// Arrange — manual main 202 (preselected, general) + one additional (general):
+				// 5,000 + 4,000, no committee discount.
+				renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW) })
+				const manualSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 350))
+				await pickAdditionalMember(/นายสมหมาย ใจเร็ว/, manualSettle)
+				await stageSlipFile(pngFile())
+				fireEvent.click(screen.getByRole("checkbox"))
+
+				// Act
+				fireEvent.click(screen.getByRole("button", { name: /อนุมัติ/ }))
+				await screen.findByText("ต่ออายุสำเร็จ")
+
+				// Assert
+				expect(screen.getByText(/ต่ออายุ: นางสาวสมหญิง ใจงาม, นายสมหมาย ใจเร็ว/)).toBeTruthy()
+				expect(screen.getByText("ยอดชำระ: 9,000 บาท")).toBeTruthy()
+				expect(screen.getByText("สถานะ: ต่ออายุสำเร็จ (ปกติ)")).toBeTruthy()
 			})
 		})
 
