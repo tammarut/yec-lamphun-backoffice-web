@@ -6,6 +6,7 @@ import { CheckmarkCircleIcon, Refresh01Icon, Search01Icon, ViewIcon } from "@hug
 import { useQueryClient } from "@tanstack/react-query"
 
 import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
+import { RenewalGroupBadge } from "src/modules/membership-renewals/components/renewal-group-badge"
 import { fullNameTh, positionLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import { RenewalStatusBadge } from "src/modules/membership-renewals/components/renewal-status-badge"
 import { ReviewDialog, type ReviewDialogTarget } from "src/modules/membership-renewals/components/review-dialog"
@@ -132,6 +133,11 @@ export function RenewalTable({ status }: RenewalTableProps) {
 														{row.nickname !== "" && <span className="text-muted-foreground font-normal"> ({row.nickname})</span>}
 													</div>
 													<div className="text-muted-foreground text-sm">{row.phone_no}</div>
+													{row.group_size > 1 && (
+														<div className="mt-1">
+															<RenewalGroupBadge groupSize={row.group_size} />
+														</div>
+													)}
 												</div>
 											</div>
 										</TableCell>

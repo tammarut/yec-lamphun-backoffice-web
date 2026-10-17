@@ -1732,7 +1732,9 @@
 													"position": "VP_DATA_REGISTRATION",
 													"status": "PENDING_REVIEW",
 													"member_since": "2019-12-20T16:45:39.000Z",
-													"payment_date_at": "2025-12-18T07:30:00.000Z"
+													"payment_date_at": "2025-12-18T07:30:00.000Z",
+													"group_id": null,
+													"group_size": 1
 												},
 												{
 													"id": 1,
@@ -1746,7 +1748,9 @@
 													"position": "GENERAL_MEMBER",
 													"status": "PENDING_REVIEW",
 													"member_since": "2020-12-20T16:45:39.000Z",
-													"payment_date_at": "2025-12-01T07:30:00.000Z"
+													"payment_date_at": "2025-12-01T07:30:00.000Z",
+													"group_id": null,
+													"group_size": 1
 												}
 											]
 										}
@@ -1769,7 +1773,50 @@
 													"position": "SECRETARY",
 													"status": "APPROVED",
 													"member_since": "2021-03-15T04:20:11.000Z",
-													"payment_date_at": "2025-11-27T03:05:00.000Z"
+													"payment_date_at": "2025-11-27T03:05:00.000Z",
+													"group_id": null,
+													"group_size": 1
+												}
+											]
+										}
+									},
+									"3": {
+										"summary": "Renewal Group rows (badge ส่งพร้อมกัน N คน)",
+										"value": {
+											"has_more": false,
+											"next_cursor": null,
+											"data": [
+												{
+													"id": 21,
+													"renewal_id": 98,
+													"profile_avatar": null,
+													"title_name_th": "นาย",
+													"first_name_th": "ธีรภัทร",
+													"last_name_th": "ปลูกผัก",
+													"nickname": "ธีร์",
+													"phone_no": "0851112221",
+													"position": "COMMITTEE_MEMBER",
+													"status": "PENDING_REVIEW",
+													"member_since": "2022-01-08T17:00:00.000Z",
+													"payment_date_at": "2026-10-10T04:00:00.000Z",
+													"group_id": "019a1433-588d-7047-b705-7ada8c14b073",
+													"group_size": 2
+												},
+												{
+													"id": 22,
+													"renewal_id": 99,
+													"profile_avatar": null,
+													"title_name_th": "นางสาว",
+													"first_name_th": "แพรวา",
+													"last_name_th": "มีสุข",
+													"nickname": "แพรว",
+													"phone_no": "0851112222",
+													"position": "GENERAL_MEMBER",
+													"status": "PENDING_REVIEW",
+													"member_since": "2022-01-08T17:00:00.000Z",
+													"payment_date_at": "2026-10-10T04:00:00.000Z",
+													"group_id": "019a1433-588d-7047-b705-7ada8c14b073",
+													"group_size": 2
 												}
 											]
 										}
@@ -2014,13 +2061,13 @@
 									"6": {
 										"summary": "status = PENDING_RENEWAL (pre-check)",
 										"value": {
-											"error_message": "member_id <id> already has a pending renewal request"
+											"error_message": "member_id 9 already has a pending renewal request"
 										}
 									},
 									"7": {
 										"summary": "Unique-violation 23505 on INSERT",
 										"value": {
-											"error_message": "member_id <id> already has a pending renewal request"
+											"error_message": "member_id 8 already has a pending renewal request"
 										}
 									}
 								}
@@ -3784,6 +3831,17 @@
 					"payment_date_at": {
 						"type": "string",
 						"format": "date-time"
+					},
+					"group_id": {
+						"type": ["string", "null"],
+						"format": "uuid",
+						"description": "Renewal Group marker shared by every renewal created by one bulk submission (ADR-0026); null = solo submission."
+					},
+					"group_size": {
+						"type": "integer",
+						"format": "uint",
+						"minimum": 1,
+						"description": "Live renewals sharing this row's group_id — the whole payment group, independent of the list's status/search filters; solo rows report 1. Drives the worklist's ส่งพร้อมกัน N คน / สลิปใบเดียวกัน badge (shown when > 1)."
 					}
 				},
 				"required": [
@@ -3798,7 +3856,9 @@
 					"status",
 					"member_since",
 					"payment_date_at",
-					"renewal_id"
+					"renewal_id",
+					"group_id",
+					"group_size"
 				]
 			},
 			"SingleRenewalResponse": {

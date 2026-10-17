@@ -19,6 +19,7 @@ const baseFilter: ListMembershipRenewalFilter = {
 
 // Two representative rows. Row A has an avatar key (URL gets resolved); row B
 // has a null avatar (passes through as null without touching the resolver).
+// Both are solo submissions (group_id null, group_size 1).
 const rowA: MembershipRenewalListRow = {
 	id: 2,
 	renewalId: 71,
@@ -32,6 +33,8 @@ const rowA: MembershipRenewalListRow = {
 	status: "PENDING_REVIEW",
 	memberSince: new Date("2019-12-20T16:45:39.000Z"),
 	paymentDateAt: new Date("2025-12-18T07:30:00.000Z"),
+	groupId: null,
+	groupSize: 1,
 }
 const rowB: MembershipRenewalListRow = {
 	id: 1,
@@ -46,6 +49,21 @@ const rowB: MembershipRenewalListRow = {
 	status: "PENDING_REVIEW",
 	memberSince: new Date("2020-12-20T16:45:39.000Z"),
 	paymentDateAt: new Date("2025-12-01T07:30:00.000Z"),
+	groupId: null,
+	groupSize: 1,
+}
+// A Renewal Group member (ADR-0026): the latest renewal carries the shared
+// marker and the query's sibling count — the badge's data.
+const rowC: MembershipRenewalListRow = {
+	...rowB,
+	id: 3,
+	renewalId: 72,
+	firstNameTh: "ธีรภัทร",
+	nickname: "ธีร์",
+	phoneNo: "0851112221",
+	positionCode: "COMMITTEE_MEMBER",
+	groupId: "019a1433-588d-7047-b705-7ada8c14b073",
+	groupSize: 3,
 }
 
 describe("GetListMembershipRenewalService", () => {
@@ -92,6 +110,8 @@ describe("GetListMembershipRenewalService", () => {
 					status: "PENDING_REVIEW",
 					member_since: "2019-12-20T16:45:39.000Z", // ISO string
 					payment_date_at: "2025-12-18T07:30:00.000Z", // ISO string
+					group_id: null, // solo submission
+					group_size: 1,
 				})
 				// Row B: null avatar passes through as null (no resolver call).
 				expect(value.data[1]?.profile_avatar).toBeNull()
@@ -100,6 +120,21 @@ describe("GetListMembershipRenewalService", () => {
 				// publicUrl called once per non-null avatar only.
 				expect(mockUrlResolver.publicUrl).toHaveBeenCalledTimes(1)
 				expect(mockUrlResolver.publicUrl).toHaveBeenCalledWith("members/profile_avatars/a.png")
+			})
+
+			test("maps a Renewal Group row's group_id/group_size through unchanged", async () => {
+				// Arrange
+				const page: MembershipRenewalListPage = { rows: [rowC], hasMore: false, nextCursor: null }
+				mockRepo.getListMembershipRenewal.mockResolvedValue(ok(page))
+
+				// Act
+				const result = await service.execute(baseFilter)
+
+				// Assert — the marker and the whole-payment-group size pass through
+				// verbatim (solo = null/1 is covered by the full-mapping case above).
+				const row = result._unsafeUnwrap().data[0]
+				expect(row?.group_id).toBe("019a1433-588d-7047-b705-7ada8c14b073")
+				expect(row?.group_size).toBe(3)
 			})
 
 			test("empty page — data: [], has_more: false, next_cursor: null", async () => {

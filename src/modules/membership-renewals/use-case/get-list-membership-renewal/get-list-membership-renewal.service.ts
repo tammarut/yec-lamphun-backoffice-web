@@ -75,6 +75,8 @@ export class GetListMembershipRenewalService {
 			status: row.status,
 			member_since: row.memberSince.toISOString(),
 			payment_date_at: row.paymentDateAt.toISOString(),
+			group_id: row.groupId,
+			group_size: row.groupSize,
 		}
 	}
 }

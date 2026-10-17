@@ -51,7 +51,9 @@ export type ListMembershipRenewalFilter = {
  * convention as the expired list and GET /members). `renewalId` is the id of
  * the member's most recent non-deleted renewal. `memberSince` and
  * `paymentDateAt` are TIMESTAMPTZ Dates; the service serializes them to ISO
- * strings for the wire.
+ * strings for the wire. `groupId`/`groupSize` carry the Renewal Group marker
+ * (ADR-0026): the latest renewal's group and the size of its whole payment
+ * group, computed by the query's sibling count.
  */
 export type MembershipRenewalListRow = {
 	readonly id: number
@@ -66,6 +68,10 @@ export type MembershipRenewalListRow = {
 	readonly status: ListableRenewalStatus
 	readonly memberSince: Date
 	readonly paymentDateAt: Date
+	/** The latest renewal's Renewal Group marker; null = solo submission. */
+	readonly groupId: string | null
+	/** Live renewals sharing that marker (the whole payment group); solo = 1. */
+	readonly groupSize: number
 }
 
 /**
@@ -99,6 +105,10 @@ export type MembershipRenewalResponse = {
 	readonly status: ListableRenewalStatus
 	readonly member_since: string
 	readonly payment_date_at: string
+	/** Renewal Group marker shared by every renewal of one bulk submission (UUIDv7); null = solo. */
+	readonly group_id: string | null
+	/** Live renewals sharing this row's group_id — the whole payment group, independent of list filters; solo = 1. */
+	readonly group_size: number
 }
 
 export type ListMembershipRenewalPageResponse = {
