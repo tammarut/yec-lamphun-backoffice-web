@@ -5,7 +5,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
 
 export type CreateRenewalInput = {
-	readonly member_id: number
+	/** Renewal Group members, main-first (index 0 = main member); 1..6 unique entries (ADR-0026). */
+	readonly member_ids: readonly number[]
 	/** Opaque R2 path returned by POST /api/v1/members/file/upload (field payment_slip). */
 	readonly payment_slip: string
 	/** true → POST /renewals/manual (admin: instant APPROVED + clock advance, ADR-0016). */
@@ -32,9 +33,9 @@ export const RENEWALS_ROOT_QUERY_KEY = ["membership-renewals"] as const
 async function postRenewal(input: CreateRenewalInput): Promise<CreateRenewalResponse> {
 	const url = input.manual ? "/api/v1/membership/renewals/manual" : "/api/v1/membership/renewals"
 	// Both endpoints speak the SAME member_ids contract since #85 (ADR-0026) —
-	// a solo submission sends [member_id]. (The fan-out UI that fills the array
-	// with 2..6 members is ticket #86.)
-	const body = { member_ids: [input.member_id], payment_slip: input.payment_slip }
+	// main-first order (index 0 = main). The fan-out UI filling 2..6 members
+	// is ticket #87's form ② สมาชิกเพิ่มเติม.
+	const body = { member_ids: [...input.member_ids], payment_slip: input.payment_slip }
 	const result = await fetchJson<CreateRenewalResponse>(url, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
