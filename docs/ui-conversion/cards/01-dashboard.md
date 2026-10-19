@@ -1,5 +1,7 @@
 [UI-01] Dashboard — หน้าหลัก
 
+> **Amendment (2026-10-19, from the user's PR #98 review):** the layout follows the mockup STRUCTURALLY — every section stacks full-width (KPI row → search banner → chart card → contact card); the earlier "chart 2/3 + contact 1/3 side-by-side" reading came from this card's task breakdown, not the mockup, and is dropped. Chart x-axis labels are the **raw Christian year** (no Buddhist-Era +543 conversion) — user decision.
+
 ## Goal
 
 The landing overview at `/dashboard`: headline stat cards, a members-per-year chart from real data, a member-search CTA, and the contact card.
@@ -20,7 +22,7 @@ Mockup: `Dashboard` component, `ui-mockup/YEC-Lamphun.html` ~line 168.
 
 - Row of KPI stat cards: สมาชิกทั้งหมด (total members), จำนวนกิจการ (unique businesses), สมาชิก Active, ยังไม่ได้ต่ออายุ (pending renewal) — plus whatever the fifth count is, per the API.
 - Search promo banner "ตรวจสอบสมาชิก" with button ค้นหาสมาชิก → navigates to `/members` (`useRouter`).
-- Chart card: "จำนวนสมาชิกในแต่ละปี (ย้อนหลัง 5 ปี)" — line/area chart of per-year counts, x-axis labels in Buddhist Era (year + 543).
+- Chart card: "จำนวนสมาชิกในแต่ละปี (ย้อนหลัง 5 ปี)" — line/area chart of per-year counts, x-axis labels in Christian year (raw API keys, per the 2026-10-19 amendment).
 - Contact channels card: Facebook Page (facebook.com/yeclamphun), LINE Official (@yeclamphun), address สำนักงานหอการค้าจังหวัดลำพูน, phone 053-510-686.
 
 ## shadcn components to add
@@ -31,12 +33,12 @@ None beyond card 00's set — uses `card`, `button`, `badge`, `skeleton`. New de
 
 ### 1. Structure & layout
 
-- Page grid: KPI row (responsive 1→2→4+ cols), then chart card (2/3 width) + contact card (1/3) side by side on desktop, stacked on mobile.
+- Page grid: KPI row (responsive 1→2→4+ cols), then banner, chart card, and contact card stacked FULL-WIDTH (single column) at every breakpoint — matching the mockup's vertical flow.
 
 ### 2. API/data integration
 
 - `useDashboardStat()` TanStack Query hook; single fetch feeds KPIs and chart.
-- Buddhist-Era label helper: `year + 543` (e.g. `2569`), display-only.
+- ~~Buddhist-Era label helper~~ — dropped by the 2026-10-19 amendment: x labels are the raw year keys, no helper.
 
 ### 3. States
 
@@ -47,7 +49,7 @@ None beyond card 00's set — uses `card`, `button`, `badge`, `skeleton`. New de
 
 ### 4. Responsive
 
-- KPI cards stack 1-col at 375px, 2-col at 768px, ≥4-col desktop; chart/contact stack vertically below 1024px.
+- KPI cards stack 1-col at 375px, 2-col at 768px, ≥4-col desktop; chart/contact are always full-width (no side-by-side split — see amendment).
 
 ### 5. Validation & tests
 
@@ -61,7 +63,7 @@ None beyond card 00's set — uses `card`, `button`, `badge`, `skeleton`. New de
 ## Acceptance criteria
 
 - [ ] KPI cards render all counts returned by the API with Thai labels.
-- [ ] Chart renders per-year data with BE-year x labels; responsive.
+- [ ] Chart renders per-year data with Christian-year x labels; responsive.
 - [ ] ค้นหาสมาชิก CTA navigates to `/members`.
 - [ ] Contact card shows all four channels incl. phone 053-510-686.
 - [ ] All four states reachable; skeleton while loading; retry works on error.
@@ -82,7 +84,7 @@ Read first, in order:
 5. ADR-0019 (docs/adr/) for the stat's semantics.
 
 Scope: /dashboard page content only — the shell/providers exist (card 00).
-In scope: KPI cards, recharts members-per-year chart (BE-year labels +543),
+In scope: KPI cards, recharts members-per-year chart (Christian-year x labels),
 search CTA to /members, contact card, all four states, component test.
 Out of scope: admin chart-edit modal (no API — read-only chart), any writes.
 
