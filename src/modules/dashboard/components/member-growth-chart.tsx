@@ -53,7 +53,9 @@ export function MemberGrowthChart({ yearly }: { yearly: Readonly<Record<string, 
 						ไม่มีข้อมูล
 					</div>
 				) : (
-					<ChartContainer config={CHART_CONFIG} className="h-[300px] w-full">
+					// aspect-auto cancels the container's default aspect-video (same
+					// tailwind-merge group) — the fixed height stays the only sizing rule.
+					<ChartContainer config={CHART_CONFIG} className="aspect-auto h-[300px] w-full">
 						<AreaChart data={points} margin={{ left: 8, right: 8 }}>
 							<CartesianGrid vertical={false} strokeDasharray="3 3" />
 							<XAxis dataKey="year" tickLine={false} axisLine={false} tickMargin={8} />

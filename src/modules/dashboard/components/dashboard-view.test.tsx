@@ -19,7 +19,7 @@ vi.mock("src/modules/dashboard/components/member-growth-chart", () => ({
 }))
 
 const STAT_FIXTURE = {
-	total_members: 42,
+	total_members: 1234,
 	total_active_members: 30,
 	total_expired_members: 8,
 	total_businesses: 25,
@@ -58,8 +58,9 @@ describe("DashboardView", () => {
 		test("renders all four KPI cards with the API counts", async () => {
 			// Arrange
 			const view = renderView(() => statResponse(STAT_FIXTURE))
-			// KPI labels render while pending — wait for the resolved value instead.
-			await screen.findByText("42")
+			// KPI labels render while pending — wait for the resolved value instead;
+			// the >999 count locks the thousands-separator formatting.
+			await screen.findByText("1,234")
 
 			// Act
 			const memberCard = view.container.querySelector("[data-count-key='total_members']")
@@ -68,7 +69,7 @@ describe("DashboardView", () => {
 			const notRenewedCard = view.container.querySelector("[data-count-key='total_expired_members']")
 
 			// Assert
-			expect(memberCard?.textContent).toContain("42")
+			expect(memberCard?.textContent).toContain("1,234")
 			expect(businessCard?.textContent).toContain("25")
 			expect(activeCard?.textContent).toContain("30")
 			expect(notRenewedCard?.textContent).toContain("8")

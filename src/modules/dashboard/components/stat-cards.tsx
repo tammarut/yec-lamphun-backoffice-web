@@ -49,7 +49,7 @@ export function StatCards({ data, isPending }: StatCardsProps) {
 					</div>
 					<div className="min-w-0">
 						<p className="text-muted-foreground truncate text-xs">{card.label}</p>
-						{isPending ? <Skeleton className="mt-1 h-8 w-12" /> : <p className="text-2xl font-bold">{data?.[card.countKey] ?? 0}</p>}
+						{isPending ? <Skeleton className="mt-1 h-8 w-12" /> : <p className="text-2xl font-bold">{(data?.[card.countKey] ?? 0).toLocaleString()}</p>}
 					</div>
 				</Card>
 			))}
