@@ -40,7 +40,10 @@ export function StatCards({ data, isPending }: StatCardsProps) {
 	return (
 		<div data-slot="dashboard-stat-cards" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
 			{STAT_CARDS.map((card) => (
-				<Card key={card.countKey} data-slot="dashboard-stat-card" data-count-key={card.countKey} className="flex items-center gap-4 p-6">
+				// Card's base is `flex flex-col`; naming `flex-row` is required to flip the
+				// direction — tailwind-merge treats `flex` (display) and `flex-col`
+				// (direction) as unrelated, so `flex` alone never cancels the column.
+				<Card key={card.countKey} data-slot="dashboard-stat-card" data-count-key={card.countKey} className="flex-row items-center gap-4 p-6">
 					<div className={cn("flex size-14 shrink-0 items-center justify-center rounded-xl", card.tintClass)}>
 						<HugeiconsIcon icon={card.icon} className="size-6" />
 					</div>

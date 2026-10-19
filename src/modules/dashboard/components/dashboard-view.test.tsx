@@ -72,6 +72,9 @@ describe("DashboardView", () => {
 			expect(businessCard?.textContent).toContain("25")
 			expect(activeCard?.textContent).toContain("30")
 			expect(notRenewedCard?.textContent).toContain("8")
+			// Mockup rows run icon-left/text-right — the Card primitive's default
+			// flex-col once stacked them vertically.
+			expect(memberCard?.className).toContain("flex-row")
 		})
 
 		test("hands the per-year map to the chart", async () => {
