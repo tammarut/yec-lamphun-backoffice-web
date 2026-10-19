@@ -1,3 +1,5 @@
+import { DashboardView } from "src/modules/dashboard/components/dashboard-view"
+
 export default function DashboardPage() {
-	return <h1 className="text-2xl font-bold">หน้าหลัก</h1>
+	return <DashboardView />
 }
