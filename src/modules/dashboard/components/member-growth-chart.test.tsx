@@ -32,7 +32,7 @@ afterEach(() => {
 
 describe("toYearlyPoints", () => {
 	describe("Happy cases", () => {
-		test("maps API year keys to ascending points with Buddhist-Era labels", () => {
+		test("maps API year keys to ascending points, keeping the raw Christian year", () => {
 			// Arrange
 			const yearly = { "2024": 12, "2022": 4, "2023": 9 }
 
@@ -41,7 +41,6 @@ describe("toYearlyPoints", () => {
 
 			// Assert
 			expect(points.map((point) => point.year)).toEqual(["2022", "2023", "2024"])
-			expect(points.map((point) => point.label)).toEqual(["2565", "2566", "2567"])
 			expect(points.map((point) => point.count)).toEqual([4, 9, 12])
 		})
 	})
@@ -49,7 +48,7 @@ describe("toYearlyPoints", () => {
 
 describe("MemberGrowthChart", () => {
 	describe("Happy cases", () => {
-		test("renders Buddhist-Era year labels on the x axis", () => {
+		test("renders Christian year labels on the x axis", () => {
 			// Arrange
 			stubResizeObserver()
 			const yearly = { "2022": 4, "2023": 9, "2024": 12 }
@@ -58,8 +57,8 @@ describe("MemberGrowthChart", () => {
 			render(<MemberGrowthChart yearly={yearly} />)
 
 			// Assert
-			expect(screen.getByText("2565")).toBeTruthy()
-			expect(screen.getByText("2567")).toBeTruthy()
+			expect(screen.getByText("2022")).toBeTruthy()
+			expect(screen.getByText("2024")).toBeTruthy()
 		})
 	})
 

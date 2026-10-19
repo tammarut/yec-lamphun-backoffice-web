@@ -13,15 +13,15 @@ type StatCardSpec = {
 	label: string
 	countKey: "total_members" | "total_businesses" | "total_active_members" | "total_expired_members"
 	icon: IconSvgElement
-	/** Icon-tile tint, mapped from the mockup's colors onto semantic tokens: blue → primary, indigo → chart-5, green → success, orange → warning. */
+	/** Solid icon tile per the mockup (white icon on saturated color), mapped onto semantic tokens: blue → primary, indigo → chart-5, green → success, orange → warning. */
 	tintClass: string
 }
 
 const STAT_CARDS: readonly StatCardSpec[] = [
-	{ label: "สมาชิกทั้งหมด", countKey: "total_members", icon: UserGroupIcon, tintClass: "bg-primary/15 text-primary" },
-	{ label: "จำนวนกิจการ", countKey: "total_businesses", icon: Building01Icon, tintClass: "bg-chart-5/15 text-chart-5" },
-	{ label: "สมาชิก Active", countKey: "total_active_members", icon: UserCheckIcon, tintClass: "bg-success/15 text-success" },
-	{ label: "ยังไม่ได้ต่ออายุ", countKey: "total_expired_members", icon: Time04Icon, tintClass: "bg-warning/15 text-warning" },
+	{ label: "สมาชิกทั้งหมด", countKey: "total_members", icon: UserGroupIcon, tintClass: "bg-primary text-primary-foreground" },
+	{ label: "จำนวนกิจการ", countKey: "total_businesses", icon: Building01Icon, tintClass: "bg-chart-5 text-primary-foreground" },
+	{ label: "สมาชิก Active", countKey: "total_active_members", icon: UserCheckIcon, tintClass: "bg-success text-primary-foreground" },
+	{ label: "ยังไม่ได้ต่ออายุ", countKey: "total_expired_members", icon: Time04Icon, tintClass: "bg-warning text-primary-foreground" },
 ]
 
 type StatCardsProps = {

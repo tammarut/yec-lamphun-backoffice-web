@@ -54,20 +54,18 @@ export function DashboardView() {
 					{stat.isPending ? (
 						<>
 							<Skeleton className="h-28 w-full rounded-2xl" />
-							<div className="grid gap-6 lg:grid-cols-3">
-								<Card className="lg:col-span-2">
-									<Skeleton className="h-[300px] w-full rounded-xl" />
-								</Card>
-								<Card>
-									<Skeleton className="h-[300px] w-full rounded-xl" />
-								</Card>
-							</div>
+							<Card>
+								<Skeleton className="h-[300px] w-full rounded-xl" />
+							</Card>
+							<Card>
+								<Skeleton className="h-[300px] w-full rounded-xl" />
+							</Card>
 						</>
 					) : (
 						<>
 							<section
 								data-slot="member-search-banner"
-								className="bg-chart-1/10 border-chart-1/20 flex flex-col items-center justify-between gap-6 rounded-2xl border p-6 md:flex-row"
+								className="border-chart-1/20 from-chart-1/10 to-chart-5/10 flex flex-col items-center justify-between gap-6 rounded-2xl border bg-linear-to-r p-6 md:flex-row"
 							>
 								<div className="flex items-center gap-5">
 									<div className="bg-background text-chart-1 flex size-16 shrink-0 items-center justify-center rounded-full border">
@@ -84,12 +82,8 @@ export function DashboardView() {
 								</Button>
 							</section>
 
-							<div className="grid gap-6 lg:grid-cols-3">
-								<div className="lg:col-span-2">
-									<MemberGrowthChart yearly={stat.data.total_members_each_year} />
-								</div>
-								<ContactCard />
-							</div>
+							<MemberGrowthChart yearly={stat.data.total_members_each_year} />
+							<ContactCard />
 						</>
 					)}
 				</>

@@ -4,15 +4,12 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { ChartLineData01Icon } from "@hugeicons/core-free-icons"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
-import { toBuddhistYearLabel } from "src/modules/dashboard/components/chart-year-label"
 import { Card, CardContent, CardHeader, CardTitle } from "src/shared/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "src/shared/components/ui/chart"
 
 export type YearlyPoint = {
 	year: string
 	count: number
-	/** Buddhist-Era display label (year + 543). */
-	label: string
 }
 
 /**
@@ -22,7 +19,7 @@ export type YearlyPoint = {
  */
 export function toYearlyPoints(yearly: Readonly<Record<string, number>>): YearlyPoint[] {
 	return Object.entries(yearly)
-		.map(([year, count]) => ({ year, count, label: toBuddhistYearLabel(year) }))
+		.map(([year, count]) => ({ year, count }))
 		.sort((a, b) => Number(a.year) - Number(b.year))
 }
 
@@ -34,7 +31,9 @@ const CHART_CONFIG = {
  * Members-joined-per-year area chart (mockup look: line + soft fill). The API
  * returns PER-YEAR joined counts, so that is what is plotted — the mockup's
  * series was internally cumulative ("จำนวนสมาชิกสะสม"), and the API wins.
- * All-zero data renders the muted ไม่มีข้อมูล placeholder instead of a flat line.
+ * X labels are the raw Christian year keys (user decision 2026-10-19 — no
+ * Buddhist-Era conversion). All-zero data renders the muted ไม่มีข้อมูล
+ * placeholder instead of a flat line.
  */
 export function MemberGrowthChart({ yearly }: { yearly: Readonly<Record<string, number>> }) {
 	const points = toYearlyPoints(yearly)
@@ -57,7 +56,7 @@ export function MemberGrowthChart({ yearly }: { yearly: Readonly<Record<string, 
 					<ChartContainer config={CHART_CONFIG} className="h-[300px] w-full">
 						<AreaChart data={points} margin={{ left: 8, right: 8 }}>
 							<CartesianGrid vertical={false} strokeDasharray="3 3" />
-							<XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+							<XAxis dataKey="year" tickLine={false} axisLine={false} tickMargin={8} />
 							<YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} />
 							<ChartTooltip cursor={{ stroke: "var(--color-count)" }} content={<ChartTooltipContent hideIndicator />} />
 							<Area dataKey="count" type="monotone" stroke="var(--color-count)" fill="var(--color-count)" fillOpacity={0.15} strokeWidth={2} />
