@@ -52,6 +52,10 @@ _Avoid_: org chart, committee list, board
 A position on the Executive Committee tree that has no live holder but has live descendants: rendered as a placeholder carrying only the position title, so members below it still appear at their true depth. Never materialized for the root.
 _Avoid_: ghost node, empty position, missing rung
 
+**General Member**:
+A member holding the General Member Position — the complement of the Executive Committee: every member is either part of the Executive Committee or a General Member. Rendered as the general-members roster (รายชื่อสมาชิกที่ไม่ได้ดำรงตำแหน่งในคณะกรรมการ), Resigned members excluded.
+_Avoid_: ordinary member, regular member, non-committee member
+
 **Member Document**:
 A formal record attached to a member, of a fixed kind: `ID_CARD`, `COMPANY_CERTIFICATE`, or `PAYMENT_SLIP`. Stored as a file path reference plus a type tag — distinct from a **Member File**, which is the upload artifact before it is associated.
 _Avoid_: attachment, file
