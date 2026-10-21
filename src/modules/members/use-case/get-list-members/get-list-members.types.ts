@@ -29,6 +29,12 @@ export type ListMembersFilter = {
 	readonly cursor: number | null
 	/** Null = no status filter. Otherwise non-empty array of statuses. */
 	readonly statuses: readonly MemberStatus[] | null
+	/**
+	 * Null = no position filter. Otherwise non-empty array of position codes.
+	 * Codes are DB data (`positions.code`), NOT a closed enum — unknown codes
+	 * are forwarded and simply match no rows (200 empty, #100).
+	 */
+	readonly positions: readonly string[] | null
 	/** Null = no search filter. Otherwise a non-empty trimmed string. */
 	readonly search: string | null
 	readonly sortBy: SortField

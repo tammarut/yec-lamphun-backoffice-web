@@ -10,6 +10,10 @@ import { integer, maxValue, minValue, object, optional, picklist, pipe, string, 
  *   - `status` is a raw CSV string ("ACTIVE,EXPIRED"); the route splits, trims,
  *     drops empties, and validates each token against the status enum. An
  *     all-empty / absent status means "no filter" (grilling Q2 / Q10-c).
+ *   - `position` is a raw CSV string of position codes ("GENERAL_MEMBER");
+ *     the route splits, trims, and drops empties but does NOT validate tokens
+ *     against an enum — position codes are database rows (`positions.code`),
+ *     so an unknown code matches no rows (200 empty) instead of erroring (#100).
  *   - `search` is a raw string; the route trims and treats empty as "no filter".
  *
  * Defaults (applied in the route after parse, NOT in the schema, so that an
@@ -49,6 +53,11 @@ const CursorSchema = optional(
 // happens in the route — see file header. Absent or empty → no filter.
 const StatusSchema = optional(string())
 
+// position: raw CSV string of position codes ("GENERAL_MEMBER,PRESIDENT").
+// Split + trim + drop-empties in the route; NO enum validation there — codes
+// are DB data, unknown codes match no rows. Absent or empty → no filter.
+const PositionSchema = optional(string())
+
 // search: raw string. Trim + empty→null in the route.
 const SearchSchema = optional(string())
 
@@ -59,6 +68,7 @@ export const GetListMembersQuerySchema = object({
 	limit: LimitSchema,
 	cursor: CursorSchema,
 	status: StatusSchema,
+	position: PositionSchema,
 	search: SearchSchema,
 	sort_by: optional(SortBySchema),
 	sort_order: optional(SortOrderSchema),

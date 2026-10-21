@@ -502,6 +502,7 @@ export class MembersRepository implements IMemberRepository {
 		//    `(v1, v2)`, which yields `operator does not exist: varchar = record`.
 		//    `= ANY($1)` is the typed-array equivalent of `IN (...)`.
 		const statusFragment = filter.statuses !== null && filter.statuses.length > 0 ? sql`AND m.status = ANY(${sql.array([...filter.statuses], "text")})` : sql``
+		const positionFragment = filter.positions !== null && filter.positions.length > 0 ? sql`AND m.position_code = ANY(${sql.array([...filter.positions], "text")})` : sql``
 		const searchFragment = filter.search !== null ? this.buildSearchFragment(filter.search) : sql``
 		const cursorFragment = hasAnchor ? this.buildKeysetFragment(filter.sortBy, filter.sortOrder, anchorSortValue, filter.cursor ?? 0) : sql``
 		const orderByFragment = this.buildOrderByFragment(filter.sortBy, filter.sortOrder)
@@ -518,6 +519,7 @@ export class MembersRepository implements IMemberRepository {
 				INNER JOIN businesses b ON b.id = m.business_id AND b.deleted_at IS NULL
 				WHERE m.deleted_at IS NULL
 					${statusFragment}
+					${positionFragment}
 					${searchFragment}
 					${cursorFragment}
 				${orderByFragment}
