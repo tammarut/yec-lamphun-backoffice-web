@@ -14,6 +14,7 @@ const baseFilter: ListMembersFilter = {
 	limit: 10,
 	cursor: null,
 	statuses: null,
+	positions: null,
 	search: null,
 	sortBy: "created_at",
 	sortOrder: "desc",
@@ -129,7 +130,15 @@ describe("GetListMembersService", () => {
 			})
 
 			test("forwards the filter to the repository unchanged", async () => {
-				const filter: ListMembersFilter = { ...baseFilter, cursor: 5, statuses: ["ACTIVE"], search: "สม", sortBy: "first_name_th", sortOrder: "asc" }
+				const filter: ListMembersFilter = {
+					...baseFilter,
+					cursor: 5,
+					statuses: ["ACTIVE"],
+					positions: ["GENERAL_MEMBER"],
+					search: "สม",
+					sortBy: "first_name_th",
+					sortOrder: "asc",
+				}
 				mockRepo.getListMembers.mockResolvedValue(ok({ rows: [], hasMore: false, nextCursor: null }))
 
 				await service.execute(filter)

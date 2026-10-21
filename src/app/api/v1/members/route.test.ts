@@ -337,6 +337,7 @@ describe("GET /api/v1/members", () => {
 				limit: 10,
 				cursor: null,
 				statuses: null,
+				positions: null,
 				search: null,
 				sortBy: "created_at",
 				sortOrder: "desc",
@@ -360,6 +361,72 @@ describe("GET /api/v1/members", () => {
 
 			const filter = mockListService.execute.mock.calls[0]?.[0] as ListMembersFilter
 			expect(filter.statuses).toBeNull()
+		})
+
+		it("parses a single position code into a one-element array (#100)", async () => {
+			mockListService.execute.mockResolvedValue(ok({ data: [], has_more: false, next_cursor: null }))
+
+			await GET(makeGetRequest("?position=GENERAL_MEMBER"))
+
+			const filter = mockListService.execute.mock.calls[0]?.[0] as ListMembersFilter
+			expect(filter.positions).toEqual(["GENERAL_MEMBER"])
+		})
+
+		it("parses a position CSV into multiple codes (OR'd downstream, #100)", async () => {
+			mockListService.execute.mockResolvedValue(ok({ data: [], has_more: false, next_cursor: null }))
+
+			await GET(makeGetRequest("?position=GENERAL_MEMBER,PRESIDENT"))
+
+			const filter = mockListService.execute.mock.calls[0]?.[0] as ListMembersFilter
+			expect(filter.positions).toEqual(["GENERAL_MEMBER", "PRESIDENT"])
+		})
+
+		it("trims whitespace around position tokens (#100)", async () => {
+			mockListService.execute.mockResolvedValue(ok({ data: [], has_more: false, next_cursor: null }))
+
+			await GET(makeGetRequest("?position=%20GENERAL_MEMBER%20,PRESIDENT")) // " GENERAL_MEMBER ,PRESIDENT"
+
+			const filter = mockListService.execute.mock.calls[0]?.[0] as ListMembersFilter
+			expect(filter.positions).toEqual(["GENERAL_MEMBER", "PRESIDENT"])
+		})
+
+		it("treats an all-empty position CSV as no filter (#100)", async () => {
+			mockListService.execute.mockResolvedValue(ok({ data: [], has_more: false, next_cursor: null }))
+
+			await GET(makeGetRequest("?position=,,"))
+
+			const filter = mockListService.execute.mock.calls[0]?.[0] as ListMembersFilter
+			expect(filter.positions).toBeNull()
+		})
+
+		it("forwards an unknown position code without validation — codes are DB data, SQL matches no rows → 200 empty (#100)", async () => {
+			// Unlike `status` (closed enum → 400), an unknown position code must
+			// reach the service untouched: `position_code = ANY(...)` simply matches
+			// no rows. A 400 here would be the regression.
+			mockListService.execute.mockResolvedValue(ok({ data: [], has_more: false, next_cursor: null }))
+
+			const response = await GET(makeGetRequest("?position=NOT_A_REAL_CODE"))
+
+			expect(response.status).toBe(200)
+			const filter = mockListService.execute.mock.calls[0]?.[0] as ListMembersFilter
+			expect(filter.positions).toEqual(["NOT_A_REAL_CODE"])
+		})
+
+		it("composes position with status, search, and cursor in one filter (#100)", async () => {
+			mockListService.execute.mockResolvedValue(ok({ data: [], has_more: false, next_cursor: null }))
+
+			await GET(makeGetRequest("?position=GENERAL_MEMBER&status=ACTIVE&search=som&cursor=5"))
+
+			const expectedFilter: ListMembersFilter = {
+				limit: 10,
+				cursor: 5,
+				statuses: ["ACTIVE"],
+				positions: ["GENERAL_MEMBER"],
+				search: "som",
+				sortBy: "created_at",
+				sortOrder: "desc",
+			}
+			expect(mockListService.execute).toHaveBeenCalledWith(expectedFilter)
 		})
 
 		it("trims search and forwards it; empty search becomes null", async () => {
