@@ -81,6 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ListMember
 		limit: searchParams.get("limit") ?? undefined,
 		cursor: searchParams.get("cursor") ?? undefined,
 		status: searchParams.get("status") ?? undefined,
+		position: searchParams.get("position") ?? undefined,
 		search: searchParams.get("search") ?? undefined,
 		sort_by: searchParams.get("sort_by") ?? undefined,
 		sort_order: searchParams.get("sort_order") ?? undefined,
@@ -97,7 +98,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ListMember
 	const queryParam = parseResult.output
 
 	// 3. Semantic post-processing the schema can't express:
-	//    status CSV split + per-token enum check; search trim + empty→null.
+	//    status CSV split + per-token enum check; position CSV split (no enum
+	//    check — codes are DB data); search trim + empty→null.
 	const statusesResult = parseStatusFilter(queryParam.status)
 	if (statusesResult.isErr()) {
 		return NextResponse.json({ error_message: statusesResult.error } satisfies ResponseBodyError, { status: 400 })
@@ -109,6 +111,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ListMember
 		limit: queryParam.limit ?? 10,
 		cursor: queryParam.cursor ?? null,
 		statuses: statusesResult.value,
+		positions: parsePositionFilter(queryParam.position),
 		search: search,
 		sortBy: queryParam.sort_by ?? "created_at",
 		sortOrder: queryParam.sort_order ?? "desc",
@@ -157,6 +160,34 @@ function parseStatusFilter(inputStatus: string | undefined): Result<readonly Mem
 	}
 
 	return ok(memberStatuses)
+}
+
+/**
+ * Parse the `position` query param (#100) — mirrors `parseStatusFilter`'s CSV
+ * split/trim/drop-empties, but with NO per-token validation: position codes
+ * are database rows (`positions.code`), not a closed enum, so an unknown code
+ * must reach the repository and simply match no rows (200 empty `data`),
+ * never a 400.
+ *
+ * Absent / empty / all-empty-tokens (`?position=,,`) → `null` (no filter).
+ * The return type is therefore a plain value, not a `Result` — this parse has
+ * no failure mode.
+ */
+function parsePositionFilter(inputPosition: string | undefined): readonly string[] | null {
+	if (inputPosition === undefined) {
+		return null
+	}
+
+	const tokens = inputPosition
+		.split(",")
+		.map((t) => t.trim())
+		.filter((t) => t.length > 0)
+	if (tokens.length === 0) {
+		// `?position=` or `?position=,,` → no filter, not an error.
+		return null
+	}
+
+	return tokens
 }
 
 /** Map a GetListMembersError to its HTTP status + body (GET-specific). */
