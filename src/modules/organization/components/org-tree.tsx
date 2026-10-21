@@ -1,7 +1,7 @@
 "use client"
 
 import type { ExecutiveCommitteeNode } from "src/modules/members/use-case/get-executive-committee/get-executive-committee.types"
-import { PersonCard, VacantPositionCard } from "src/modules/organization/components/person-card"
+import { PersonCard, VacantPositionCard, type PersonCardVariant } from "src/modules/organization/components/person-card"
 import { cn } from "src/shared/lib/utils/utils"
 
 /**
@@ -23,20 +23,20 @@ function Connector({ className }: { className?: string }) {
 }
 
 /** Card or vacancy placeholder for one tree node, whichever the node is. */
-function NodeCard({ node, variant = "column" }: { node: ExecutiveCommitteeNode; variant?: "president" | "column" }) {
+function NodeCard({ node, variant = "column" }: { node: ExecutiveCommitteeNode; variant?: PersonCardVariant }) {
 	if (node.id === null) {
-		return <VacantPositionCard title={node.position} className={variant === "president" ? "w-64" : undefined} />
+		return <VacantPositionCard title={node.position} className={variant === "president" ? "w-64" : variant === "mini" ? "w-60" : undefined} />
 	}
 	return <PersonCard node={node} variant={variant} />
 }
 
-/** Recursive descendant stack: each card with its own children chained below. */
+/** Recursive descendant stack: compact cards, each with its own children chained below. */
 function DescendantStack({ nodes }: { nodes: readonly ExecutiveCommitteeNode[] }) {
 	return (
 		<div data-slot="org-tree-descendants" className="flex flex-col items-center gap-3">
 			{nodes.map((node, index) => (
 				<div key={nodeKey(node, index)} className="flex flex-col items-center">
-					<NodeCard node={node} />
+					<NodeCard node={node} variant="mini" />
 					{node.children.length > 0 && (
 						<>
 							<Connector />

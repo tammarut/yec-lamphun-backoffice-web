@@ -79,12 +79,22 @@ describe("OrgTree", () => {
 			expect(advisorColumn?.querySelectorAll('[data-slot="person-card"]')).toHaveLength(2)
 		})
 
-		it("stacks descendants beneath their column at their true depth", () => {
-			render(<OrgTree root={makeFixtureTree()} />)
+		it("stacks descendants beneath their column at their true depth as compact cards", () => {
+			const { container } = render(<OrgTree root={makeFixtureTree()} />)
 
 			expect(screen.getByText("นายป้าง ใจดี")).toBeTruthy() // ผู้ช่วยเลขานุการ
 			expect(screen.getByText("นายมานะ ใจดี")).toBeTruthy() // กรรมการฝ่ายกฎหมาย
 			expect(screen.getByText("นายมานี ใจดี")).toBeTruthy()
+			// Regression (review pass): the descendant treatment is the mockup's
+			// compact horizontal mini card, not a full column card.
+			const descendantNames = ["นายป้าง ใจดี", "นายมานะ ใจดี", "นายมานี ใจดี"]
+			for (const name of descendantNames) {
+				const card = screen.getByText(name).closest('[data-slot="person-card"]')
+				expect(card?.getAttribute("data-variant")).toBe("mini")
+			}
+			// Root and column holders stay full cards.
+			expect(screen.getByText("นายสมชาย ใจดี").closest('[data-slot="person-card"]')?.getAttribute("data-variant")).toBe("president")
+			expect(container.querySelector('[data-slot="org-tree-descendants"]')).toBeTruthy()
 		})
 
 		it("renders a vacant child as a dashed placeholder while its descendants still appear", () => {
