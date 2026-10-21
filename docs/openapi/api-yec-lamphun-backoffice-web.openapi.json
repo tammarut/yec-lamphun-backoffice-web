@@ -603,7 +603,7 @@
 			"get": {
 				"summary": "Get list of members (/api/v1/members)",
 				"deprecated": false,
-				"description": "# Get list of members (UI table with infinite scroll)\n\n- Filtering\n- Pagination\n- Sorting by field\n- Search by field\n- Sorting order\n\n(Public bucket) Use file_path but concat and fetch from publish file.domain.xyz\n   - profile_avatar (if not null)\n\n## ✍️Pseudocode\n\n1. Structural validation (Valibot)\nparse query params → 400 on type/enum/range violation\n  - limit: integer 1..50 (default 10)\n  - cursor: positive-integer-as-string | absent (default null)\n  - status: raw CSV string\n  - search: raw string\n  - sort_by: created_at | first_name_th | expires_at (default created_at)\n  - sort_order: asc | desc (default desc)\n\n2. Semantic post-processing\nstatus CSV → split, trim, drop-empty tokens\n  - all-empty / absent   → statuses = null (no filter)\n  - any unknown token    → 400 \"Invalid status filter: `<token>`\"\nsearch → trim; empty → null\n\n3. Repository query (Bun SQL native, keyset pagination)\n```\nif cursor is not null:                       # page 2+\n    anchor = SELECT <sort_field> FROM members WHERE id = cursor AND deleted_at IS NULL\n    if anchor not found → 400 \"Invalid cursor\"   # deleted between pages\n```\nbuild dynamic fragments (all values bound, identifiers from closed enum):\n```\n    status  : AND m.status IN (...)\n    search  : AND (first_name_th | phone_no | position_code) ILIKE '<escaped>%' ESCAPE '\\'\n    keyset  : AND (<sort_field>, m.id) < | > (<anchor_sort>, <cursor_id>)\n    order by: <sort_field> <dir> NULLS LAST|FIRST, m.id <dir>\n```\n\n```\nrows = SELECT m.*, b.name, b.description\n       FROM members m\n       INNER JOIN member_business b ON b.member_id = m.id AND b.deleted_at IS NULL\n       WHERE m.deleted_at IS NULL\n         + status + search + keyset fragments\n       ORDER BY ... LIMIT (limit + 1)        # n+1 trick\n\nhas_more      = rows.length > limit\nnext_cursor   = has_more ? id of (limit)th row : null\nrows          = first `limit` rows only\n```\n\n4. Map to response (service layer)\n```\nfor each row:\n    profile_avatar = public URL concat (null stays null)\nreturn { data: rows, has_more, next_cursor: String(next_cursor) }\n```\n\n\n## Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n    browser->>nextjsapi: GET /api/v1/members<br/>(limit, cursor, status, search, sort_by, sort_order)\n\n    Note over nextjsapi: No auth check (public endpoint)\n\n    nextjsapi->>nextjsapi: Validate query params (Valibot)\n    break invalid query params\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    nextjsapi->>nextjsapi: Parse status CSV + per-token enum check<br/>Trim search → null if empty\n    break unknown status token\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid status filter: <token>\" }\n    end\n\n    opt cursor provided (page 2+)\n        nextjsapi->>+database: Anchor lookup<br/>SELECT sort_field FROM members WHERE id = cursor AND deleted_at IS NULL\n        database-->>-nextjsapi: anchor row (or none)\n        break anchor row not found (deleted)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n    end\n\n    nextjsapi->>+database: Main query (Bun SQL native)<br/>members INNER JOIN member_business<br/>WHERE deleted_at IS NULL + status/search/keyset<br/>ORDER BY (sort_field, id) LIMIT n+1\n    database-->>-nextjsapi: up to (limit + 1) rows\n\n    nextjsapi->>nextjsapi: Compute has_more, next_cursor<br/>(drop the (n+1)th row)\n    nextjsapi->>nextjsapi: Build public URLs for profile_avatar<br/>(concat R2_PUBLIC_BASE_URL + file path, per row)\n\n    nextjsapi-->>browser: 200 OK<br/>{ data: [...], has_more, next_cursor }\n ```\n \n ## Notes\n\n- **Empty result is NOT an error.** A filter/search that matches nothing returns `200 { data: [], has_more: false, next_cursor: null }`. No `404` is ever returned by this endpoint.\n- **Cursor format.** `next_cursor` is a bare member `id` rendered as a string (e.g. `\"11\"`). Send it back unchanged as the `cursor` query param to fetch the next page.\n- **`status` is CSV.** `?status=ACTIVE,EXPIRED` → `status IN ('ACTIVE','EXPIRED')`. Empty/all-empty tokens mean \"no filter\".\n- **Search is prefix-only and case-insensitive** (`ILIKE 'q%'`), matched against `first_name_th`, `phone_no`, `position_code`. LIKE wildcards (`%`, `_`) in the input are escaped literally.\n- **Corrupted members** (live member with no live business row) are silently excluded by the `INNER JOIN` — they simply do not appear in the list.\n- **Pagination is keyset, not offset.** Stable across inserts/deletes; `(sort_field, id)` tuple is the total order, `id` is the deterministic tiebreaker. NULL `expires_at` sorts `NULLS LAST` in desc, `NULLS FIRST` in asc.",
+				"description": "# Get list of members (UI table with infinite scroll)\n\n- Filtering\n- Pagination\n- Sorting by field\n- Search by field\n- Sorting order\n\n🌐(Public bucket) Use `file_path` but concat and fetch from publish `file.domain.xyz`\n   - `profile_avatar` (if not `null`)\n\n## ✍️Pseudocode\n\n1. Structural validation (Valibot)\nparse query params → 400 on type/enum/range violation\n  - limit: integer 1..50 (default 10)\n  - cursor: positive-integer-as-string | absent *(default `null`)*\n  - status: raw CSV string\n  - position: raw CSV string of position codes\n  - search: raw string\n  - sort_by: `created_at` | `first_name_th` | `expires_at` *(default `created_at`)*\n  - sort_order: `asc` | `desc` *(default `desc`)*\n\n2. Semantic post-processing\nstatus CSV → split, trim, drop-empty tokens\n  - all-empty / absent   → statuses = null (no filter)\n  - any unknown token    → 400 \"Invalid status filter: `<token>`\"\nposition CSV → split, trim, drop-empty tokens\n  - all-empty / absent   → positions = null (no filter)\n  - NO enum check — position codes are DB rows (`positions.code`); an unknown\n    code is forwarded and simply matches no rows → 200 with empty data (#100)\nsearch → trim; empty → null\n\n3. Repository query (Bun SQL native, keyset pagination)\n```sh\nif cursor is not null:                       # page 2+\n    anchor = SELECT <sort_field> FROM members WHERE id = cursor AND deleted_at IS NULL\n    if anchor not found → 400 \"Invalid cursor\"   # deleted between pages\n```\nbuild dynamic fragments (all values bound, identifiers from closed enum):\n```sh\n    status  : AND m.status IN (...)\n    position: AND m.position_code IN (...)   # OR'd across codes\n    search  : AND (first_name_th | phone_no | position_code) ILIKE '<escaped>%' ESCAPE '\\'\n    keyset  : AND (<sort_field>, m.id) < | > (<anchor_sort>, <cursor_id>)\n    order by: <sort_field> <dir> NULLS LAST|FIRST, m.id <dir>\n```\n\n```ts\nrows = SELECT m.*, b.name, b.description\n       FROM members m\n       INNER JOIN businesses b ON b.id = m.business_id AND b.deleted_at IS NULL\n       WHERE m.deleted_at IS NULL\n         + status + position + search + keyset fragments\n       ORDER BY ... LIMIT (limit + 1)        # n+1 trick\n\nhas_more      = rows.length > limit\nnext_cursor   = has_more ? id of (limit)th row : null\nrows          = first `limit` rows only\n```\n\n4. Map to response (service layer)\n```ts\nfor each row:\n    profile_avatar = public URL concat (null stays null)\nreturn { data: rows, has_more, next_cursor: String(next_cursor) }\n```\n\n\n## 🖼️Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: GET /api/v1/members<br/>(limit, cursor, status, position, search, sort_by, sort_order)\n\n    Note over nextjsapi: No auth check (public endpoint)\n\n    nextjsapi->>nextjsapi: Validate query params (Valibot)\n    break invalid query params\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"error text\" }\n    end\n\n    nextjsapi->>nextjsapi: Parse status CSV + per-token enum check<br/>Parse position CSV, no enum check (codes are DB data)<br/>Trim search, null if empty\n    break unknown status token\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid status filter: token\" }\n    end\n\n    opt cursor provided (page 2+)\n        nextjsapi->>+database: Anchor lookup<br/>SELECT sort_field FROM members WHERE id = cursor AND deleted_at IS NULL\n        database-->>-nextjsapi: anchor row (or none)\n        break anchor row not found (deleted)\n            nextjsapi-->>browser: 400 Bad Request { error_message: \"Invalid cursor\" }\n        end\n    end\n\n    nextjsapi->>+database: Main query (Bun SQL native)<br/>members INNER JOIN businesses<br/>WHERE deleted_at IS NULL + status/position/search/keyset<br/>ORDER BY (sort_field, id) LIMIT n+1\n    database-->>-nextjsapi: up to (limit + 1) rows\n\n    nextjsapi->>nextjsapi: Compute has_more, next_cursor<br/>Drop the (n+1)th row\n    nextjsapi->>nextjsapi: Build public URLs for profile_avatar<br/>(concat R2_PUBLIC_BASE_URL + file path, per row)\n\n    nextjsapi-->>browser: 200 OK<br/>{ data: [...], has_more, next_cursor }\n ```\n \n ## 🗒️Notes\n\n- **Empty result is NOT an error.** A filter/search that matches nothing returns\n   - `200 { data: [], has_more: false, next_cursor: null }`. No `404` is ever returned by this endpoint.\n- **Cursor format.** `next_cursor` is a bare member `id` rendered as a string (e.g. `\"11\"`). Send it back unchanged as the `cursor` query param to fetch the next page.\n- **`status` is CSV.** `?status=ACTIVE,EXPIRED` → `status IN ('ACTIVE','EXPIRED')`. Empty/all-empty tokens mean \"no filter\".\n- **`position` is CSV and unvalidated (#100).** `?position=GENERAL_MEMBER,PRESIDENT` → `position_code IN ('GENERAL_MEMBER','PRESIDENT')`, codes OR'd. Empty/all-empty tokens mean \"no filter\". An **unknown code matches no rows → `200 { data: [] }` — never a 400**: position codes are database rows (`positions.code`), not a closed enum, so integrations survive position-data changes. (Contrast: `status` IS a closed enum and still 400s on unknown tokens.)\n- **Search is prefix-only and case-insensitive** (`ILIKE 'q%'`), matched against `first_name_th`, `phone_no`, `position_code`. LIKE wildcards (`%`, `_`) in the input are escaped literally.\n- **Corrupted members** (live member with no live business row) are silently excluded by the `INNER JOIN` — they simply do not appear in the list.\n- **Pagination is keyset, not offset.** Stable across inserts/deletes; `(sort_field, id)` tuple is the total order, `id` is the deterministic tiebreaker. NULL `expires_at` sorts `NULLS LAST` in desc, `NULLS FIRST` in asc.",
 				"tags": ["module_member"],
 				"parameters": [
 					{
@@ -640,6 +640,16 @@
 						"schema": {
 							"type": "string",
 							"examples": ["ACTIVE,EXPIRED,PENDING_RENEWAL"]
+						}
+					},
+					{
+						"name": "position",
+						"in": "query",
+						"description": "Filter by member position code\n(CSV style, OR'd)\nGENERAL_MEMBER,PRESIDENT\nUnknown codes match no rows → 200 empty data (codes are DB rows, not a closed enum)",
+						"required": false,
+						"example": "GENERAL_MEMBER",
+						"schema": {
+							"type": "string"
 						}
 					},
 					{
@@ -787,8 +797,37 @@
 								"schema": {
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
-								"example": {
-									"error_message": "id parameter must be a valid integer"
+								"examples": {
+									"3": {
+										"summary": "?limit=51",
+										"value": {
+											"error_message": "limit must be at most 50"
+										}
+									},
+									"4": {
+										"summary": "?cursor=abc",
+										"value": {
+											"error_message": "cursor must be a positive integer"
+										}
+									},
+									"5": {
+										"summary": "?sort_by=foo",
+										"value": {
+											"error_message": "<valibot enum message>"
+										}
+									},
+									"6": {
+										"summary": "?status=FOO",
+										"value": {
+											"error_message": "Invalid status filter: FOO"
+										}
+									},
+									"7": {
+										"summary": "Deleted anchor",
+										"value": {
+											"error_message": "Invalid cursor"
+										}
+									}
 								}
 							}
 						},
@@ -2685,7 +2724,7 @@
 						"in": "query",
 						"description": "",
 						"required": false,
-						"example": 7,
+						"example": 5,
 						"schema": {
 							"type": "integer",
 							"format": "uint",
