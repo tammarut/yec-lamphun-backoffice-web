@@ -137,6 +137,8 @@ describe("OrgChartView", () => {
 			})
 
 			expect(await screen.findByText("ยังไม่มีประธาน")).toBeTruthy()
+			// The root state reads alone — no vacancy caption under it.
+			expect(screen.queryByText("ตำแหน่งว่าง")).toBeNull()
 			expect(screen.getByText("0 คน")).toBeTruthy()
 		})
 

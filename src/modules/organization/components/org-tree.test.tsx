@@ -97,11 +97,13 @@ describe("OrgTree", () => {
 			expect(container.querySelector('[data-slot="org-tree-descendants"]')).toBeTruthy()
 		})
 
-		it("renders a vacant child as a dashed placeholder while its descendants still appear", () => {
+		it("renders a vacant child as a dashed placeholder card while its descendants still appear", () => {
 			const { container } = render(<OrgTree root={makeFixtureTree()} />)
 
 			const vacantCards = [...container.querySelectorAll('[data-slot="vacant-position-card"]')]
-			expect(vacantCards.map((card) => card.textContent)).toEqual(["รองประธานฝ่ายไอที"])
+			expect(vacantCards).toHaveLength(1)
+			expect(vacantCards[0]?.textContent).toContain("รองประธานฝ่ายไอที")
+			expect(vacantCards[0]?.textContent).toContain("ตำแหน่งว่าง")
 			expect(screen.getByText("นายไอที ใจดี")).toBeTruthy()
 		})
 	})

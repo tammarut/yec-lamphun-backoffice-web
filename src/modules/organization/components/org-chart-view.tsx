@@ -68,7 +68,7 @@ export function OrgChartView() {
 						</Alert>
 					) : tree == null ? (
 						<div className="flex justify-center py-4">
-							<VacantPositionCard title="ยังไม่มีประธาน" className="w-64" />
+							<VacantPositionCard title="ยังไม่มีประธาน" variant="president" />
 						</div>
 					) : (
 						<OrgTree root={tree} />

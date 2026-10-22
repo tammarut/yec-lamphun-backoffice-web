@@ -25,7 +25,7 @@ function Connector({ className }: { className?: string }) {
 /** Card or vacancy placeholder for one tree node, whichever the node is. */
 function NodeCard({ node, variant = "column" }: { node: ExecutiveCommitteeNode; variant?: PersonCardVariant }) {
 	if (node.id === null) {
-		return <VacantPositionCard title={node.position} className={variant === "president" ? "w-64" : variant === "mini" ? "w-60" : undefined} />
+		return <VacantPositionCard title={node.position} variant={variant} caption={variant === "president" ? undefined : "ตำแหน่งว่าง"} />
 	}
 	return <PersonCard node={node} variant={variant} />
 }

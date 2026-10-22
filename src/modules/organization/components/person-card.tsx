@@ -1,5 +1,8 @@
 "use client"
 
+import { HugeiconsIcon } from "@hugeicons/react"
+import { UserMinus01Icon } from "@hugeicons/core-free-icons"
+
 import type { ExecutiveCommitteeNode } from "src/modules/members/use-case/get-executive-committee/get-executive-committee.types"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
 import { cn } from "src/shared/lib/utils/utils"
@@ -59,17 +62,35 @@ export function PersonCard({ node, variant = "column", className }: { node: Exec
 	)
 }
 
+/** Vacancy silhouettes mirroring PersonCard's, so columns stay uniform. */
+const VACANT_VARIANT_CLASSES: Record<PersonCardVariant, string> = {
+	president: "w-64 flex-col p-3 text-center",
+	column: "w-48 flex-col p-3 text-center",
+	mini: "w-60 flex-row items-center gap-3 p-2 pr-4 pl-3 text-left",
+}
+
 /**
- * A Vacant Position placeholder (ADR-0020) — dashed muted card carrying only
- * the position title, the same visual language as the ยังไม่มีประธาน box.
+ * A Vacant Position placeholder (ADR-0020) — the person-card silhouette in
+ * dashed muted form: icon avatar, position title, and an optional
+ * ตำแหน่งว่าง caption (the ยังไม่มีประธาน state reads alone, no caption).
  */
-export function VacantPositionCard({ title, className }: { title: string; className?: string }) {
+export function VacantPositionCard({ title, variant = "column", caption, className }: { title: string; variant?: PersonCardVariant; caption?: string; className?: string }) {
+	const isMini = variant === "mini"
 	return (
 		<div
 			data-slot="vacant-position-card"
-			className={cn("bg-muted/40 text-muted-foreground border-border/60 w-48 rounded-xl border border-dashed p-4 text-center text-sm", className)}
+			className={cn("bg-muted/40 text-muted-foreground border-border/60 relative z-10 flex rounded-xl border border-dashed", VACANT_VARIANT_CLASSES[variant], className)}
 		>
-			{title}
+			<div
+				data-slot="vacant-avatar"
+				className={cn("border-border/60 flex shrink-0 items-center justify-center rounded-full border border-dashed", isMini ? "size-10" : "mx-auto mb-2 size-14")}
+			>
+				<HugeiconsIcon icon={UserMinus01Icon} className={isMini ? "size-5" : "size-7"} />
+			</div>
+			<div className="min-w-0 flex-1">
+				<div className={cn("truncate font-bold", isMini ? "text-xs" : "text-sm")}>{title}</div>
+				{caption !== undefined && <p className={cn("text-[10px]", isMini ? "" : "mt-0.5")}>{caption}</p>}
+			</div>
 		</div>
 	)
 }

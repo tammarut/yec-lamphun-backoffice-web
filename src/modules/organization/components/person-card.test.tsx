@@ -43,11 +43,22 @@ describe("PersonCard", () => {
 
 describe("VacantPositionCard", () => {
 	describe("Happy cases", () => {
-		it("renders the position title as a dashed placeholder", () => {
-			const { container } = render(<VacantPositionCard title="รองประธานฝ่ายกฎหมาย" />)
+		it("renders the position title as a dashed placeholder card with an icon avatar", () => {
+			const { container } = render(<VacantPositionCard title="รองประธานฝ่ายกฎหมาย" caption="ตำแหน่งว่าง" />)
 
 			expect(screen.getByText("รองประธานฝ่ายกฎหมาย")).toBeTruthy()
+			expect(screen.getByText("ตำแหน่งว่าง")).toBeTruthy()
 			expect(container.querySelector('[data-slot="vacant-position-card"]')).toBeTruthy()
+			expect(container.querySelector('[data-slot="vacant-avatar"]')).toBeTruthy()
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		it("omits the caption when none is given (the ยังไม่มีประธาน state reads alone)", () => {
+			render(<VacantPositionCard title="ยังไม่มีประธาน" />)
+
+			expect(screen.getByText("ยังไม่มีประธาน")).toBeTruthy()
+			expect(screen.queryByText("ตำแหน่งว่าง")).toBeNull()
 		})
 	})
 })
