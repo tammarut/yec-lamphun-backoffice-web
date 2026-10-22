@@ -106,6 +106,10 @@ describe("OrgChartView", () => {
 				expect.stringContaining("bg-pending"),
 				expect.stringContaining("bg-muted-foreground"),
 			])
+			// Scrutiny F1 (a11y, WCAG 1.4.1): the dot must not convey the status
+			// via color alone — role=img + Thai label reusing house vocabulary.
+			expect(dots.map((dot) => dot.getAttribute("role"))).toEqual(["img", "img", "img"])
+			expect(dots.map((dot) => dot.getAttribute("aria-label"))).toEqual(["สถานะ: ปกติ", "สถานะ: ยังไม่ได้ต่ออายุ", "สถานะ: หมดอายุ"])
 		})
 
 		it("โหลดเพิ่มเติม appends the next page and disappears when has_more is false", async () => {

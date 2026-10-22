@@ -54,7 +54,7 @@ export function PersonCard({ node, variant = "column", className }: { node: Exec
 					{name} {node.nickname !== null && node.nickname !== "" && <span className="text-muted-foreground font-normal">({node.nickname})</span>}
 				</div>
 				<p className={cn("text-primary truncate font-medium", isMini ? "text-[10px]" : "text-xs")}>{node.position}</p>
-				{node.business_name !== null && (
+				{node.business_name !== null && node.business_name !== "" && (
 					<p className={cn("text-muted-foreground truncate text-[10px]", isMini ? "" : "border-border/60 mt-1 border-t pt-1")}>{node.business_name}</p>
 				)}
 			</div>

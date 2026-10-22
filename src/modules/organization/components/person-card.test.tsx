@@ -38,6 +38,16 @@ describe("PersonCard", () => {
 
 			expect(screen.queryByText("ร้านกาแฟสมชาย")).toBeNull()
 		})
+
+		it("omits the business line (and its divider) when business_name is an empty string", () => {
+			// Scrutiny F2: the guard mirrors nickname's null-and-empty check —
+			// an empty business_name must not leave an orphaned border-t divider.
+			const { container } = render(<PersonCard node={makeCommitteeNode({ business_name: "" })} />)
+
+			// Only the position <p> remains; no empty business <p> with a divider.
+			expect(container.querySelectorAll("p")).toHaveLength(1)
+			expect(container.querySelector('[data-slot="person-card"]')?.textContent).toContain("ประธาน")
+		})
 	})
 })
 

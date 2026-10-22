@@ -31,6 +31,23 @@ function statusDotClass(status: MemberStatus): string {
 }
 
 /**
+ * Thai status names for the dot's accessible label (scrutiny F1, WCAG
+ * 1.4.1 — color alone must not carry the status). House vocabulary: ปกติ /
+ * ยังไม่ได้ต่ออายุ from the members STATUS_BADGES map, หมดอายุ from the
+ * renewals expired table — the dot distinguishes all three, so the text
+ * must too (unlike STATUS_BADGES, which merges EXPIRED and PENDING_RENEWAL).
+ */
+function statusText(status: MemberStatus): string {
+	if (status === "ACTIVE") {
+		return "ปกติ"
+	}
+	if (status === "PENDING_RENEWAL") {
+		return "ยังไม่ได้ต่ออายุ"
+	}
+	return "หมดอายุ"
+}
+
+/**
  * สมาชิกทั่วไป (General Members) — the second /organization section: a
  * responsive chip grid of GENERAL_MEMBER holders with live statuses only,
  * driven by its own cursor-accumulating query. No count badge (the keyset
@@ -93,6 +110,8 @@ export function GeneralMembers() {
 										<span
 											data-slot="member-status-dot"
 											data-status={member.status}
+											role="img"
+											aria-label={`สถานะ: ${statusText(member.status)}`}
 											className={cn(
 												"ring-background/60 border-background absolute right-0 bottom-0 size-3 rounded-full border-2",
 												statusDotClass(member.status)
