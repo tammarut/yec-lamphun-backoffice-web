@@ -81,12 +81,14 @@ Mockup: `OrgChart` component, `ui-mockup/YEC-Lamphun.html` lines **371–518** (
 
 ## Acceptance criteria
 
-- [ ] Tree renders entirely from `GET /executive-committee` via a generic recursive renderer — shape follows data, no hardcoded positions or pillar groupings.
-- [ ] Vacant placeholders and the no-president state render correctly.
-- [ ] `GET /api/v1/members` accepts a `position` CSV filter (route-tested; unknown code → 200 empty).
-- [ ] General-members grid queries `position=GENERAL_MEMBER` + the status trio, shows the 3-color dot, and paginates via cursor load-more; committee badge shows the filled-node count; no general-members count badge.
-- [ ] All four states reachable; tree scrolls horizontally on mobile.
-- [ ] Component + route tests pass; `bun run lint` + `bun test` green.
+- [x] Tree renders entirely from `GET /executive-committee` via a generic recursive renderer — shape follows data, no hardcoded positions or pillar groupings.
+- [x] Vacant placeholders and the no-president state render correctly.
+- [x] `GET /api/v1/members` accepts a `position` CSV filter (route-tested; unknown code → 200 empty).
+- [x] General-members grid queries `position=GENERAL_MEMBER` + the status trio, shows the 3-color dot, and paginates via cursor load-more; committee badge shows the filled-node count; no general-members count badge.
+- [x] All four states reachable; tree scrolls horizontally on mobile.
+- [x] Component + route tests pass; `bun run lint` + `bun test` green.
+
+**SHIPPED 2026-10-22** — AC 3 by PR #102 (`a2f27a8`), all UI ACs by PR #103 (`58c0f77`; 6 feature commits `13b3c67`..`167879c`, 33 organization tests, full suite 875/875). Two review-round additions beyond this card's text, both user-blessed: the Vacant Position placeholder renders as a card-shaped dashed card (icon avatar + title + ตำแหน่งว่าง caption — the caption is new Thai copy) mirroring the person-card silhouette per variant; and the status dot carries `role="img"` + a Thai aria-label (scrutiny F1, WCAG 1.4.1). #101 needs a manual close — its PR-body `Closes #101` was reworded into a no-op (same as #100).
 
 ## AI implementation prompt
 
