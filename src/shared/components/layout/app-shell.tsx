@@ -27,7 +27,7 @@ import {
 
 const NAV_ITEMS = [
 	{ url: "/dashboard", title: "หน้าหลัก", icon: Chart01Icon },
-	{ url: "/org", title: "โครงสร้างองค์กร", icon: HierarchySquare02Icon },
+	{ url: "/organization", title: "โครงสร้างองค์กร", icon: HierarchySquare02Icon },
 	{ url: "/members", title: "รายชื่อสมาชิก", icon: UserGroupIcon },
 	{ url: "/renewal", title: "ต่ออายุสมาชิก", icon: IdIcon },
 ] as const
