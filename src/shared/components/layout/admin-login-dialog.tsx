@@ -36,7 +36,7 @@ export function AdminLoginDialog({ open, onOpenChange }: AdminLoginDialogProps) 
 	const {
 		register,
 		handleSubmit,
-		clearErrors,
+		reset,
 		setFocus,
 		formState: { errors, isSubmitting },
 	} = useForm<LoginFormValues>({
@@ -48,7 +48,7 @@ export function AdminLoginDialog({ open, onOpenChange }: AdminLoginDialogProps) 
 		if (!next) {
 			setApiError(null)
 			setShowPassword(false)
-			clearErrors()
+			reset()
 		}
 		onOpenChange(next)
 	}
@@ -57,7 +57,7 @@ export function AdminLoginDialog({ open, onOpenChange }: AdminLoginDialogProps) 
 		setApiError(null)
 		try {
 			await loginMutation.mutateAsync(values)
-			onOpenChange(false)
+			handleOpenChange(false)
 		} catch (error) {
 			setApiError(error instanceof ApiError && error.status === 401 ? "invalid-credentials" : "unexpected")
 		}
