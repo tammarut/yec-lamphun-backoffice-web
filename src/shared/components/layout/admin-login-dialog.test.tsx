@@ -29,7 +29,7 @@ function renderDialog(onLoginResponse: (body: { username: string; password: stri
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	})
-	render(
+	const view = render(
 		<QueryClientProvider client={queryClient}>
 			<SessionProvider>
 				<AdminLoginDialog open={true} onOpenChange={onOpenChange} />
@@ -37,7 +37,19 @@ function renderDialog(onLoginResponse: (body: { username: string; password: stri
 		</QueryClientProvider>
 	)
 
-	return { onOpenChange, fetchMock }
+	return {
+		onOpenChange,
+		fetchMock,
+		rerenderWithOpen: (open: boolean) => {
+			view.rerender(
+				<QueryClientProvider client={queryClient}>
+					<SessionProvider>
+						<AdminLoginDialog open={open} onOpenChange={onOpenChange} />
+					</SessionProvider>
+				</QueryClientProvider>
+			)
+		},
+	}
 }
 
 async function submitCredentials() {
@@ -78,6 +90,32 @@ describe("AdminLoginDialog", () => {
 			fireEvent.click(screen.getByRole("button", { name: "แสดงรหัสผ่าน" }))
 			expect(password.getAttribute("type")).toBe("text")
 			expect(screen.getByRole("button", { name: "ซ่อนรหัสผ่าน" })).toBeTruthy()
+		})
+
+		it("should clear both fields after the dialog is closed and reopened", async () => {
+			const { rerenderWithOpen } = renderDialog(() => jsonResponse(204))
+
+			fireEvent.change(await screen.findByLabelText("ชื่อผู้ใช้"), { target: { value: "admin" } })
+			fireEvent.change(screen.getByLabelText("รหัสผ่าน"), { target: { value: "secret" } })
+
+			// Close through the dialog's own X button, then the parent honours the callback.
+			fireEvent.click(screen.getByRole("button", { name: "Close" }))
+			rerenderWithOpen(false)
+			rerenderWithOpen(true)
+
+			expect((screen.getByLabelText("ชื่อผู้ใช้") as HTMLInputElement).value).toBe("")
+			expect((screen.getByLabelText("รหัสผ่าน") as HTMLInputElement).value).toBe("")
+		})
+
+		it("should clear both fields after a successful login", async () => {
+			renderDialog(() => jsonResponse(204))
+
+			await submitCredentials()
+
+			await waitFor(() => {
+				expect((screen.getByLabelText("ชื่อผู้ใช้") as HTMLInputElement).value).toBe("")
+			})
+			expect((screen.getByLabelText("รหัสผ่าน") as HTMLInputElement).value).toBe("")
 		})
 	})
 
