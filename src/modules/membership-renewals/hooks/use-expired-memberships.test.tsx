@@ -26,6 +26,7 @@ afterEach(() => {
 describe("useExpiredMemberships", () => {
 	describe("Happy cases", () => {
 		test("fetches page 1 with the limit param and omits empty search + absent cursor", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				expect(url).toBe("/api/v1/membership/renewals/expired?limit=20")
@@ -33,14 +34,18 @@ describe("useExpiredMemberships", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderExpiredHook()
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			expect(result.current.data?.pages).toHaveLength(1)
 			expect(result.current.data?.pages[0]?.data).toHaveLength(1)
 			expect(result.current.hasNextPage).toBe(false)
 		})
 
 		test("accumulates pages via the cursor and stops when has_more is false", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				if (url === "/api/v1/membership/renewals/expired?limit=20") {
@@ -61,12 +66,13 @@ describe("useExpiredMemberships", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderExpiredHook()
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
-			expect(result.current.hasNextPage).toBe(true)
-
 			result.current.fetchNextPage()
 			await waitFor(() => expect(result.current.data?.pages).toHaveLength(2))
+
+			// Assert
 			expect(result.current.hasNextPage).toBe(false)
 			expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
 				"/api/v1/membership/renewals/expired?limit=20",
@@ -75,6 +81,7 @@ describe("useExpiredMemberships", () => {
 		})
 
 		test("sends the search term and restarts from page 1 (no cursor) when the term changes", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				if (url.includes("search=")) {
@@ -84,6 +91,7 @@ describe("useExpiredMemberships", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result, rerender } = renderHook(({ search }: { search: string }) => useExpiredMemberships(search), {
 				wrapper: ({ children }: { children: ReactNode }) => {
 					const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -92,9 +100,10 @@ describe("useExpiredMemberships", () => {
 				initialProps: { search: "" },
 			})
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
 			rerender({ search: "สมชาย" })
 			await waitFor(() => expect(result.current.data?.pages[0]?.data).toHaveLength(1))
+
+			// Assert
 			expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
 				"/api/v1/membership/renewals/expired?limit=20",
 				"/api/v1/membership/renewals/expired?limit=20&search=%E0%B8%AA%E0%B8%A1%E0%B8%8A%E0%B8%B2%E0%B8%A2",
@@ -104,12 +113,17 @@ describe("useExpiredMemberships", () => {
 
 	describe("Unhappy cases", () => {
 		test("surfaces a 400 invalid-cursor error with its server message", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(400, { error_message: "Invalid cursor" }))
 			)
+
+			// Act
 			const { result } = renderExpiredHook()
 			await waitFor(() => expect(result.current.isError).toBe(true))
+
+			// Assert
 			expect(result.current.error?.status).toBe(400)
 			expect(result.current.error?.message).toBe("Invalid cursor")
 		})

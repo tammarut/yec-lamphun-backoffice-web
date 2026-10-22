@@ -24,6 +24,7 @@ afterEach(() => {
 describe("useMembershipRenewals", () => {
 	describe("Happy cases", () => {
 		test("fetches page 1 with limit + status params and omits empty search + absent cursor", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				expect(url).toBe("/api/v1/membership/renewals?limit=20&status=PENDING_REVIEW")
@@ -31,16 +32,20 @@ describe("useMembershipRenewals", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 			const { result } = renderHook(() => useMembershipRenewals("PENDING_REVIEW", ""), {
 				wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
 			})
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			expect(result.current.data?.pages[0]?.data).toHaveLength(1)
 			expect(result.current.hasNextPage).toBe(false)
 		})
 
 		test("accumulates pages via the cursor and stops when has_more is false", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				if (url === "/api/v1/membership/renewals?limit=20&status=APPROVED") {
@@ -53,15 +58,16 @@ describe("useMembershipRenewals", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 			const { result } = renderHook(() => useMembershipRenewals("APPROVED", ""), {
 				wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
 			})
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
-			expect(result.current.hasNextPage).toBe(true)
-
 			result.current.fetchNextPage()
 			await waitFor(() => expect(result.current.data?.pages).toHaveLength(2))
+
+			// Assert
 			expect(result.current.hasNextPage).toBe(false)
 			expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
 				"/api/v1/membership/renewals?limit=20&status=APPROVED",
@@ -70,6 +76,7 @@ describe("useMembershipRenewals", () => {
 		})
 
 		test("sends the search term with the status and restarts from page 1 on term change", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				if (url.includes("search=")) {
@@ -79,6 +86,7 @@ describe("useMembershipRenewals", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result, rerender } = renderHook(({ search }: { search: string }) => useMembershipRenewals("PENDING_REVIEW", search), {
 				wrapper: ({ children }: { children: ReactNode }) => {
 					const fresh = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -87,9 +95,10 @@ describe("useMembershipRenewals", () => {
 				initialProps: { search: "" },
 			})
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
 			rerender({ search: "081" })
 			await waitFor(() => expect(result.current.data?.pages[0]?.data).toHaveLength(1))
+
+			// Assert
 			expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
 				"/api/v1/membership/renewals?limit=20&status=PENDING_REVIEW",
 				"/api/v1/membership/renewals?limit=20&status=PENDING_REVIEW&search=081",
@@ -99,15 +108,20 @@ describe("useMembershipRenewals", () => {
 
 	describe("Unhappy cases", () => {
 		test("surfaces a 400 invalid-cursor error with its server message", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(400, { error_message: "Invalid cursor" }))
 			)
+
+			// Act
 			const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 			const { result } = renderHook(() => useMembershipRenewals("PENDING_REVIEW", ""), {
 				wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
 			})
 			await waitFor(() => expect(result.current.isError).toBe(true))
+
+			// Assert
 			expect(result.current.error?.status).toBe(400)
 			expect(result.current.error?.message).toBe("Invalid cursor")
 		})

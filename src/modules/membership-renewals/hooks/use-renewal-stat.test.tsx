@@ -25,6 +25,7 @@ afterEach(() => {
 describe("useRenewalStat", () => {
 	describe("Happy cases", () => {
 		test("fetches the three badge counts from the exact URL", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				expect(String(input)).toBe("/api/v1/membership/renewals/stat")
 				return jsonResponse(200, {
@@ -35,8 +36,11 @@ describe("useRenewalStat", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderStatHook()
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			expect(result.current.data).toEqual({
 				total_expired_members: 7,
 				total_pending_review_members: 3,
@@ -47,14 +51,19 @@ describe("useRenewalStat", () => {
 
 	describe("Unhappy cases", () => {
 		test("surfaces a network failure as an ApiError with status 0", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => {
 					throw new TypeError("network down")
 				})
 			)
+
+			// Act
 			const { result } = renderStatHook()
 			await waitFor(() => expect(result.current.isError).toBe(true))
+
+			// Assert
 			expect(result.current.error?.status).toBe(0)
 		})
 	})

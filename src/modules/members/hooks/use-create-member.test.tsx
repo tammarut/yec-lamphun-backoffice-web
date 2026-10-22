@@ -71,6 +71,7 @@ afterEach(() => {
 describe("useCreateMember", () => {
 	describe("Happy cases", () => {
 		test("uploads selected files first, then POSTs the create payload with the returned paths", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input)
 				if (url === "/api/v1/members/file/upload") {
@@ -100,13 +101,17 @@ describe("useCreateMember", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderCreateHook()
 			result.current.mutate(makeValues())
+
+			// Assert
 			await waitFor(() => expect(result.current.data).toEqual({ id: 42 }))
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")).toHaveLength(1)
 		})
 
 		test("skips the upload request entirely when no file is selected", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				if (String(input) === "/api/v1/members") {
 					return jsonResponse(201, { id: 7 })
@@ -119,27 +124,36 @@ describe("useCreateMember", () => {
 			values.company_certificate = { file: null, existingUrl: null }
 			values.profile_avatar = { file: null, existingUrl: null }
 
+			// Act
 			const { result } = renderCreateHook()
 			result.current.mutate(values)
+
+			// Assert
 			await waitFor(() => expect(result.current.data).toEqual({ id: 7 }))
 			expect(fetchMock).toHaveBeenCalledTimes(1)
 			expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/members")
 		})
 
 		test("resets the members list cache on success (keyset-cursor contract)", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(201, { id: 9 }))
 			)
+
+			// Act
 			const { result, resetSpy } = renderCreateHook()
 			result.current.mutate(makeValues())
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			await waitFor(() => expect(resetSpy).toHaveBeenCalledWith({ queryKey: ["members", "list"] }))
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		test("surfaces the upload error and never POSTs the create payload", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				if (String(input) === "/api/v1/members/file/upload") {
 					return jsonResponse(400, { error_message: "File exceeds the 7MB limit" })
@@ -148,14 +162,18 @@ describe("useCreateMember", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderCreateHook()
 			result.current.mutate(makeValues())
+
+			// Assert
 			await waitFor(() => expect(result.current.isError).toBe(true))
 			expect(result.current.error?.message).toBe("File exceeds the 7MB limit")
 			expect(fetchMock).toHaveBeenCalledTimes(1)
 		})
 
 		test("surfaces the create 409 with its server message", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async (input: RequestInfo | URL) => {
@@ -173,8 +191,11 @@ describe("useCreateMember", () => {
 				})
 			)
 
+			// Act
 			const { result } = renderCreateHook()
 			result.current.mutate(makeValues())
+
+			// Assert
 			await waitFor(() => expect(result.current.isError).toBe(true))
 			expect(result.current.error?.status).toBe(409)
 		})

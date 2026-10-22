@@ -44,35 +44,45 @@ afterEach(() => {
 describe("useLatestRenewal", () => {
 	describe("Happy cases", () => {
 		test("disabled while no member is selected — no fetch goes out", async () => {
+			// Arrange
 			const fetchMock = vi.fn()
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderDetailHook(null)
+
+			// Assert
 			expect(result.current.isEnabled).toBe(false)
 			await new Promise((resolve) => setTimeout(resolve, 10))
 			expect(fetchMock).not.toHaveBeenCalled()
 		})
 
 		test("fetches the member's latest renewal from the exact URL when enabled", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				expect(String(input)).toBe("/api/v1/membership/renewals/101")
 				return jsonResponse(200, DETAIL_BODY)
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderDetailHook(101)
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			expect(result.current.data?.renewal.payment_slip).toBe("https://presigned.example/slip.png")
 			expect(result.current.data?.business.name).toBe("ร้านสมชายการค้า")
 		})
 
 		test("keys per member so opening a different member fetches fresh", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input)
 				return jsonResponse(200, { ...DETAIL_BODY, id: url.endsWith("/102") ? 102 : 101 })
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result, rerender } = renderHook(({ memberId }: { memberId: number | null }) => useLatestRenewal(memberId), {
 				wrapper: ({ children }: { children: ReactNode }) => {
 					const fresh = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -81,21 +91,27 @@ describe("useLatestRenewal", () => {
 				initialProps: { memberId: 101 as number | null },
 			})
 			await waitFor(() => expect(result.current.data?.id).toBe(101))
-
 			rerender({ memberId: 102 })
 			await waitFor(() => expect(result.current.data?.id).toBe(102))
+
+			// Assert
 			expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/v1/membership/renewals/101", "/api/v1/membership/renewals/102"])
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		test("surfaces a 404 with its server message", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(404, { error_message: "Member or renewal not found" }))
 			)
+
+			// Act
 			const { result } = renderDetailHook(101)
 			await waitFor(() => expect(result.current.isError).toBe(true))
+
+			// Assert
 			expect(result.current.error?.status).toBe(404)
 			expect(result.current.error?.message).toBe("Member or renewal not found")
 		})

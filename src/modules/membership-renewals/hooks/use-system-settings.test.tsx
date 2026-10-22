@@ -25,36 +25,50 @@ afterEach(() => {
 describe("useSystemSettings", () => {
 	describe("Happy cases", () => {
 		test("fetches the public settings map from the exact URL", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				expect(String(input)).toBe("/api/v1/system-settings")
 				return jsonResponse(200, { open_membership_renewal: true, maintenance_mode: false })
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderSettingsHook()
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			expect(result.current.data?.open_membership_renewal).toBe(true)
 		})
 
 		test("caches under the shared settings key so the gate and toggle read one value", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(200, { open_membership_renewal: false }))
 			)
+
+			// Act
 			const { result, client } = renderSettingsHook()
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			expect(client.getQueryData(["system-settings"])).toEqual({ open_membership_renewal: false })
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		test("surfaces a 500 error with its server message", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(500, { error_message: "Internal Server Error" }))
 			)
+
+			// Act
 			const { result } = renderSettingsHook()
 			await waitFor(() => expect(result.current.isError).toBe(true))
+
+			// Assert
 			expect(result.current.error?.status).toBe(500)
 			expect(result.current.error?.message).toBe("Internal Server Error")
 		})

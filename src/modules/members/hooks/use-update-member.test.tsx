@@ -72,6 +72,7 @@ afterEach(() => {
 describe("useUpdateMember", () => {
 	describe("Happy cases", () => {
 		test("uploads only CHANGED files, then PATCHes with null id_card_no and null unchanged paths", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input)
 				if (url === "/api/v1/members/file/upload") {
@@ -106,14 +107,18 @@ describe("useUpdateMember", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderUpdateHook()
 			result.current.mutate({ id: 42, values: makeValues() })
+
+			// Assert
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")).toHaveLength(1)
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/42")).toHaveLength(1)
 		})
 
 		test("skips the upload request entirely when no file changed", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 				if (String(input) === "/api/v1/members/42") {
 					const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -126,22 +131,31 @@ describe("useUpdateMember", () => {
 
 			const values = makeValues()
 			values.id_card_image = { file: null, existingUrl: null }
+
+			// Act
 			const { result } = renderUpdateHook()
 			result.current.mutate({ id: 42, values })
+
+			// Assert
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
 			expect(fetchMock).toHaveBeenCalledTimes(1)
 		})
 
 		test("invalidates (not resets) the list AND detail caches on success", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => new Response(null, { status: 204 }))
 			)
 			const values = makeValues()
 			values.id_card_image = { file: null, existingUrl: null }
+
+			// Act
 			const { result, invalidateSpy } = renderUpdateHook()
 			result.current.mutate({ id: 42, values })
 			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			// Assert
 			await waitFor(() => {
 				expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["members", "list"] })
 				expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["members", "detail", 42] })
@@ -151,6 +165,7 @@ describe("useUpdateMember", () => {
 
 	describe("Unhappy cases", () => {
 		test("surfaces the upload error and never PATCHes", async () => {
+			// Arrange
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 				if (String(input) === "/api/v1/members/file/upload") {
 					return jsonResponse(400, { error_message: "File exceeds the 7MB limit" })
@@ -159,20 +174,28 @@ describe("useUpdateMember", () => {
 			})
 			vi.stubGlobal("fetch", fetchMock)
 
+			// Act
 			const { result } = renderUpdateHook()
 			result.current.mutate({ id: 42, values: makeValues() })
+
+			// Assert
 			await waitFor(() => expect(result.current.isError).toBe(true))
 			expect(result.current.error?.message).toBe("File exceeds the 7MB limit")
 			expect(fetchMock).toHaveBeenCalledTimes(1)
 		})
 
 		test("surfaces the PATCH 409 contact conflict with its server message", async () => {
+			// Arrange
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(409, { error_message: "A member with this phone number already exists" }))
 			)
+
+			// Act
 			const { result } = renderUpdateHook()
 			result.current.mutate({ id: 42, values: makeValues() })
+
+			// Assert
 			await waitFor(() => expect(result.current.isError).toBe(true))
 			expect(result.current.error?.status).toBe(409)
 			expect(result.current.error?.message).toBe("A member with this phone number already exists")
