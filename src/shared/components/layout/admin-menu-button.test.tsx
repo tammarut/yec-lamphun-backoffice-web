@@ -165,6 +165,9 @@ describe("AdminMenuButton session cycle", () => {
 			// The next gear click opens the LOGIN dialog again, not another logout confirm
 			await clickGear()
 			expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อจัดการข้อมูล")).toBeTruthy()
+			// Regression guard: the fields must not carry the previous session's credentials.
+			expect((screen.getByLabelText("ชื่อผู้ใช้") as HTMLInputElement).value).toBe("")
+			expect((screen.getByLabelText("รหัสผ่าน") as HTMLInputElement).value).toBe("")
 		})
 	})
 
