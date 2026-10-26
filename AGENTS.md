@@ -153,6 +153,7 @@ src/
 
 * **Path Aliases:** ALWAYS use absolute-like path aliases starting with `src/` (e.g. `src/shared/lib/...` or `src/modules/...`). **Do not use relative paths** (`../../`) when importing from outside the immediate folder.
 * **Tabs for Indentation:** Use real Tab characters for indentation (not spaces), matching the workspace Prettier config.
+* **Full Object Literals:** Always write object properties in full `key: value` form (`{ runAt: runAt }`), never shorthand property names (`{ runAt }`) — uniform, grep-able object shapes across the codebase.
 * **No Single-Line `if`:** ALWAYS use full block syntax, even for short guard clauses or throws:
 
   ```typescript
