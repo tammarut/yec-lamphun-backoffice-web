@@ -1,13 +1,14 @@
 /**
  * Renewal Season boundary rule (CONTEXT.md): UTC midnight of the 1 January
  * that opens the Membership Year the current Renewal Season collects for —
- * the Membership Expiry predicate of the Expiry Sweep is
+ * the Membership Expiry predicate of the Annual Membership Expiry is
  * `expires_at IS NULL OR expires_at < boundary` (ADR-0027).
  *
- * Lives in `src/modules/shared/` beside `computeMembershipExpiry` so the two
- * date rules share one home and neither feature module imports the other
- * (AGENTS.md §1/§2A). It is a pure function — no DI token / container
- * registration, matching `membership-expiry.ts`.
+ * Lives beside its only caller ({@link AnnualMembershipExpiryService}) —
+ * deliberately NOT in `src/modules/shared/membership/`: unlike
+ * `computeMembershipExpiry` (shared by two feature modules), nothing else
+ * consumes this rule (repo-review ruling, PR #109). Pure function — no DI
+ * token / container registration.
  *
  * The season year is read from the BANGKOK wall clock (the ADR-0019
  * dual-pinning precedent: SQL writes and JS reads must agree on timezone —

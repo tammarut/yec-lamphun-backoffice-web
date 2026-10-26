@@ -1,17 +1,17 @@
 /**
- * Expiry Sweep entry point — ADR-0027. The once-a-year job (Dokploy
- * Application schedule job, cron `1 0 1 12 *`) that moves every live ACTIVE
- * member whose Membership Expiry precedes the Renewal Season boundary — or
- * who has no expiry at all — to EXPIRED. Expiry-keyed and idempotent: safe
- * to re-run on any date for rehearsal or recovery.
+ * Annual Membership Expiry entry point — ADR-0027. The once-a-year job
+ * (Dokploy Application schedule job, cron `1 0 1 12 *`) that moves every
+ * live ACTIVE member whose Membership Expiry precedes the Renewal Season
+ * boundary — or who has no expiry at all — to EXPIRED. Expiry-keyed and
+ * idempotent: safe to re-run on any date for rehearsal or recovery.
  *
- * Thin shell over the members module's {@link MemberExpirySweepService}:
+ * Thin shell over the members module's {@link AnnualMembershipExpiryService}:
  * parse `--dry-run`, boot the app's logger exactly as the server does
  * (production emits LogTape JSON lines to stdout — Dokploy's job history is
  * the run trace), resolve the service from the DI container, and emit EXACTLY
  * ONE structured log line per run on BOTH outcomes — `info` on success,
  * `error` on any failure — so every run is verifiable afterward, then exit
- * 0/1. Local rehearsal: `bun scripts/expiry-sweep.ts [--dry-run]`.
+ * 0/1. Local rehearsal: `bun scripts/annual-membership-expiry.ts [--dry-run]`.
  *
  * Boot order mirrors src/instrumentation.ts (which does not run outside
  * Next): reflect-metadata → configureLogger → container resolve.
@@ -20,31 +20,31 @@ import "reflect-metadata"
 
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { MemberExpirySweepService } from "src/modules/members/use-case/expiry-sweep/member-expiry-sweep.service"
+import { AnnualMembershipExpiryService } from "src/modules/members/use-case/annual-membership-expiry/annual-membership-expiry.service"
 import { configureLogger, createLogger } from "src/shared/lib/logger/logger"
 
-/** Run the sweep with the given CLI args; returns the process exit code. */
+/** Run the annual expiry with the given CLI args; returns the exit code. */
 export async function run(argv: readonly string[]): Promise<number> {
 	const startedAtMs = Date.now()
 	const runAt = new Date().toISOString()
 	const dryRun = argv.includes("--dry-run")
 
 	await configureLogger()
-	const logger = createLogger(["members", "expiry-sweep"])
+	const logger = createLogger(["members", "annual-membership-expiry"])
 
 	try {
-		const sweepService = container.resolve<MemberExpirySweepService>(REGISTER_KEY.MEMBER_EXPIRY_SWEEP_SERVICE)
-		const result = await sweepService.execute({ dryRun })
+		const expiryService = container.resolve<AnnualMembershipExpiryService>(REGISTER_KEY.ANNUAL_MEMBERSHIP_EXPIRY_SERVICE)
+		const result = await expiryService.execute({ dryRun: dryRun })
 
 		if (result.isErr()) {
 			logger.error(
-				"expiry sweep failed: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun} error_code={errorCode} error_message={errorMessage}",
+				"annual membership expiry failed: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun} error_code={errorCode} error_message={errorMessage}",
 				{
-					runAt,
+					runAt: runAt,
 					boundary: null,
 					expiredCount: null,
 					durationMs: Date.now() - startedAtMs,
-					dryRun,
+					dryRun: dryRun,
 					errorCode: result.error.code,
 					errorMessage: result.error.message,
 				}
@@ -52,24 +52,24 @@ export async function run(argv: readonly string[]): Promise<number> {
 			return 1
 		}
 
-		const { boundary, expiredCount } = result.value
-		logger.info("expiry sweep completed: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun}", {
-			runAt,
-			boundary: boundary.toISOString(),
-			expiredCount,
+		const outcome = result.value
+		logger.info("annual membership expiry completed: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun}", {
+			runAt: runAt,
+			boundary: outcome.boundary.toISOString(),
+			expiredCount: outcome.expiredCount,
 			durationMs: Date.now() - startedAtMs,
-			dryRun,
+			dryRun: dryRun,
 		})
 		return 0
 	} catch (error) {
 		logger.error(
-			"expiry sweep crashed before completing: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun} error_message={errorMessage}",
+			"annual membership expiry crashed before completing: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun} error_message={errorMessage}",
 			{
-				runAt,
+				runAt: runAt,
 				boundary: null,
 				expiredCount: null,
 				durationMs: Date.now() - startedAtMs,
-				dryRun,
+				dryRun: dryRun,
 				errorMessage: error instanceof Error ? error.message : String(error),
 			}
 		)

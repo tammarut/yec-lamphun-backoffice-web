@@ -118,23 +118,23 @@ The calendar year a membership is paid for. A Membership Expiry always lands on 
 _Avoid_: membership period, membership cycle, term, renewal year
 
 **Renewal Season**:
-The part of the year, from 1 December, in which the chamber collects renewals for the coming Membership Year at the annual general meeting (ประชุมใหญ่). It opens with the Expiry Sweep. A calendar fact, independent of the staff-controlled `open_membership_renewal` toggle that gates the public renewal page.
+The part of the year, from 1 December, in which the chamber collects renewals for the coming Membership Year at the annual general meeting (ประชุมใหญ่). It opens with the Annual Membership Expiry. A calendar fact, independent of the staff-controlled `open_membership_renewal` toggle that gates the public renewal page.
 _Avoid_: renewal window, renewal period
 
-**Expiry Sweep**:
-The scheduled transition that moves every live `ACTIVE` member whose Membership Expiry precedes the Membership Year the current Renewal Season opens (or who has no expiry at all) to `EXPIRED` — from 1 December, everyone still holding the ending year's expiry. The only Member Status transition outside the Membership Renewal lifecycle: it touches no other Renewal Cache Column, and it is idempotent — members already renewed carry next year's expiry and are never touched, so re-running it on any date is harmless. `PENDING_RENEWAL` and `RESIGNED` members are never swept (ADR-0027).
-_Avoid_: cron job, expiry cron, auto-expire, bulk expire, mass expiry
+**Annual Membership Expiry**:
+The scheduled transition that moves every live `ACTIVE` member whose Membership Expiry precedes the Membership Year the current Renewal Season opens (or who has no expiry at all) to `EXPIRED` — from 1 December, everyone still holding the ending year's expiry. The only Member Status transition outside the Membership Renewal lifecycle: it touches no other Renewal Cache Column, and it is idempotent — members already renewed carry next year's expiry and are never touched, so re-running it on any date is harmless. `PENDING_RENEWAL` and `RESIGNED` members are never expired (ADR-0027).
+_Avoid_: expiry sweep, cron job, expiry cron, auto-expire, bulk expire, mass expiry
 
 **Renewal Status**:
 The review state machine of a single Membership Renewal: `PENDING_REVIEW` → (`APPROVED` | `REJECTED`). The status assigned at submission is `PENDING_REVIEW` for a Public Submission or `APPROVED` for an Admin Submission; `APPROVED` and `REJECTED` are terminal, and a Renewal Review is the only way out of `PENDING_REVIEW`. Stored on `membership_renewals.status`; enforced by a database CHECK constraint.
 _Avoid_: renewal state, review status
 
 **Member Status**:
-The lifecycle state of a member's membership itself: `ACTIVE`, `EXPIRED`, `PENDING_RENEWAL`, `RESIGNED`. Distinct from a single renewal's Renewal Status — it summarizes the member's overall standing. Stored on `members.status`. Filing a renewal moves it to `PENDING_RENEWAL` (Public Submission) or `ACTIVE` (Admin Submission); a Renewal Review then moves it to `ACTIVE` (approve) or `EXPIRED` (reject). Once a year, the Expiry Sweep moves `ACTIVE` members whose Membership Year has ended to `EXPIRED` — the one transition that is not a renewal.
+The lifecycle state of a member's membership itself: `ACTIVE`, `EXPIRED`, `PENDING_RENEWAL`, `RESIGNED`. Distinct from a single renewal's Renewal Status — it summarizes the member's overall standing. Stored on `members.status`. Filing a renewal moves it to `PENDING_RENEWAL` (Public Submission) or `ACTIVE` (Admin Submission); a Renewal Review then moves it to `ACTIVE` (approve) or `EXPIRED` (reject). Once a year, the Annual Membership Expiry moves `ACTIVE` members whose Membership Year has ended to `EXPIRED` — the one transition that is not a renewal.
 _Avoid_: account status, membership state
 
 **Renewal Cache Columns**:
-Denormalized columns on `members` kept in sync with the renewal's own state to avoid a JOIN on every member read. The pair `status` (the Member Status) and `latest_renewal_status` (the Renewal Status of the member's most recent renewal) is written by every Renewal Submission and every Renewal Review atomically inside that flow's transaction — and `status` alone (never `latest_renewal_status`) is also written by the Expiry Sweep. The two further columns `expires_at` and `renewal_successful_count` are written ONLY by a Manual Renewal Submission and by an approving Renewal Review — the public create-renewal flow deliberately leaves them untouched (ADR-0015 deferred them; ADR-0016 assigns them to the manual endpoint, ADR-0018 to the review flow), as does the Expiry Sweep. The update-member PATCH never touches any of them (they are lifecycle columns, owned by the renewal flow and the Expiry Sweep).
+Denormalized columns on `members` kept in sync with the renewal's own state to avoid a JOIN on every member read. The pair `status` (the Member Status) and `latest_renewal_status` (the Renewal Status of the member's most recent renewal) is written by every Renewal Submission and every Renewal Review atomically inside that flow's transaction — and `status` alone (never `latest_renewal_status`) is also written by the Annual Membership Expiry. The two further columns `expires_at` and `renewal_successful_count` are written ONLY by a Manual Renewal Submission and by an approving Renewal Review — the public create-renewal flow deliberately leaves them untouched (ADR-0015 deferred them; ADR-0016 assigns them to the manual endpoint, ADR-0018 to the review flow), as does the Annual Membership Expiry. The update-member PATCH never touches any of them (they are lifecycle columns, owned by the renewal flow and the Annual Membership Expiry).
 _Avoid_: cached fields, denormalized status
 
 **Membership Renewal List**:
@@ -166,5 +166,5 @@ An autosaved snapshot of a partially filled member-registration wizard form, kep
 _Avoid_: autosave, form cache, saved form
 
 **Status Badge**:
-The single display vocabulary for a Member Status across the backoffice UI: `ACTIVE` → ปกติ; `EXPIRED` and `PENDING_RENEWAL` → ยังไม่ได้ต่ออายุ (the same union reading as Dashboard Stat's not-yet-renewed count); `RESIGNED` → ลาออก. A Status Badge is staff-only — the public member directory renders no status. It is display-only by construction: no page ever writes a Member Status directly; every transition flows through the Membership Renewal lifecycle (Renewal Review or a Manual Renewal Submission) or the scheduled Expiry Sweep.
+The single display vocabulary for a Member Status across the backoffice UI: `ACTIVE` → ปกติ; `EXPIRED` and `PENDING_RENEWAL` → ยังไม่ได้ต่ออายุ (the same union reading as Dashboard Stat's not-yet-renewed count); `RESIGNED` → ลาออก. A Status Badge is staff-only — the public member directory renders no status. It is display-only by construction: no page ever writes a Member Status directly; every transition flows through the Membership Renewal lifecycle (Renewal Review or a Manual Renewal Submission) or the scheduled Annual Membership Expiry.
 _Avoid_: member state label, renewal badge, status pill

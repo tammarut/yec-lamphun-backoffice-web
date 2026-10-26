@@ -12,7 +12,7 @@ import { MemberDocumentsRepository } from "src/modules/members/repository/member
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
-import { MemberExpirySweepService } from "src/modules/members/use-case/expiry-sweep/member-expiry-sweep.service"
+import { AnnualMembershipExpiryService } from "src/modules/members/use-case/annual-membership-expiry/annual-membership-expiry.service"
 import { GetExecutiveCommitteeService } from "src/modules/members/use-case/get-executive-committee/get-executive-committee.service"
 import { GetLatestRenewalByMemberIdService } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
@@ -340,12 +340,19 @@ container.register(REGISTER_KEY.BUSINESS_SEARCH_REPOSITORY, {
 
 container.register(REGISTER_KEY.BUSINESS_SEARCH_SERVICE, { useClass: SearchBusinessesService }, { lifecycle: Lifecycle.Singleton })
 
-// 14. Register Members Module (expiry-sweep command) — ADR-0027. The Expiry
-// Sweep use case behind scripts/expiry-sweep.ts (the Dokploy schedule-job
-// entry point). Its boundary derives from the injected WALL_CLOCK useValue —
-// a useFactory cannot take lifecycle options in tsyringe 4.x, so the clock
-// is a proper token instead. Singleton like the other use cases.
+// 14. Register Members Module (annual-membership-expiry command) — ADR-0027.
+// The Annual Membership Expiry use case behind scripts/annual-membership-expiry.ts
+// (the Dokploy schedule-job entry point). Its boundary derives from the
+// injected WALL_CLOCK useValue — a useFactory cannot take lifecycle options
+// in tsyringe 4.x, so the clock is a proper token instead. Singleton like the
+// other use cases. The expiry repository is the SAME MembersRepository class
+// under its own token: the two cron queries are port-segregated away from
+// IMemberRepository (repo-review ruling, PR #109) — both registrations are
+// Transient (house repo default), so the two instances are harmless.
 container.register(REGISTER_KEY.WALL_CLOCK, { useValue: () => new Date() })
-container.register(REGISTER_KEY.MEMBER_EXPIRY_SWEEP_SERVICE, { useClass: MemberExpirySweepService }, { lifecycle: Lifecycle.Singleton })
+container.register(REGISTER_KEY.ANNUAL_MEMBERSHIP_EXPIRY_REPOSITORY, {
+	useClass: MembersRepository,
+})
+container.register(REGISTER_KEY.ANNUAL_MEMBERSHIP_EXPIRY_SERVICE, { useClass: AnnualMembershipExpiryService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }

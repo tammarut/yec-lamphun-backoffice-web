@@ -7,15 +7,15 @@ import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
 import type { Member } from "../domain/member"
 import type { MemberBusinessReadModel, MemberDetailReadModel, MemberLatestRenewalReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
-import type { IMemberRepository } from "../interfaces"
+import type { IAnnualMembershipExpiryRepository, IMemberRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-committee/get-executive-committee.types"
 import {
 	countActiveHolderByPosition,
 	countMemberByIdCardHash,
-	countMembersDueForExpiry,
-	expireMembersDueForExpiry,
+	countMembersDueForAnnualExpiry,
+	expireMembersDueForAnnualExpiry,
 	findLiveContactConflicts,
 	getAllPositions,
 	getExecutiveCommitteeMembers,
@@ -46,7 +46,7 @@ import {
  * that to `err()`.
  */
 @injectable()
-export class MembersRepository implements IMemberRepository {
+export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository {
 	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
 
 	/** Internal: the generated functions expect postgres.js's `Sql` type. */
@@ -123,10 +123,12 @@ export class MembersRepository implements IMemberRepository {
 		return ok(row ? row.count : 0)
 	}
 
-	// --- Expiry Sweep (ADR-0027; non-tx: single atomic statements) ------------
+	// --- Annual Membership Expiry (ADR-0027; non-tx: single atomic statements)
+	// Port-segregated behind IAnnualMembershipExpiryRepository — cron-specific,
+	// not part of the general member contract (repo-review ruling, PR #109).
 
-	async countMembersDueForExpiry(boundary: Date) {
-		const result = await ResultAsync.fromPromise(countMembersDueForExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
+	async countMembersDueForAnnualExpiry(boundary: Date) {
+		const result = await ResultAsync.fromPromise(countMembersDueForAnnualExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}
@@ -134,8 +136,8 @@ export class MembersRepository implements IMemberRepository {
 		return ok(row ? row.count : 0)
 	}
 
-	async expireMembersDueForExpiry(boundary: Date) {
-		const result = await ResultAsync.fromPromise(expireMembersDueForExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
+	async expireMembersDueForAnnualExpiry(boundary: Date) {
+		const result = await ResultAsync.fromPromise(expireMembersDueForAnnualExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}

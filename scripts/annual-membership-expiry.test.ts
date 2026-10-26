@@ -1,6 +1,6 @@
 import { err, ok } from "neverthrow"
 import { beforeEach, describe, expect, test, vi } from "vitest"
-import { mock } from "vitest-mock-extended"
+import { mock, type MockProxy } from "vitest-mock-extended"
 
 vi.mock("src/modules/container", () => ({
 	container: {
@@ -22,24 +22,24 @@ vi.mock("src/shared/lib/logger/logger", () => ({
 
 import { container } from "src/modules/container"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import type { MemberExpirySweepService } from "src/modules/members/use-case/expiry-sweep/member-expiry-sweep.service"
+import type { AnnualMembershipExpiryService } from "src/modules/members/use-case/annual-membership-expiry/annual-membership-expiry.service"
 
-import { run } from "./expiry-sweep"
+import { run } from "./annual-membership-expiry"
 
 const BOUNDARY = new Date("2027-01-01T00:00:00.000Z")
 
-describe("expiry-sweep script", () => {
-	let mockService: ReturnType<typeof mock<MemberExpirySweepService>>
+describe("annual-membership-expiry script", () => {
+	let mockService: MockProxy<AnnualMembershipExpiryService>
 
 	beforeEach(() => {
 		vi.clearAllMocks()
-		mockService = mock<MemberExpirySweepService>()
+		mockService = mock<AnnualMembershipExpiryService>()
 		vi.mocked(container.resolve).mockReturnValue(mockService)
 	})
 
 	describe("run", () => {
 		describe("Happy cases", () => {
-			test("a plain run sweeps and logs exactly one success line, exiting 0", async () => {
+			test("a plain run expires due members and logs exactly one success line, exiting 0", async () => {
 				mockService.execute.mockResolvedValue(ok({ boundary: BOUNDARY, expiredCount: 7, dryRun: false }))
 
 				const exitCode = await run([])
@@ -68,7 +68,7 @@ describe("expiry-sweep script", () => {
 
 		describe("Unhappy cases", () => {
 			test("a service failure logs exactly one error line and exits 1", async () => {
-				mockService.execute.mockResolvedValue(err(new DatabaseError("sweep write failed")))
+				mockService.execute.mockResolvedValue(err(new DatabaseError("expiry write failed")))
 
 				const exitCode = await run([])
 
@@ -76,7 +76,7 @@ describe("expiry-sweep script", () => {
 				expect(loggerSpies.error).toHaveBeenCalledTimes(1)
 				expect(loggerSpies.info).not.toHaveBeenCalled()
 				const [, props] = loggerSpies.error.mock.calls[0] as [string, Record<string, unknown>]
-				expect(props).toMatchObject({ errorMessage: "sweep write failed", errorCode: "DATABASE_ERROR", expiredCount: null, dryRun: false })
+				expect(props).toMatchObject({ errorMessage: "expiry write failed", errorCode: "DATABASE_ERROR", expiredCount: null, dryRun: false })
 			})
 
 			test("a container-resolution crash logs the error line and exits 1", async () => {

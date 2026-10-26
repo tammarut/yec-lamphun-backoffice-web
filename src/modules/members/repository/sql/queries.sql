@@ -490,9 +490,9 @@ LIMIT sqlc.arg('row_limit')::INT;
 -- NULL can only be a legacy anomaly; skipping it would let that member
 -- escape the annual renewal forever). Expiry-keyed, hence idempotent: a
 -- renewed member carries next year's expiry and never matches.
--- name: CountMembersDueForExpiry :many
+-- name: CountMembersDueForAnnualExpiry :many
 -- Dry-run count for the sweep — the exact predicate of
--- ExpireMembersDueForExpiry, read-only. `:many` per ADR-0001; count(*) always
+-- ExpireMembersDueForAnnualExpiry, read-only. `:many` per ADR-0001; count(*) always
 -- returns exactly one row, narrowed in the repository.
 SELECT count(*)::int AS count
 FROM members
@@ -500,7 +500,7 @@ WHERE deleted_at IS NULL
   AND status = 'ACTIVE'
   AND (expires_at IS NULL OR expires_at < $1);
 
--- name: ExpireMembersDueForExpiry :many
+-- name: ExpireMembersDueForAnnualExpiry :many
 -- The sweep write: flips the matched members to EXPIRED, stamping updated_at.
 -- status is the ONLY Renewal Cache Column touched (expires_at keeps the
 -- historical end; latest_renewal_status / renewal_successful_count are not
