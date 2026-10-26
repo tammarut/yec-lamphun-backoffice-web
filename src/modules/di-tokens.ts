@@ -91,4 +91,13 @@ export const REGISTER_KEY = {
 	// Bangkok wall-clock years). No TS cross-import into the members module.
 	DASHBOARD_REPOSITORY: Symbol("DASHBOARD_REPOSITORY"),
 	GET_DASHBOARD_STAT_SERVICE: Symbol("GET_DASHBOARD_STAT_SERVICE"),
+	// Members module (expiry-sweep command) — ADR-0027. The Expiry Sweep: the
+	// one Member Status transition outside the Membership Renewal lifecycle.
+	// Resolved by scripts/expiry-sweep.ts (the Dokploy schedule-job entry
+	// point); the boundary derives from the injected WALL_CLOCK.
+	MEMBER_EXPIRY_SWEEP_SERVICE: Symbol("MEMBER_EXPIRY_SWEEP_SERVICE"),
+	// The injectable wall clock (`() => Date`), registered as a useValue. The
+	// Expiry Sweep reads the run instant through it so boundary tests can pin
+	// the clock; anything else that needs `now` injectable may reuse it.
+	WALL_CLOCK: Symbol("WALL_CLOCK"),
 } as const

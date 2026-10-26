@@ -12,6 +12,7 @@ import { MemberDocumentsRepository } from "src/modules/members/repository/member
 import { MembersRepository } from "src/modules/members/repository/members.repository"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { DeleteMemberService } from "src/modules/members/use-case/delete-member/delete-member.service"
+import { MemberExpirySweepService } from "src/modules/members/use-case/expiry-sweep/member-expiry-sweep.service"
 import { GetExecutiveCommitteeService } from "src/modules/members/use-case/get-executive-committee/get-executive-committee.service"
 import { GetLatestRenewalByMemberIdService } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
@@ -338,5 +339,13 @@ container.register(REGISTER_KEY.BUSINESS_SEARCH_REPOSITORY, {
 })
 
 container.register(REGISTER_KEY.BUSINESS_SEARCH_SERVICE, { useClass: SearchBusinessesService }, { lifecycle: Lifecycle.Singleton })
+
+// 14. Register Members Module (expiry-sweep command) — ADR-0027. The Expiry
+// Sweep use case behind scripts/expiry-sweep.ts (the Dokploy schedule-job
+// entry point). Its boundary derives from the injected WALL_CLOCK useValue —
+// a useFactory cannot take lifecycle options in tsyringe 4.x, so the clock
+// is a proper token instead. Singleton like the other use cases.
+container.register(REGISTER_KEY.WALL_CLOCK, { useValue: () => new Date() })
+container.register(REGISTER_KEY.MEMBER_EXPIRY_SWEEP_SERVICE, { useClass: MemberExpirySweepService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }
