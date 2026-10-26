@@ -14,6 +14,8 @@ import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-comm
 import {
 	countActiveHolderByPosition,
 	countMemberByIdCardHash,
+	countMembersDueForExpiry,
+	expireMembersDueForExpiry,
 	findLiveContactConflicts,
 	getAllPositions,
 	getExecutiveCommitteeMembers,
@@ -119,6 +121,25 @@ export class MembersRepository implements IMemberRepository {
 		}
 		const row = result.value[0]
 		return ok(row ? row.count : 0)
+	}
+
+	// --- Expiry Sweep (ADR-0027; non-tx: single atomic statements) ------------
+
+	async countMembersDueForExpiry(boundary: Date) {
+		const result = await ResultAsync.fromPromise(countMembersDueForExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value[0]
+		return ok(row ? row.count : 0)
+	}
+
+	async expireMembersDueForExpiry(boundary: Date) {
+		const result = await ResultAsync.fromPromise(expireMembersDueForExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(result.value.length)
 	}
 
 	// --- Tx-scoped member-row steps (create / update / delete flows) ---------

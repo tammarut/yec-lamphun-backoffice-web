@@ -40,6 +40,26 @@ export interface IMemberRepository {
 	/** Count non-deleted members currently holding a position. */
 	countActiveHolderByPosition(positionCode: string): Promise<Result<number, DatabaseError>>
 
+	// --- Expiry Sweep (ADR-0027; runs OUTSIDE any transaction) ----------------
+
+	/**
+	 * Count live ACTIVE members the Expiry Sweep would expire at `boundary` —
+	 * Membership Expiry NULL or before it. The exact predicate of
+	 * {@link IMemberRepository.expireMembersDueForExpiry}, read-only: the
+	 * sweep's `--dry-run` count (no mutation).
+	 */
+	countMembersDueForExpiry(boundary: Date): Promise<Result<number, DatabaseError>>
+
+	/**
+	 * The Expiry Sweep write: flip every live ACTIVE member whose Membership
+	 * Expiry is NULL or before `boundary` to EXPIRED, stamping `updated_at`.
+	 * `status` is the only Renewal Cache Column touched (ADR-0027 §5). Single
+	 * atomic statement — no transaction wrapper — and expiry-keyed, hence
+	 * idempotent. Returns the number of expired members (RETURNING rows; the
+	 * sqlc TS plugin emits no rows-affected executor).
+	 */
+	expireMembersDueForExpiry(boundary: Date): Promise<Result<number, DatabaseError>>
+
 	// --- Tx-scoped member-row steps ------------------------------------------
 
 	/**
