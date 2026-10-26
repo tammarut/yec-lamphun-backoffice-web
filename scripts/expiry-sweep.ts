@@ -78,5 +78,10 @@ export async function run(argv: readonly string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-	process.exit(await run(process.argv.slice(2)))
+	const code = await run(process.argv.slice(2))
+	// process.exit() drops queued stream writes — the run's one log line would
+	// be lost to the exit race (the prod stream sink writes async). A 100ms
+	// beat lets stdout flush; invisible at a once-a-year cadence.
+	await new Promise((resolve) => setTimeout(resolve, 100))
+	process.exit(code)
 }
