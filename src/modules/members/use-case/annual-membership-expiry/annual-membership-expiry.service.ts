@@ -24,8 +24,10 @@ export interface AnnualMembershipExpiryRun {
 /**
  * Use case (command): the Annual Membership Expiry — ADR-0027. Moves every
  * live ACTIVE member whose Membership Expiry precedes the Renewal Season
- * boundary (or who has no expiry at all) to EXPIRED; the first Member Status
- * transition outside the Membership Renewal lifecycle.
+ * boundary to EXPIRED; the first Member Status transition outside the
+ * Membership Renewal lifecycle. A NULL `expires_at` is deliberately never
+ * matched — a missing expiry is a legacy data anomaly handled out-of-band,
+ * not auto-expired (repo-review ruling, PR #109).
  *
  * Expiry-keyed and hence idempotent: a renewed member carries next year's
  * expiry and never matches, so re-running on any date is a no-op for them.

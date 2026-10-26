@@ -2,7 +2,8 @@
  * Renewal Season boundary rule (CONTEXT.md): UTC midnight of the 1 January
  * that opens the Membership Year the current Renewal Season collects for —
  * the Membership Expiry predicate of the Annual Membership Expiry is
- * `expires_at IS NULL OR expires_at < boundary` (ADR-0027).
+ * `expires_at < boundary` (ADR-0027; NULL expiries deliberately never match —
+ * repo-review ruling, PR #109).
  *
  * Lives beside its only caller ({@link AnnualMembershipExpiryService}) —
  * deliberately NOT in `src/modules/shared/membership/`: unlike

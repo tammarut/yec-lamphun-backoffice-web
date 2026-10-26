@@ -927,7 +927,7 @@ SELECT count(*)::int AS count
 FROM members
 WHERE deleted_at IS NULL
   AND status = 'ACTIVE'
-  AND (expires_at IS NULL OR expires_at < $1)`
+  AND expires_at < $1`
 
 export interface CountMembersDueForAnnualExpiryArgs {
 	expiresAt: Date | null
@@ -949,7 +949,7 @@ SET status = 'EXPIRED',
     updated_at = NOW()
 WHERE deleted_at IS NULL
   AND status = 'ACTIVE'
-  AND (expires_at IS NULL OR expires_at < $1)
+  AND expires_at < $1
 RETURNING id`
 
 export interface ExpireMembersDueForAnnualExpiryArgs {

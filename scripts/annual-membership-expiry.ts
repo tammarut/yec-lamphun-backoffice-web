@@ -2,8 +2,9 @@
  * Annual Membership Expiry entry point — ADR-0027. The once-a-year job
  * (Dokploy Application schedule job, cron `1 0 1 12 *`) that moves every
  * live ACTIVE member whose Membership Expiry precedes the Renewal Season
- * boundary — or who has no expiry at all — to EXPIRED. Expiry-keyed and
- * idempotent: safe to re-run on any date for rehearsal or recovery.
+ * boundary to EXPIRED. A NULL `expires_at` is deliberately never matched
+ * (repo-review ruling, PR #109). Expiry-keyed and idempotent: safe to re-run
+ * on any date for rehearsal or recovery.
  *
  * Thin shell over the members module's {@link AnnualMembershipExpiryService}:
  * parse `--dry-run`, boot the app's logger exactly as the server does

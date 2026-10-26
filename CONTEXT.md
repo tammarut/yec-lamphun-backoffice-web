@@ -122,7 +122,7 @@ The part of the year, from 1 December, in which the chamber collects renewals fo
 _Avoid_: renewal window, renewal period
 
 **Annual Membership Expiry**:
-The scheduled transition that moves every live `ACTIVE` member whose Membership Expiry precedes the Membership Year the current Renewal Season opens (or who has no expiry at all) to `EXPIRED` — from 1 December, everyone still holding the ending year's expiry. The only Member Status transition outside the Membership Renewal lifecycle: it touches no other Renewal Cache Column, and it is idempotent — members already renewed carry next year's expiry and are never touched, so re-running it on any date is harmless. `PENDING_RENEWAL` and `RESIGNED` members are never expired (ADR-0027).
+The scheduled transition that moves every live `ACTIVE` member whose Membership Expiry precedes the Membership Year the current Renewal Season opens to `EXPIRED` — from 1 December, everyone still holding the ending year's expiry. The only Member Status transition outside the Membership Renewal lifecycle: it touches no other Renewal Cache Column, and it is idempotent — members already renewed carry next year's expiry and are never touched, so re-running it on any date is harmless. `PENDING_RENEWAL` and `RESIGNED` members are never expired (ADR-0027).
 _Avoid_: expiry sweep, cron job, expiry cron, auto-expire, bulk expire, mass expiry
 
 **Renewal Status**:

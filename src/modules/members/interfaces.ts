@@ -169,7 +169,8 @@ export interface IMemberRepository {
 export interface IAnnualMembershipExpiryRepository {
 	/**
 	 * Count live ACTIVE members the job would expire at `boundary` —
-	 * Membership Expiry NULL or before it. The exact predicate of
+	 * Membership Expiry before it. A NULL `expires_at` is deliberately never
+	 * matched (repo-review ruling, PR #109). The exact predicate of
 	 * {@link IAnnualMembershipExpiryRepository.expireMembersDueForAnnualExpiry},
 	 * read-only: the job's `--dry-run` count (no mutation).
 	 */
@@ -177,7 +178,8 @@ export interface IAnnualMembershipExpiryRepository {
 
 	/**
 	 * The job's write: flip every live ACTIVE member whose Membership Expiry
-	 * is NULL or before `boundary` to EXPIRED, stamping `updated_at`.
+	 * is before `boundary` to EXPIRED, stamping `updated_at`. A NULL
+	 * `expires_at` is deliberately never matched (repo-review ruling, PR #109).
 	 * `status` is the only Renewal Cache Column touched (ADR-0027 §5). Single
 	 * atomic statement — no transaction wrapper — and expiry-keyed, hence
 	 * idempotent. Returns the number of expired members (RETURNING rows; the
