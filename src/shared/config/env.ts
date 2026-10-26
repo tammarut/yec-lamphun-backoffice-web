@@ -30,7 +30,11 @@ export type EnvConfig = {
 export const envConfig = createEnv({
 	skipValidation: process.env["SKIP_ENV_VALIDATION"] === "true",
 	server: {
-		NODE_ENV: v.picklist(["development", "test", "production"]),
+		// Defaults to production when unset: `next dev/build/start` always set
+		// NODE_ENV, but a bare `bun scripts/*` run does not — standalone entry
+		// points should behave like the deployed container, which runs with
+		// NODE_ENV=production (PR #109 scrutiny finding 2).
+		NODE_ENV: v.optional(v.picklist(["development", "test", "production"]), "production"),
 		ADMIN_USERNAME: v.pipe(v.string(), v.minLength(1, "ADMIN_USERNAME is required")),
 		ADMIN_PASSWORD: v.pipe(v.string(), v.minLength(1, "ADMIN_PASSWORD is required")),
 		DATABASE_URL: v.pipe(v.string(), v.minLength(1, "DATABASE_URL is required")),
