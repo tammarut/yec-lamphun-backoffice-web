@@ -921,3 +921,47 @@ export async function searchLiveBusinesses(sql: Sql, args: SearchLiveBusinessesA
 		ownerNames: row[6],
 	}))
 }
+
+export const countMembersDueForAnnualExpiryQuery = `-- name: CountMembersDueForAnnualExpiry :many
+SELECT count(*)::int AS count
+FROM members
+WHERE deleted_at IS NULL
+  AND status = 'ACTIVE'
+  AND expires_at < $1`
+
+export interface CountMembersDueForAnnualExpiryArgs {
+	expiresAt: Date | null
+}
+
+export interface CountMembersDueForAnnualExpiryRow {
+	count: number
+}
+
+export async function countMembersDueForAnnualExpiry(sql: Sql, args: CountMembersDueForAnnualExpiryArgs): Promise<CountMembersDueForAnnualExpiryRow[]> {
+	return (await sql.unsafe(countMembersDueForAnnualExpiryQuery, [args.expiresAt]).values()).map((row) => ({
+		count: row[0],
+	}))
+}
+
+export const expireMembersDueForAnnualExpiryQuery = `-- name: ExpireMembersDueForAnnualExpiry :many
+UPDATE members
+SET status = 'EXPIRED',
+    updated_at = NOW()
+WHERE deleted_at IS NULL
+  AND status = 'ACTIVE'
+  AND expires_at < $1
+RETURNING id`
+
+export interface ExpireMembersDueForAnnualExpiryArgs {
+	expiresAt: Date | null
+}
+
+export interface ExpireMembersDueForAnnualExpiryRow {
+	id: string
+}
+
+export async function expireMembersDueForAnnualExpiry(sql: Sql, args: ExpireMembersDueForAnnualExpiryArgs): Promise<ExpireMembersDueForAnnualExpiryRow[]> {
+	return (await sql.unsafe(expireMembersDueForAnnualExpiryQuery, [args.expiresAt]).values()).map((row) => ({
+		id: row[0],
+	}))
+}

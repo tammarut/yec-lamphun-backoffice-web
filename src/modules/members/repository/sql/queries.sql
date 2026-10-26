@@ -484,3 +484,35 @@ WHERE b.deleted_at IS NULL
        OR b.juristic_registration_no ILIKE sqlc.narg('search_pattern')::TEXT)
 ORDER BY b.name ASC, b.id ASC
 LIMIT sqlc.arg('row_limit')::INT;
+
+-- ADR-0027 Annual Membership Expiry. Live ACTIVE members whose Membership
+-- Expiry precedes the Renewal Season boundary. A NULL expires_at is
+-- deliberately NOT matched (repo-review ruling, PR #109): a missing expiry is
+-- a legacy data anomaly to fix out-of-band, not to auto-expire — only a real,
+-- past expiry instant flips a member. Expiry-keyed, hence idempotent: a
+-- renewed member carries next year's expiry and never matches.
+-- name: CountMembersDueForAnnualExpiry :many
+-- Dry-run count for the job — the exact predicate of
+-- ExpireMembersDueForAnnualExpiry, read-only. `:many` per ADR-0001; count(*) always
+-- returns exactly one row, narrowed in the repository.
+SELECT count(*)::int AS count
+FROM members
+WHERE deleted_at IS NULL
+  AND status = 'ACTIVE'
+  AND expires_at < $1;
+
+-- name: ExpireMembersDueForAnnualExpiry :many
+-- The job's write: flips the matched members to EXPIRED, stamping updated_at.
+-- status is the ONLY Renewal Cache Column touched (expires_at keeps the
+-- historical end; latest_renewal_status / renewal_successful_count are not
+-- the job's business — ADR-0027 §5). Single statement, so no transaction
+-- wrapper. Affected count = RETURNING rows (ADR-0001: the sqlc TS plugin
+-- emits no rows-affected executor). PENDING_RENEWAL / RESIGNED / soft-deleted
+-- / NULL-expiry rows never match the WHERE clause.
+UPDATE members
+SET status = 'EXPIRED',
+    updated_at = NOW()
+WHERE deleted_at IS NULL
+  AND status = 'ACTIVE'
+  AND expires_at < $1
+RETURNING id;

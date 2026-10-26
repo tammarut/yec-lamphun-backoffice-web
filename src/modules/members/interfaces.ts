@@ -154,3 +154,36 @@ export interface IMemberRepository {
 	 */
 	getExecutiveCommittee(): Promise<Result<readonly ExecutiveCommitteeMemberRow[], DatabaseError>>
 }
+
+/**
+ * Repository port for the Annual Membership Expiry (ADR-0027) — the yearly
+ * scheduled job that moves live ACTIVE members whose Membership Expiry
+ * precedes the Renewal Season boundary (or NULL) to EXPIRED. Segregated from
+ * {@link IMemberRepository} on purpose: these two queries exist only for the
+ * cron use case and are unlikely to be reused (repo-review ruling, PR #109).
+ * Both run OUTSIDE any transaction (single atomic statements).
+ *
+ * Implemented by MembersRepository (same class — the write target is the
+ * members table, ADR-0024), registered under its own DI token.
+ */
+export interface IAnnualMembershipExpiryRepository {
+	/**
+	 * Count live ACTIVE members the job would expire at `boundary` —
+	 * Membership Expiry before it. A NULL `expires_at` is deliberately never
+	 * matched (repo-review ruling, PR #109). The exact predicate of
+	 * {@link IAnnualMembershipExpiryRepository.expireMembersDueForAnnualExpiry},
+	 * read-only: the job's `--dry-run` count (no mutation).
+	 */
+	countMembersDueForAnnualExpiry(boundary: Date): Promise<Result<number, DatabaseError>>
+
+	/**
+	 * The job's write: flip every live ACTIVE member whose Membership Expiry
+	 * is before `boundary` to EXPIRED, stamping `updated_at`. A NULL
+	 * `expires_at` is deliberately never matched (repo-review ruling, PR #109).
+	 * `status` is the only Renewal Cache Column touched (ADR-0027 §5). Single
+	 * atomic statement — no transaction wrapper — and expiry-keyed, hence
+	 * idempotent. Returns the number of expired members (RETURNING rows; the
+	 * sqlc TS plugin emits no rows-affected executor).
+	 */
+	expireMembersDueForAnnualExpiry(boundary: Date): Promise<Result<number, DatabaseError>>
+}
