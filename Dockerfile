@@ -39,6 +39,14 @@ COPY . .
 # Run build
 RUN bun run build
 
+# Bundle the Expiry Sweep job entry (OPS-01b) for the Bun runtime: one
+# self-contained file with the members module, DI container and DB driver
+# baked in, so the runtime stage needs no node_modules for it. Validated env
+# (DATABASE_URL etc.) is read at RUNTIME from the container env — the same
+# env the standalone server already receives.
+RUN bun build scripts/annual-membership-expiry.ts --target=bun \
+    --outfile=dist/annual-membership-expiry.js
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Runner stage
 # Production image, copy all the files and run Next.js
@@ -61,6 +69,12 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# Expiry Sweep job bundle (OPS-01b), beside the standalone server and owned
+# by the non-root user like the rest of /app. Run it inside the container
+# (Dokploy job / terminal) with the app env already present:
+#   bun annual-membership-expiry.js --dry-run
+COPY --from=builder --chown=nextjs:nodejs /app/dist/annual-membership-expiry.js ./annual-membership-expiry.js
 
 USER nextjs
 
