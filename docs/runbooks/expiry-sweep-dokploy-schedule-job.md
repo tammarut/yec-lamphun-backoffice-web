@@ -1,6 +1,6 @@
 # Runbook: Expiry Sweep Dokploy Schedule Job
 
-Ops runbook for the **Expiry Sweep** (Annual Membership Expiry) scheduled job — create, verify, recover, change cadence. Design facts: [ADR-0027](../adr/0027-annual-membership-expiry-as-dokploy-scheduled-job.md). Wired + rehearsed in ticket #108 ([OPS-01c], parent spec #105). The Dokploy UI steps are performed by the operator; this document is the checklist they follow.
+Ops runbook for the **Expiry Sweep** (Annual Membership Expiry) scheduled job — create, verify, recover, change cadence. Design facts: [ADR-0027](../adr/0027-annual-membership-expiry-as-dokploy-scheduled-job.md). Wired + rehearsed in ticket [#108](https://github.com/tammarut/yec-lamphun-backoffice-web/issues/108) ([OPS-01c], parent spec [#105](https://github.com/tammarut/yec-lamphun-backoffice-web/issues/105)). The Dokploy UI steps are performed by the operator; this document is the checklist they follow.
 
 ## Quick facts
 
@@ -31,7 +31,7 @@ Idempotency follows from the keying: a renewed member carries next year's expiry
 
 ## Create the job
 
-Operator, in the Dokploy UI (docs.dokploy.com/docs/core/schedule-jobs):
+Operator, in the Dokploy UI ([docs.dokploy.com/docs/core/schedule-jobs](https://docs.dokploy.com/docs/core/schedule-jobs)):
 
 1. Open the live **Application** (the backoffice web app) → Schedule Jobs → create a new job.
 2. Type **Application** (docker-exec into this app's container — not a Server job).
@@ -52,11 +52,11 @@ Every execution leaves a log entry in Dokploy's job history. A healthy run shows
 | --- | --- | --- |
 | `run_at` | ISO instant the run started | the firing time |
 | `boundary` | the Renewal Season boundary the run date implies | `2026-01-01T00:00:00.000Z` for any 2026 run before December |
-| `expired_count` | members flipped to `EXPIRED` (0 on dry-run's count) | `0` on healthy data |
+| `expired_count` | members flipped to `EXPIRED` (the would-be count on a `--dry-run`) | `0` on healthy data |
 | `duration_ms` | wall-clock duration of the run | tens–hundreds of ms |
 | `dry_run` | whether the run was count-only | `false` for the scheduled job |
 
-A red entry (exit code 1) carries an `error`-level line instead (`annual membership expiry failed:` / `crashed before completing:` / `aborted:` with `error_code` / `error_message`). The only CLI flag the command understands is `--dry-run`; any other argument aborts with exit 1 **without** touching the database.
+A red entry (exit code 1) carries an `error`-level line instead: `annual membership expiry aborted:` and `annual membership expiry failed:` carry `error_code` + `error_message`; `crashed before completing:` carries `error_message` only. The only CLI flag the command understands is `--dry-run`; any other argument aborts with exit 1 **without** touching the database.
 
 ## Rehearsal — first live firing (one-time, ticket #108)
 
