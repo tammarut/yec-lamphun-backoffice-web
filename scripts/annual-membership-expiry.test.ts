@@ -27,8 +27,6 @@ import type { AnnualMembershipExpiryService } from "src/modules/members/use-case
 
 import { run } from "./annual-membership-expiry"
 
-const BOUNDARY = new Date("2027-01-01T00:00:00.000Z")
-
 /** The log line's `boundary` is derived from the line's own `run_at`. */
 function expectedBoundary(props: Record<string, unknown>): string {
 	return computeRenewalSeasonBoundary(new Date(props["runAt"] as string)).toISOString()
@@ -46,7 +44,7 @@ describe("annual-membership-expiry script", () => {
 	describe("run", () => {
 		describe("Happy cases", () => {
 			test("a plain run expires due members and logs exactly one success line, exiting 0", async () => {
-				mockService.execute.mockResolvedValue(ok({ boundary: BOUNDARY, expiredCount: 7, dryRun: false }))
+				mockService.execute.mockResolvedValue(ok(7))
 
 				const exitCode = await run([])
 
@@ -62,7 +60,7 @@ describe("annual-membership-expiry script", () => {
 			})
 
 			test("--dry-run reaches the service as dryRun=true and the log line carries dry_run", async () => {
-				mockService.execute.mockResolvedValue(ok({ boundary: BOUNDARY, expiredCount: 2, dryRun: true }))
+				mockService.execute.mockResolvedValue(ok(2))
 
 				const exitCode = await run(["--dry-run"])
 

@@ -87,11 +87,10 @@ export async function run(argv: readonly string[]): Promise<number> {
 			return 1
 		}
 
-		const outcome = result.value
 		logger.info("annual membership expiry completed: run_at={runAt} boundary={boundary} expired_count={expiredCount} duration_ms={durationMs} dry_run={dryRun}", {
 			runAt: runAt,
 			boundary: boundary,
-			expiredCount: outcome.expiredCount,
+			expiredCount: result.value,
 			durationMs: Date.now() - startedAtMs,
 			dryRun: dryRun,
 		})

@@ -12,15 +12,6 @@ export interface AnnualMembershipExpiryRequest {
 	dryRun: boolean
 }
 
-/** One run's facts — everything the entry script's log line needs. */
-export interface AnnualMembershipExpiryRun {
-	/** The Renewal Season boundary the predicate was keyed on. */
-	boundary: Date
-	/** Members expired by this run (dry-run: the would-be count). */
-	expiredCount: number
-	dryRun: boolean
-}
-
 /**
  * Use case (command): the Annual Membership Expiry — ADR-0027. Moves every
  * live ACTIVE member whose Membership Expiry precedes the Renewal Season
@@ -41,8 +32,12 @@ export interface AnnualMembershipExpiryRun {
  * transaction wrapper). The only failure mode is infra — the repository's
  * `DatabaseError` propagates unchanged.
  *
- * Returns AGENTS.md §2B
- * `Promise<Result<AnnualMembershipExpiryRun, DatabaseError>>`.
+ * Returns the number of members this run expired (dry-run: the would-be
+ * count) as AGENTS.md §2B `Promise<Result<number, DatabaseError>>` — nothing
+ * else: the run facts a log line needs are the caller's own (the boundary is
+ * a pure function of the run date via {@link computeRenewalSeasonBoundary},
+ * and `dryRun` is the caller's own argument), so echoing them back would be
+ * dead weight (post-merge review, PR #109).
  */
 @injectable()
 export class AnnualMembershipExpiryService {
@@ -51,7 +46,7 @@ export class AnnualMembershipExpiryService {
 		@inject(REGISTER_KEY.WALL_CLOCK) private readonly now: () => Date = () => new Date()
 	) {}
 
-	async execute(request: AnnualMembershipExpiryRequest): Promise<Result<AnnualMembershipExpiryRun, DatabaseError>> {
+	async execute(request: AnnualMembershipExpiryRequest): Promise<Result<number, DatabaseError>> {
 		const boundary = computeRenewalSeasonBoundary(this.now())
 
 		const result = request.dryRun ? await this.repository.countMembersDueForAnnualExpiry(boundary) : await this.repository.expireMembersDueForAnnualExpiry(boundary)
@@ -59,6 +54,6 @@ export class AnnualMembershipExpiryService {
 		if (result.isErr()) {
 			return err(result.error)
 		}
-		return ok({ boundary: boundary, expiredCount: result.value, dryRun: request.dryRun })
+		return ok(result.value)
 	}
 }
