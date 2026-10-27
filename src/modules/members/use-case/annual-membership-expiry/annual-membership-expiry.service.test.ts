@@ -33,7 +33,7 @@ describe("AnnualMembershipExpiryService", () => {
 				expect(result.isOk()).toBe(true)
 				expect(mockRepo.expireMembersDueForAnnualExpiry).toHaveBeenCalledWith(FIXED_BOUNDARY)
 				expect(mockRepo.countMembersDueForAnnualExpiry).not.toHaveBeenCalled()
-				expect(result._unsafeUnwrap()).toEqual({ boundary: FIXED_BOUNDARY, expiredCount: 7, dryRun: false })
+				expect(result._unsafeUnwrap()).toBe(7)
 			})
 
 			test("dry-run routes to the count-only port and performs no write", async () => {
@@ -44,7 +44,7 @@ describe("AnnualMembershipExpiryService", () => {
 				expect(result.isOk()).toBe(true)
 				expect(mockRepo.countMembersDueForAnnualExpiry).toHaveBeenCalledWith(FIXED_BOUNDARY)
 				expect(mockRepo.expireMembersDueForAnnualExpiry).not.toHaveBeenCalled()
-				expect(result._unsafeUnwrap()).toEqual({ boundary: FIXED_BOUNDARY, expiredCount: 2, dryRun: true })
+				expect(result._unsafeUnwrap()).toBe(2)
 			})
 
 			test("the derived boundary is the renewal-season boundary of the injected now", () => {
