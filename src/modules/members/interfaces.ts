@@ -1,7 +1,7 @@
 import type { Sql } from "postgres"
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
-import type { Member } from "./domain/member"
+import type { Member, MemberStatus } from "./domain/member"
 import type { MemberDetailReadModel, MemberLatestRenewalReadModel, PositionReadModel } from "./domain/member-read-models"
 import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
@@ -186,4 +186,44 @@ export interface IAnnualMembershipExpiryRepository {
 	 * sqlc TS plugin emits no rows-affected executor).
 	 */
 	expireMembersDueForAnnualExpiry(boundary: Date): Promise<Result<number, DatabaseError>>
+}
+
+/**
+ * Repository port for the Resign Expired Member command (#113) —
+ * `POST /api/v1/members/:id/resign`, the admin-initiated close-out of the
+ * expired-members worklist and the FIRST write path to Member Status
+ * RESIGNED (it existed only in the CHECK constraint, TS unions and labels
+ * before). Segregated from {@link IMemberRepository} for the same reason as
+ * {@link IAnnualMembershipExpiryRepository}: a lifecycle transition outside
+ * the renewal flows, with its own two queries. Both run OUTSIDE any
+ * transaction (two single atomic statements — pre-check read, then the
+ * guarded write).
+ *
+ * Implemented by MembersRepository (same class — the write target is the
+ * members table, ADR-0024), registered under its own DI token. The service
+ * owns the transition rule: read → 404/409 pre-check, then the guarded
+ * UPDATE whose own `status = 'EXPIRED'` WHERE rejects the lost race the same
+ * way.
+ */
+export interface IMemberResignRepository {
+	/**
+	 * Read a live member's current Member Status — the resign flow's
+	 * pre-check. Returns `null` when the member does not exist or is
+	 * soft-deleted (the service maps both to 404, indistinguishable — the
+	 * getMemberDetailById rule).
+	 */
+	getMemberStatusById(id: number): Promise<Result<MemberStatus | null, DatabaseError>>
+
+	/**
+	 * The resign write: flip the member to RESIGNED, stamping `updated_at`.
+	 * `status` is the ONLY Renewal Cache Column touched — latest_renewal_status,
+	 * expires_at and renewal_successful_count stay untouched (history intact).
+	 * The UPDATE's own guard (`deleted_at IS NULL AND status = 'EXPIRED'`)
+	 * re-checks the transition on the row: a member whose status changed
+	 * between the pre-check and this write (the race) matches 0 rows.
+	 * Returns `true` when the row was flipped, `false` on the 0-row race —
+	 * the service maps `false` to 409 like any other non-EXPIRED status
+	 * (RETURNING rows; the sqlc TS plugin emits no rows-affected executor).
+	 */
+	resignMemberById(id: number): Promise<Result<boolean, DatabaseError>>
 }

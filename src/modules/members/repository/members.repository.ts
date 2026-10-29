@@ -5,9 +5,9 @@ import { DatabaseError } from "src/shared/core/errors/app-error"
 import { toPgDate } from "src/shared/lib/db/pg-serializers"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
-import type { Member } from "../domain/member"
+import type { Member, MemberStatus } from "../domain/member"
 import type { MemberBusinessReadModel, MemberDetailReadModel, MemberLatestRenewalReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
-import type { IAnnualMembershipExpiryRepository, IMemberRepository } from "../interfaces"
+import type { IAnnualMembershipExpiryRepository, IMemberRepository, IMemberResignRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-committee/get-executive-committee.types"
@@ -21,9 +21,11 @@ import {
 	getExecutiveCommitteeMembers,
 	getLatestRenewalByMemberId,
 	getMemberDocumentsByMemberId,
+	getMemberStatusById,
 	getMemberWithBusinessById,
 	getPositionByCode,
 	insertMember,
+	resignMemberById,
 	softDeleteMemberById,
 	softDeleteMembershipRenewalsByMemberId,
 	updateMemberBusinessLinkById,
@@ -46,7 +48,7 @@ import {
  * that to `err()`.
  */
 @injectable()
-export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository {
+export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository, IMemberResignRepository {
 	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
 
 	/** Internal: the generated functions expect postgres.js's `Sql` type. */
@@ -142,6 +144,31 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}
 		return ok(result.value.length)
+	}
+
+	// --- Resign expired member (#113; non-tx: two single atomic statements) ---
+	// Port-segregated behind IMemberResignRepository — the admin close-out
+	// transition EXPIRED → RESIGNED, the first write path to RESIGNED (the
+	// status pre-existed in the CHECK constraint; #113 adds the write path).
+
+	async getMemberStatusById(id: number) {
+		const result = await ResultAsync.fromPromise(getMemberStatusById(this.sql, { id: String(id) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value[0]
+		// The generated query types the VARCHAR column as string; the DB CHECK
+		// constraint guarantees the value is in the domain union — narrow here
+		// at the repo boundary (the timestamptz-recast precedent).
+		return ok(row ? (row.status as MemberStatus) : null)
+	}
+
+	async resignMemberById(id: number) {
+		const result = await ResultAsync.fromPromise(resignMemberById(this.sql, { id: String(id) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(result.value.length > 0)
 	}
 
 	// --- Tx-scoped member-row steps (create / update / delete flows) ---------

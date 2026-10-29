@@ -17,6 +17,7 @@ import { GetExecutiveCommitteeService } from "src/modules/members/use-case/get-e
 import { GetLatestRenewalByMemberIdService } from "src/modules/members/use-case/get-latest-renewal-by-member-id/get-latest-renewal-by-member-id.service"
 import { GetListMembersService } from "src/modules/members/use-case/get-list-members/get-list-members.service"
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
+import { ResignMemberService } from "src/modules/members/use-case/resign-member/resign-member.service"
 import { SearchBusinessesService } from "src/modules/members/use-case/search-businesses/search-businesses.service"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
 import { MembershipRenewalsRepository } from "src/modules/membership-renewals/repository/membership-renewals.repository"
@@ -354,5 +355,18 @@ container.register(REGISTER_KEY.ANNUAL_MEMBERSHIP_EXPIRY_REPOSITORY, {
 	useClass: MembersRepository,
 })
 container.register(REGISTER_KEY.ANNUAL_MEMBERSHIP_EXPIRY_SERVICE, { useClass: AnnualMembershipExpiryService }, { lifecycle: Lifecycle.Singleton })
+
+// 15. Register Members Module (resign-member command) — #113. The Resign
+// Expired Member use case behind POST /api/v1/members/:id/resign: the admin
+// close-out of the expired-members worklist (EXPIRED → RESIGNED, the first
+// write path to RESIGNED). Same shape as the expiry registration above: the
+// repository is the SAME MembersRepository class under its own token (the
+// two resign queries are port-segregated away from IMemberRepository;
+// Transient — house repo default), the service Singleton like the other
+// use cases.
+container.register(REGISTER_KEY.MEMBER_RESIGN_REPOSITORY, {
+	useClass: MembersRepository,
+})
+container.register(REGISTER_KEY.MEMBER_RESIGN_SERVICE, { useClass: ResignMemberService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }

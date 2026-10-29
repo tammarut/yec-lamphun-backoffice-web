@@ -965,3 +965,47 @@ export async function expireMembersDueForAnnualExpiry(sql: Sql, args: ExpireMemb
 		id: row[0],
 	}))
 }
+
+export const getMemberStatusByIdQuery = `-- name: GetMemberStatusById :many
+
+SELECT status
+FROM members
+WHERE id = $1
+  AND deleted_at IS NULL`
+
+export interface GetMemberStatusByIdArgs {
+	id: string
+}
+
+export interface GetMemberStatusByIdRow {
+	status: string
+}
+
+export async function getMemberStatusById(sql: Sql, args: GetMemberStatusByIdArgs): Promise<GetMemberStatusByIdRow[]> {
+	return (await sql.unsafe(getMemberStatusByIdQuery, [args.id]).values()).map((row) => ({
+		status: row[0],
+	}))
+}
+
+export const resignMemberByIdQuery = `-- name: ResignMemberById :many
+UPDATE members
+SET status = 'RESIGNED',
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND status = 'EXPIRED'
+RETURNING id`
+
+export interface ResignMemberByIdArgs {
+	id: string
+}
+
+export interface ResignMemberByIdRow {
+	id: string
+}
+
+export async function resignMemberById(sql: Sql, args: ResignMemberByIdArgs): Promise<ResignMemberByIdRow[]> {
+	return (await sql.unsafe(resignMemberByIdQuery, [args.id]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
