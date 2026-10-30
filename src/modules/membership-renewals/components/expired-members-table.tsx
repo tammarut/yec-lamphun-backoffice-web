@@ -1,13 +1,14 @@
 "use client"
 
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Calendar01Icon } from "@hugeicons/core-free-icons"
+import { Calendar01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons"
 
 import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
 import { fullNameTh, positionLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
 import { Button } from "src/shared/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "src/shared/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "src/shared/components/ui/table"
 
 type ExpiredMembersTableProps = {
@@ -16,15 +17,17 @@ type ExpiredMembersTableProps = {
 	isAdmin: boolean
 	/** Admin-only ดำเนินการ column — open the manual renewal form preselected with this member. */
 	onManualRenew?: (member: ExpiredMembershipResponse) => void
+	/** Admin-only ดำเนินการ column — open the ลาออก confirm dialog for this member (#114). */
+	onResign?: (member: ExpiredMembershipResponse) => void
 }
 
 /**
  * หมดอายุ — ยังไม่แจ้งต่ออายุ table (mockup v3). วันที่เป็นสมาชิก column per
  * the card's resync decision (member_since — NOT วันหมดอายุ). The admin
- * ดำเนินการ column (ต่ออายุ (Manual)) opens the PR 3 manual renewal form.
+ * ดำเนินการ column pairs ต่ออายุ (Manual) with the ลาออก kebab (#114).
  */
-export function ExpiredMembersTable({ members, isAdmin, onManualRenew }: ExpiredMembersTableProps) {
-	const hasActions = isAdmin && onManualRenew !== undefined
+export function ExpiredMembersTable({ members, isAdmin, onManualRenew, onResign }: ExpiredMembersTableProps) {
+	const hasActions = isAdmin && (onManualRenew !== undefined || onResign !== undefined)
 	const columnCount = hasActions ? 4 : 3
 
 	return (
@@ -65,14 +68,37 @@ export function ExpiredMembersTable({ members, isAdmin, onManualRenew }: Expired
 							</TableCell>
 							{hasActions && (
 								<TableCell className="text-right">
-									<Button
-										size="sm"
-										className="bg-success hover:bg-success/90 text-white"
-										aria-label={`ต่ออายุแบบผู้ดูแลระบบให้ ${fullNameTh(member)}`}
-										onClick={() => onManualRenew?.(member)}
-									>
-										ต่ออายุ (Manual)
-									</Button>
+									<div className="flex items-center justify-end gap-1">
+										{onManualRenew !== undefined && (
+											<Button
+												size="sm"
+												className="bg-success hover:bg-success/90 text-white"
+												aria-label={`ต่ออายุแบบผู้ดูแลระบบให้ ${fullNameTh(member)}`}
+												onClick={() => onManualRenew(member)}
+											>
+												ต่ออายุ (Manual)
+											</Button>
+										)}
+										{onResign !== undefined && (
+											<DropdownMenu>
+												<DropdownMenuTrigger asChild>
+													<Button
+														variant="ghost"
+														size="icon"
+														className="text-muted-foreground hover:text-foreground"
+														aria-label={`ตัวเลือกเพิ่มเติมสำหรับ ${fullNameTh(member)}`}
+													>
+														<HugeiconsIcon icon={MoreVerticalIcon} className="size-4" />
+													</Button>
+												</DropdownMenuTrigger>
+												<DropdownMenuContent align="end">
+													<DropdownMenuItem variant="destructive" aria-label={`ลาออกให้ ${fullNameTh(member)}`} onSelect={() => onResign(member)}>
+														ลาออก
+													</DropdownMenuItem>
+												</DropdownMenuContent>
+											</DropdownMenu>
+										)}
+									</div>
 								</TableCell>
 							)}
 						</TableRow>
