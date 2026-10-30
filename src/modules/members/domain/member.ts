@@ -13,6 +13,15 @@ import { MemberDocument } from "./member-document"
 import type { MemberDocumentType, PositionReadModel } from "./member-read-models"
 
 /**
+ * The full Member Status union of the DB CHECK constraint
+ * (chk_members_status) — the vocabulary of `members.status`. Kept as a named
+ * export so repositories that read the raw column (the resign flow's
+ * pre-check) can narrow the generated `string` back to the domain union at
+ * the repo boundary.
+ */
+export type MemberStatus = "ACTIVE" | "EXPIRED" | "PENDING_RENEWAL" | "RESIGNED"
+
+/**
  * Concrete property bag for a fully-validated Member.
  * Value objects (IdCard cipher, MemberBusiness, MemberDocument[]) are stored
  * directly — no lazy references to the request DTO.
@@ -46,7 +55,7 @@ export type MemberProps = {
 	 * so the type is the full DB CHECK-constraint union rather than the
 	 * create-only literal.
 	 */
-	readonly status: "ACTIVE" | "EXPIRED" | "PENDING_RENEWAL" | "RESIGNED"
+	readonly status: MemberStatus
 	/**
 	 * Cached renewal count. Create sets 0; PATCH preserves the existing value,
 	 * so this is `number` rather than the create-only literal `0`.

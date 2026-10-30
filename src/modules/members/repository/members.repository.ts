@@ -5,9 +5,9 @@ import { DatabaseError } from "src/shared/core/errors/app-error"
 import { toPgDate } from "src/shared/lib/db/pg-serializers"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
-import type { Member } from "../domain/member"
+import type { Member, MemberStatus } from "../domain/member"
 import type { MemberBusinessReadModel, MemberDetailReadModel, MemberLatestRenewalReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
-import type { IAnnualMembershipExpiryRepository, IMemberRepository } from "../interfaces"
+import type { IAnnualMembershipExpiryRepository, IMemberRepository, IMemberResignRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-committee/get-executive-committee.types"
@@ -21,9 +21,11 @@ import {
 	getExecutiveCommitteeMembers,
 	getLatestRenewalByMemberId,
 	getMemberDocumentsByMemberId,
+	getMemberStatusById,
 	getMemberWithBusinessById,
 	getPositionByCode,
 	insertMember,
+	resignMemberById,
 	softDeleteMemberById,
 	softDeleteMembershipRenewalsByMemberId,
 	updateMemberBusinessLinkById,
@@ -46,7 +48,7 @@ import {
  * that to `err()`.
  */
 @injectable()
-export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository {
+export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository, IMemberResignRepository {
 	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
 
 	/** Internal: the generated functions expect postgres.js's `Sql` type. */
@@ -54,7 +56,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 		return this.dbClient.getRwConnection() as unknown as Sql
 	}
 
-	async countMemberByIdCardHash(idCardNoHash: string) {
+	async countMemberByIdCardHash(idCardNoHash: string): Promise<Result<number, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(countMemberByIdCardHash(this.sql, { idCardNoHash }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
@@ -63,7 +65,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 		return ok(row ? row.count : 0)
 	}
 
-	async getPositionByCode(code: string) {
+	async getPositionByCode(code: string): Promise<Result<PositionReadModel | null, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(getPositionByCode(this.sql, { code }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
@@ -90,7 +92,12 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	 * `excludeMemberId` (update flow) keeps a member from conflicting with
 	 * their own unchanged contacts.
 	 */
-	async findLiveContactConflicts(phoneNo: string, email: string | null, lineId: string | null, excludeMemberId: number | null) {
+	async findLiveContactConflicts(
+		phoneNo: string,
+		email: string | null,
+		lineId: string | null,
+		excludeMemberId: number | null
+	): Promise<Result<{ phoneNo: boolean; email: boolean; lineId: boolean }, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(
 			findLiveContactConflicts(this.sql, {
 				phoneNo,
@@ -114,7 +121,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 		})
 	}
 
-	async countActiveHolderByPosition(positionCode: string) {
+	async countActiveHolderByPosition(positionCode: string): Promise<Result<number, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(countActiveHolderByPosition(this.sql, { positionCode }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
@@ -127,7 +134,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	// Port-segregated behind IAnnualMembershipExpiryRepository — cron-specific,
 	// not part of the general member contract (repo-review ruling, PR #109).
 
-	async countMembersDueForAnnualExpiry(boundary: Date) {
+	async countMembersDueForAnnualExpiry(boundary: Date): Promise<Result<number, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(countMembersDueForAnnualExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
@@ -136,12 +143,37 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 		return ok(row ? row.count : 0)
 	}
 
-	async expireMembersDueForAnnualExpiry(boundary: Date) {
+	async expireMembersDueForAnnualExpiry(boundary: Date): Promise<Result<number, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(expireMembersDueForAnnualExpiry(this.sql, { expiresAt: toPgDate(boundary) as unknown as Date }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}
 		return ok(result.value.length)
+	}
+
+	// --- Resign expired member (#113; non-tx: two single atomic statements) ---
+	// Port-segregated behind IMemberResignRepository — the admin close-out
+	// transition EXPIRED → RESIGNED, the first write path to RESIGNED (the
+	// status pre-existed in the CHECK constraint; #113 adds the write path).
+
+	async getMemberStatusById(id: number): Promise<Result<MemberStatus | null, DatabaseError>> {
+		const result = await ResultAsync.fromPromise(getMemberStatusById(this.sql, { id: String(id) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		const row = result.value[0]
+		// The generated query types the VARCHAR column as string; the DB CHECK
+		// constraint guarantees the value is in the domain union — narrow here
+		// at the repo boundary (the timestamptz-recast precedent).
+		return ok(row ? (row.status as MemberStatus) : null)
+	}
+
+	async resignMemberById(id: number): Promise<Result<boolean, DatabaseError>> {
+		const result = await ResultAsync.fromPromise(resignMemberById(this.sql, { id: String(id) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(result.value.length > 0)
 	}
 
 	// --- Tx-scoped member-row steps (create / update / delete flows) ---------
@@ -278,7 +310,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	 * business row is NULL (business_id IS NULL) is treated as corruption →
 	 * `err(DatabaseError)` → 500 (grilling Q6/iii-a).
 	 */
-	async getMemberDetailById(id: number) {
+	async getMemberDetailById(id: number): Promise<Result<MemberDetailReadModel | null, DatabaseError>> {
 		// Query 1: member + business.
 		const memberResult = await ResultAsync.fromPromise(getMemberWithBusinessById(this.sql, { id: String(id) }), (error) => error as Error)
 		if (memberResult.isErr()) {
@@ -372,7 +404,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	 * service maps to the distinct 404 "No renewal records found". Never raises
 	 * an error for a not-found case; only a DB failure → `err(DatabaseError)` → 500.
 	 */
-	async getLatestRenewalByMemberId(id: number) {
+	async getLatestRenewalByMemberId(id: number): Promise<Result<MemberLatestRenewalReadModel | null, DatabaseError>> {
 		const result = await ResultAsync.fromPromise(getLatestRenewalByMemberId(this.sql, { id: String(id) }), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
@@ -418,7 +450,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	 * hierarchy the service needs to assemble the org-chart tree and to
 	 * materialize Vacant Position placeholders (ADR-0020). Static read → sqlc.
 	 */
-	async getAllPositions() {
+	async getAllPositions(): Promise<Result<readonly PositionReadModel[], DatabaseError>> {
 		const result = await ResultAsync.fromPromise(getAllPositions(this.sql), (error) => error as Error)
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))

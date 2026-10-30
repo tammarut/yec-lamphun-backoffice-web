@@ -516,3 +516,39 @@ WHERE deleted_at IS NULL
   AND status = 'ACTIVE'
   AND expires_at < $1
 RETURNING id;
+
+-- RENEWAL-1 (#113) Resign expired member. The admin-initiated close-out of the
+-- expired-members worklist — the FIRST write path to Member Status RESIGNED.
+-- RESIGNED already exists everywhere in the data model (the CHECK constraint,
+-- every TS union, the ลาออก label), so this is two queries and NO schema
+-- change; the guarded-UPDATE shape mirrors the ADR-0027 expiry sweep above.
+-- The flow reads the status first (0 rows → 404; non-EXPIRED → 409), then the
+-- UPDATE's own guard re-checks EXPIRED on the row — a status change between
+-- the two (the race) matches 0 rows and is rejected 409 exactly the same.
+
+-- name: GetMemberStatusById :many
+-- The resign flow's pre-check read: a live member's current Member Status.
+-- 0 rows = the member does not exist or is soft-deleted (the service maps
+-- both to 404, indistinguishable — the getMemberDetailById rule). `:many`
+-- per ADR-0001; the PRIMARY KEY id guarantees at most one row.
+SELECT status
+FROM members
+WHERE id = $1
+  AND deleted_at IS NULL;
+
+-- name: ResignMemberById :many
+-- The resign flow's write: flips the member to RESIGNED, stamping updated_at.
+-- status is the ONLY Renewal Cache Column touched — latest_renewal_status,
+-- expires_at and renewal_successful_count stay untouched (history intact).
+-- The WHERE re-checks status = 'EXPIRED' on the row itself, so the pre-check
+-- and the write together make the transition race-safe: the loser's UPDATE
+-- affects 0 rows. Affected id = RETURNING rows (ADR-0001: the sqlc TS plugin
+-- emits no rows-affected executor); the PRIMARY KEY id guarantees at most
+-- one row. Soft-deleted rows never match.
+UPDATE members
+SET status = 'RESIGNED',
+    updated_at = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND status = 'EXPIRED'
+RETURNING id;

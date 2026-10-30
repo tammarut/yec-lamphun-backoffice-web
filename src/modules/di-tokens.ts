@@ -98,6 +98,13 @@ export const REGISTER_KEY = {
 	// point); the boundary derives from the injected WALL_CLOCK.
 	ANNUAL_MEMBERSHIP_EXPIRY_REPOSITORY: Symbol("IAnnualMembershipExpiryRepository"),
 	ANNUAL_MEMBERSHIP_EXPIRY_SERVICE: Symbol("ANNUAL_MEMBERSHIP_EXPIRY_SERVICE"),
+	// Members module (resign-member command) — #113. The Resign Expired Member
+	// command: POST /api/v1/members/:id/resign, the admin close-out of the
+	// expired-members worklist and the FIRST write path to Member Status
+	// RESIGNED (EXPIRED → RESIGNED, guarded on both the pre-check read and the
+	// UPDATE's own WHERE). Resolved by the withAuth route.
+	MEMBER_RESIGN_REPOSITORY: Symbol("IMemberResignRepository"),
+	MEMBER_RESIGN_SERVICE: Symbol("MEMBER_RESIGN_SERVICE"),
 	// The injectable wall clock (`() => Date`), registered as a useValue. The
 	// Annual Membership Expiry reads the run instant through it so boundary
 	// tests can pin the clock; anything else that needs `now` injectable may
