@@ -1169,6 +1169,114 @@
 				"security": []
 			}
 		},
+		"/api/v1/members/{id}/resign": {
+			"post": {
+				"summary": "Resign member by member_id (/api/v1/members/:id/resign)",
+				"deprecated": false,
+				"description": "## 🗃️Business Logic (ADMIN-ONLY — cookie `session_id`)\n\n:::highlight orange 📌\n**Resign is a command subresource, NOT a PATCH field:** the server fixes the only legal\ntransition `EXPIRED → RESIGNED`.\n- No request body.\n- Success is `204 No Content` (empty body).\n:::\n\nThe admin close-out of the expired-members worklist (#113): flips a member's Member Status to `RESIGNED` (ลาออก) and stamps `updated_at`.\n\n**The ONLY Renewal Cache Column touched is `status`** — `latest_renewal_status`, `expires_at`, `renewal_successful_count` stay untouched.\n\n`EXPIRED` is the only transitionable source status, guarded TWICE — a status pre-check read, then the UPDATE's own `WHERE status = 'EXPIRED'`.\nA status change between the two (the race) matches 0 rows and is rejected `409` exactly like any other non-EXPIRED status.\n\n`RESIGNED` is terminal: there is deliberately no un-resign path, and renewal flows\nalready reject resigned members with `403`.\n\n> No DB transaction: two single atomic statements; the write's own guard provides the race-safety.\n>\n>The DB CHECK constraint stays the terminal vocabulary guard.\n\n## ✍️Pseudocode\n\n1. Authenticate (withAuth — BEFORE anything else):\n   - missing or invalid `session_id` cookie → `401 { error_message: \"Unauthorized\" }`\n\n2. Parse the path param (Valibot, inline — the `/members/{id}` route convention):\n```typescript\nid: string -> Number -> integer, minValue(1)\n   -> break non-integer/0/negative:\n                                   Return 400 { error_message: \"id parameter must be a valid integer\" }\n```\n\n3. Status pre-check (ONE read, OUTSIDE any transaction):\n```sql\nSELECT status FROM members\nWHERE id = $1 AND deleted_at IS NULL\n```\n```typescript\n    -> break 0 rows (missing or soft-deleted):\n                                   Return 404 { error_message: \"not found this member id\" }\n    -> break status ≠ \"EXPIRED\" (ACTIVE / PENDING_RENEWAL / RESIGNED):\n                                   Return 409 { error_message: \"member is not expired — only an EXPIRED member can be resigned\" }\n```\n\n4. The guarded write (single atomic UPDATE):\n```sql\nUPDATE members\nSET status = 'RESIGNED',\n    updated_at = NOW()\nWHERE id = $1\n  AND deleted_at IS NULL\n  AND status = 'EXPIRED'\nRETURNING id;\n```\n```typescript\n    -> break 0 rows — the lost race (status changed between steps 3 and 4):\n                                   Return 409 { error_message: \"member is not expired — only an EXPIRED member can be resigned\" }\n```\n\n5. Return `204 No Content`\n*(empty body — the member now shows ลาออก in the members list and is excluded from the expired list, the org chart, and the Annual Membership Expiry sweep by the existing read-side filters)*\n\n## 🖼️Sequence Diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser (Admin)\n    participant nextjsapi as Next.js /api\n    participant database as PostgreSQL\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/members/{id}/resign<br/>Cookie: session_id=... (REQUIRED, no body)\n\n    nextjsapi -->> nextjsapi: Validate session_id cookie (withAuth)\n\n    break Missing or invalid session_id\n        nextjsapi-->>browser: 401 { error_message: \"Unauthorized\" }\n    end\n\n    nextjsapi -->> nextjsapi: Valibot: id must be integer > 0\n\n    break id invalid (non-integer / 0 / negative)\n        nextjsapi-->>browser: 400 { error_message: \"id parameter must be a valid integer\" }\n    end\n\n    nextjsapi->>+database: SELECT status FROM members<br/>WHERE id=$1 AND deleted_at IS NULL\n    database-->>-nextjsapi: row { status } | 0 rows\n\n    break 0 rows (missing or soft-deleted)\n        nextjsapi-->>browser: 404 { error_message: \"not found this member id\" }\n    end\n    break status ≠ 'EXPIRED'\n        nextjsapi-->>browser: 409 { error_message: \"member is not expired — only an EXPIRED member can be resigned\" }\n    end\n\n    nextjsapi->>+database: UPDATE members<br/>SET status='RESIGNED', updated_at=NOW()<br/>WHERE id=$1 AND deleted_at IS NULL AND status='EXPIRED'<br/>RETURNING id\n    database-->>-nextjsapi: rows (1 = flipped, 0 = race)\n\n    break 0 rows — status changed between read and write (lost race)\n        nextjsapi-->>browser: 409 { error_message: \"member is not expired — only an EXPIRED member can be resigned\" }\n    end\n\n    nextjsapi-->>browser: 204 No Content (empty body)\n```",
+				"tags": [],
+				"parameters": [
+					{
+						"name": "session_id",
+						"in": "cookie",
+						"description": "The active session_id returned by API login",
+						"required": true,
+						"example": "01M66QSP7W1HTH2RXS541K4V6T",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "id",
+						"in": "path",
+						"description": "",
+						"required": true,
+						"example": 889,
+						"schema": {
+							"type": "integer",
+							"format": "uint"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "",
+						"headers": {}
+					},
+					"400": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "id parameter must be a valid integer"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"401": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Unauthorized"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"404": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "not found this member id"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"409": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "member is not expired — only an EXPIRED member can be resigned"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"500": {
+						"description": "",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					}
+				},
+				"security": []
+			}
+		},
 		"/api/v1/business/categories": {
 			"get": {
 				"summary": "Get a list of business category (/api/v1/business/categories)",
