@@ -8,7 +8,7 @@ import { useResignMember } from "src/modules/membership-renewals/hooks/use-resig
 
 function jsonResponse(status: number, body?: unknown): Response {
 	return new Response(body === undefined ? null : JSON.stringify(body), {
-		status,
+		status: status,
 		headers: { "Content-Type": "application/json" },
 	})
 }

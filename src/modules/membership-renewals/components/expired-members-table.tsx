@@ -68,7 +68,7 @@ export function ExpiredMembersTable({ members, isAdmin, onManualRenew, onResign 
 							</TableCell>
 							{hasActions && (
 								<TableCell className="text-right">
-									<div className="flex items-center justify-end gap-1">
+									<div data-slot="expired-row-actions" className="flex items-center justify-end gap-1">
 										{onManualRenew !== undefined && (
 											<Button
 												size="sm"
