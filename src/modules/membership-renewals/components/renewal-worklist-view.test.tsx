@@ -24,7 +24,7 @@ beforeAll(() => {
 
 function jsonResponse(status: number, body?: unknown) {
 	return new Response(body === undefined ? null : JSON.stringify(body), {
-		status,
+		status: status,
 		headers: { "Content-Type": "application/json" },
 	})
 }

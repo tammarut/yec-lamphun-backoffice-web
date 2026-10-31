@@ -56,14 +56,22 @@ export function RenewalWorklistView() {
 		setManualMember(expiredMembershipToFormMember(member))
 	}
 	const handleResign = (member: ExpiredMembershipResponse) => {
-		// Clear a previous attempt's error state before opening for a (possibly
-		// different) member — the dialog renders no inline error today, but the
-		// stale mutation state must not leak into a fresh confirm (scrutiny F2).
-		resignMutation.reset()
-		setResignTarget(member)
+		// Defer to the next tick so the Radix DropdownMenu finishes its unmount
+		// + focus-restore before the AlertDialog mounts and traps focus (the
+		// menu→dialog handoff race; not reproducible in Chromium but documented
+		// for WebKit).
+		setTimeout(() => {
+			// Clear a previous attempt's error state before opening for a (possibly
+			// different) member — the dialog renders no inline error today, but the
+			// stale mutation state must not leak into a fresh confirm (scrutiny F2).
+			resignMutation.reset()
+			setResignTarget(member)
+		}, 0)
 	}
 	const handleConfirmResign = () => {
-		if (resignTarget === null) {
+		// Belt-and-braces beside the disabled confirm button: blocks a re-entrant
+		// keyboard trigger that lands after isPending has been committed.
+		if (resignTarget === null || resignMutation.isPending) {
 			return
 		}
 		resignMutation.mutate(resignTarget.id, {
