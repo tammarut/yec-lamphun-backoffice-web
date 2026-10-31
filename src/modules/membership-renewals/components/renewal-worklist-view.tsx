@@ -56,6 +56,10 @@ export function RenewalWorklistView() {
 		setManualMember(expiredMembershipToFormMember(member))
 	}
 	const handleResign = (member: ExpiredMembershipResponse) => {
+		// Clear a previous attempt's error state before opening for a (possibly
+		// different) member — the dialog renders no inline error today, but the
+		// stale mutation state must not leak into a fresh confirm (scrutiny F2).
+		resignMutation.reset()
 		setResignTarget(member)
 	}
 	const handleConfirmResign = () => {

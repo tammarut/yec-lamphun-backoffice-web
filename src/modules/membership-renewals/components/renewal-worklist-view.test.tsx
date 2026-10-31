@@ -264,8 +264,8 @@ describe("RenewalWorklistView", () => {
 			expect(screen.getByText("ไม่พบข้อมูล")).toBeTruthy()
 		})
 
-		it("admin resign 409: error toast with the server message and the dialog stays recoverable", async () => {
-			renderView({
+		it("admin resign 409: error toast, dialog stays recoverable, and the expired list does NOT refetch", async () => {
+			const { fetchMock } = renderView({
 				sessionOk: true,
 				expiredResponse: () => jsonResponse(200, expiredPage([makeExpiredMembership()])),
 				resignResponse: () => jsonResponse(409, { error_message: "member is not expired — only an EXPIRED member can be resigned" }),
@@ -284,6 +284,11 @@ describe("RenewalWorklistView", () => {
 			expect(screen.getByRole("alertdialog")).toBeTruthy()
 			expect((screen.getByRole("button", { name: "ยืนยันลาออก" }) as HTMLButtonElement).disabled).toBe(false)
 			expect((screen.getByRole("button", { name: "ยกเลิก" }) as HTMLButtonElement).disabled).toBe(false)
+			// A failed resign has zero server-side effect — onSuccess (not
+			// onSettled) owns the invalidation, so the initial GET is all there is
+			// (scrutiny F1; the old onSettled refetched here too).
+			const expiredGets = fetchMock.mock.calls.filter(([url, init]) => String(url).startsWith("/api/v1/membership/renewals/expired") && (init?.method ?? "GET") === "GET")
+			expect(expiredGets.length).toBe(1)
 		})
 
 		it("loading renders the skeleton before data arrives", async () => {

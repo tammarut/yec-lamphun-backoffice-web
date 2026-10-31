@@ -14,14 +14,16 @@ async function postResign(id: number): Promise<void> {
 
 /**
  * ลาออก (resign) an EXPIRED member — command on POST /api/v1/members/:id/resign
- * (RENEWAL-1, #113). One root-key invalidation refetches the expired table,
- * the stat cards, and the review list together (rows leave / counts drop).
+ * (RENEWAL-1, #113). On success, one root-key invalidation refetches the
+ * expired table, the stat cards, and the review list together (rows leave /
+ * counts drop). A failed resign (404/409) has zero server-side effect, so the
+ * cache is NOT invalidated — invalidation lives in onSuccess, not onSettled.
  */
 export function useResignMember() {
 	const queryClient = useQueryClient()
 	return useMutation<void, ApiError, number>({
 		mutationFn: postResign,
-		onSettled: () => {
+		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: RENEWALS_ROOT_QUERY_KEY })
 		},
 	})

@@ -63,12 +63,15 @@ describe("useResignMember", () => {
 			vi.stubGlobal("fetch", fetchMock)
 
 			// Act
-			const { result } = renderResignHook()
+			const { result, invalidateSpy } = renderResignHook()
 			result.current.mutate(404)
 
 			// Assert
 			await waitFor(() => expect(result.current.isError).toBe(true))
 			expect(result.current.error?.message).toBe("not found this member id")
+			// A failed resign has zero server-side effect — the cache must NOT
+			// refetch (scrutiny F1; onSettled would have invalidated here).
+			expect(invalidateSpy).not.toHaveBeenCalled()
 		})
 
 		test("surfaces the 409 not-expired message", async () => {
@@ -82,12 +85,13 @@ describe("useResignMember", () => {
 			vi.stubGlobal("fetch", fetchMock)
 
 			// Act
-			const { result } = renderResignHook()
+			const { result, invalidateSpy } = renderResignHook()
 			result.current.mutate(409)
 
 			// Assert
 			await waitFor(() => expect(result.current.isError).toBe(true))
 			expect(result.current.error?.message).toBe("member is not expired — only an EXPIRED member can be resigned")
+			expect(invalidateSpy).not.toHaveBeenCalled()
 		})
 	})
 })
