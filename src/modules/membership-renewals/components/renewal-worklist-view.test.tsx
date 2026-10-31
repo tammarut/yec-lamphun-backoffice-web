@@ -1,15 +1,30 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+
+import { toast } from "sonner"
 
 import { RenewalWorklistView } from "src/modules/membership-renewals/components/renewal-worklist-view"
 import { makeExpiredMembership } from "src/modules/membership-renewals/components/make-expired-membership.fixture"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { SessionProvider } from "src/shared/lib/api/session"
 
+vi.mock("sonner", () => ({
+	toast: { success: vi.fn(), error: vi.fn() },
+}))
+
+// jsdom lacks the pointer-capture + scrollIntoView APIs the Radix dropdown
+// menu relies on (first dropdown-menu usage in the codebase).
+beforeAll(() => {
+	Element.prototype.hasPointerCapture = () => false
+	Element.prototype.setPointerCapture = () => undefined
+	Element.prototype.releasePointerCapture = () => undefined
+	Element.prototype.scrollIntoView = () => undefined
+})
+
 function jsonResponse(status: number, body?: unknown) {
 	return new Response(body === undefined ? null : JSON.stringify(body), {
-		status,
+		status: status,
 		headers: { "Content-Type": "application/json" },
 	})
 }
@@ -30,10 +45,11 @@ function rejectedRow(overrides: Partial<ExpiredMembershipResponse> = {}) {
 /**
  * Render the worklist against a stubbed fetch. `sessionOk` toggles the admin
  * probe (204 = staff, 401 = public); `expiredResponse` produces the expired
- * GET. Debounced search uses a real 300ms timer — use the `settleDebounce`
- * helper before asserting search-driven renders.
+ * GET; `resignResponse` produces the resign POST. Debounced search uses a real
+ * 300ms timer — use the `settleDebounce` helper before asserting search-driven
+ * renders.
  */
-function renderView(options: { sessionOk: boolean; expiredResponse: (url: string) => Response | Promise<Response> }) {
+function renderView(options: { sessionOk: boolean; expiredResponse: (url: string) => Response | Promise<Response>; resignResponse?: () => Response | Promise<Response> }) {
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
 		if (url === "/api/v1/auth/session") {
@@ -41,6 +57,9 @@ function renderView(options: { sessionOk: boolean; expiredResponse: (url: string
 		}
 		if (url.startsWith("/api/v1/membership/renewals/expired") && (init?.method ?? "GET") === "GET") {
 			return options.expiredResponse(url)
+		}
+		if (/^\/api\/v1\/members\/\d+\/resign$/.test(url) && init?.method === "POST") {
+			return options.resignResponse?.() ?? jsonResponse(204)
 		}
 		return jsonResponse(404)
 	})
@@ -63,6 +82,7 @@ function renderView(options: { sessionOk: boolean; expiredResponse: (url: string
 afterEach(() => {
 	cleanup()
 	vi.unstubAllGlobals()
+	vi.clearAllMocks()
 })
 
 describe("RenewalWorklistView", () => {
@@ -92,12 +112,48 @@ describe("RenewalWorklistView", () => {
 		it("member: contact-staff pill wording and no เหตุผล line", async () => {
 			renderView({
 				sessionOk: false,
-				expiredResponse: () => jsonResponse(200, expiredPage([rejectedRow()])),
+				expiredResponse: () => jsonResponse(200, expiredPage([rejectedRow(), makeExpiredMembership()])),
 			})
 
 			expect(await screen.findByText("ไม่อนุมัติ — กรุณาติดต่อเจ้าหน้าที่")).toBeTruthy()
 			expect(screen.queryByText(/เหตุผล:/)).toBeNull()
 			expect(screen.queryByText("สลิปไม่ชัดเจน กรุณาส่งใหม่")).toBeNull()
+			// Non-admins get no row actions at all (#114): no kebab anywhere.
+			expect(screen.queryByRole("button", { name: /ตัวเลือกเพิ่มเติม/ })).toBeNull()
+		})
+
+		it("admin resign flow: kebab → confirm dialog → POST → toast → close → expired list refetches", async () => {
+			const { fetchMock } = renderView({
+				sessionOk: true,
+				expiredResponse: () => jsonResponse(200, expiredPage([makeExpiredMembership({ id: 202, first_name_th: "สมหญิง", nickname: "หญิง" })])),
+			})
+
+			fireEvent.pointerDown(await screen.findByRole("button", { name: /ตัวเลือกเพิ่มเติมสำหรับ นายสมหญิง ใจดี/ }))
+			const item = await screen.findByRole("menuitem", { name: /ลาออกให้ นายสมหญิง ใจดี/ })
+			fireEvent.pointerUp(item)
+			fireEvent.click(item)
+
+			const dialog = await screen.findByRole("alertdialog")
+			expect(within(dialog).getByText("ยืนยันการลาออก")).toBeTruthy()
+			expect(within(dialog).getByText(/นายสมหญิง ใจดี/)).toBeTruthy()
+
+			// No request before the explicit confirm.
+			expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/v1/members/202/resign")).toBe(false)
+			fireEvent.click(screen.getByRole("button", { name: "ยืนยันลาออก" }))
+
+			await waitFor(() => {
+				expect(fetchMock.mock.calls.some(([url, init]) => String(url) === "/api/v1/members/202/resign" && init?.method === "POST")).toBe(true)
+			})
+			await waitFor(() => {
+				expect(toast.success).toHaveBeenCalledWith("ลาออกเรียบร้อย")
+			})
+			await waitFor(() => {
+				expect(screen.queryByRole("alertdialog")).toBeNull()
+			})
+			// The root-key invalidation refetches the expired list (stat cards
+			// share the same root prefix) — no manual reload.
+			const expiredGets = fetchMock.mock.calls.filter(([url, init]) => String(url).startsWith("/api/v1/membership/renewals/expired") && (init?.method ?? "GET") === "GET")
+			expect(expiredGets.length).toBe(2)
 		})
 
 		it("no rejected rows: green all-clear panel above the expired table", async () => {
@@ -206,6 +262,33 @@ describe("RenewalWorklistView", () => {
 
 			expect(await screen.findByText("จัดการคำขอทั้งหมดแล้ว")).toBeTruthy()
 			expect(screen.getByText("ไม่พบข้อมูล")).toBeTruthy()
+		})
+
+		it("admin resign 409: error toast, dialog stays recoverable, and the expired list does NOT refetch", async () => {
+			const { fetchMock } = renderView({
+				sessionOk: true,
+				expiredResponse: () => jsonResponse(200, expiredPage([makeExpiredMembership()])),
+				resignResponse: () => jsonResponse(409, { error_message: "member is not expired — only an EXPIRED member can be resigned" }),
+			})
+
+			fireEvent.pointerDown(await screen.findByRole("button", { name: /ตัวเลือกเพิ่มเติมสำหรับ นายสมชาย ใจดี/ }))
+			const item = await screen.findByRole("menuitem", { name: /ลาออกให้ นายสมชาย ใจดี/ })
+			fireEvent.pointerUp(item)
+			fireEvent.click(item)
+
+			fireEvent.click(await screen.findByRole("button", { name: "ยืนยันลาออก" }))
+
+			await waitFor(() => {
+				expect(toast.error).toHaveBeenCalledWith("member is not expired — only an EXPIRED member can be resigned")
+			})
+			expect(screen.getByRole("alertdialog")).toBeTruthy()
+			expect((screen.getByRole("button", { name: "ยืนยันลาออก" }) as HTMLButtonElement).disabled).toBe(false)
+			expect((screen.getByRole("button", { name: "ยกเลิก" }) as HTMLButtonElement).disabled).toBe(false)
+			// A failed resign has zero server-side effect — onSuccess (not
+			// onSettled) owns the invalidation, so the initial GET is all there is
+			// (scrutiny F1; the old onSettled refetched here too).
+			const expiredGets = fetchMock.mock.calls.filter(([url, init]) => String(url).startsWith("/api/v1/membership/renewals/expired") && (init?.method ?? "GET") === "GET")
+			expect(expiredGets.length).toBe(1)
 		})
 
 		it("loading renders the skeleton before data arrives", async () => {

@@ -4,13 +4,16 @@ import { useMemo, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { ArrowDown01Icon, Clock01Icon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 
 import { ExpiredMembersTable } from "src/modules/membership-renewals/components/expired-members-table"
 import { RejectedRenewalPanel } from "src/modules/membership-renewals/components/rejected-renewal-panel"
+import { ResignMemberDialog } from "src/modules/membership-renewals/components/resign-member-dialog"
 import { ReviewDialog, type ReviewDialogTarget } from "src/modules/membership-renewals/components/review-dialog"
 import { RenewalFormDialog, expiredMembershipToFormMember, type RenewalFormMember } from "src/modules/membership-renewals/components/renewal-form-dialog"
 import { fullNameTh } from "src/modules/membership-renewals/components/renewal-labels"
 import { EXPIRED_MEMBERSHIPS_QUERY_KEY, useExpiredMemberships } from "src/modules/membership-renewals/hooks/use-expired-memberships"
+import { useResignMember } from "src/modules/membership-renewals/hooks/use-resign-member"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Button } from "src/shared/components/ui/button"
@@ -30,8 +33,8 @@ const EXPIRED_SHOWN_STEP = 10
  * the accumulated pages on `latest_renewal_status` into the pinned ไม่อนุมัติ
  * panel and the หมดอายุ table (member_since column, +10 reveal paging).
  * Admin row actions (PR 3): the panel's ดูสลิป/เหตุผล + ต่ออายุ (Manual) and
- * the expired table's ต่ออายุ (Manual) — the review + manual-form dialogs
- * live here.
+ * the expired table's ต่ออายุ (Manual) + ลาออก kebab (#114) — the review,
+ * manual-form, and resign-confirm dialogs live here.
  */
 export function RenewalWorklistView() {
 	const { isAdmin } = useSession()
@@ -42,6 +45,8 @@ export function RenewalWorklistView() {
 
 	const [reviewTarget, setReviewTarget] = useState<ReviewDialogTarget | null>(null)
 	const [manualMember, setManualMember] = useState<RenewalFormMember | null>(null)
+	const [resignTarget, setResignTarget] = useState<ExpiredMembershipResponse | null>(null)
+	const resignMutation = useResignMember()
 
 	const handleViewReview = (member: ExpiredMembershipResponse) => {
 		const nicknameSuffix = member.nickname !== "" ? ` (${member.nickname})` : ""
@@ -49,6 +54,36 @@ export function RenewalWorklistView() {
 	}
 	const handleManualRenew = (member: ExpiredMembershipResponse) => {
 		setManualMember(expiredMembershipToFormMember(member))
+	}
+	const handleResign = (member: ExpiredMembershipResponse) => {
+		// Defer to the next tick so the Radix DropdownMenu finishes its unmount
+		// + focus-restore before the AlertDialog mounts and traps focus (the
+		// menu→dialog handoff race; not reproducible in Chromium but documented
+		// for WebKit).
+		setTimeout(() => {
+			// Clear a previous attempt's error state before opening for a (possibly
+			// different) member — the dialog renders no inline error today, but the
+			// stale mutation state must not leak into a fresh confirm (scrutiny F2).
+			resignMutation.reset()
+			setResignTarget(member)
+		}, 0)
+	}
+	const handleConfirmResign = () => {
+		// Belt-and-braces beside the disabled confirm button: blocks a re-entrant
+		// keyboard trigger that lands after isPending has been committed.
+		if (resignTarget === null || resignMutation.isPending) {
+			return
+		}
+		resignMutation.mutate(resignTarget.id, {
+			onSuccess: () => {
+				toast.success("ลาออกเรียบร้อย")
+				setResignTarget(null)
+			},
+			onError: (error) => {
+				// The dialog stays open so the flow is recoverable (retry or cancel).
+				toast.error(error.message)
+			},
+		})
 	}
 
 	// The panel is DERIVED like the members view's mode: the user's collapse
@@ -156,7 +191,12 @@ export function RenewalWorklistView() {
 							</span>
 						</div>
 						<div className="border-t p-4">
-							<ExpiredMembersTable members={visibleExpiredRows} isAdmin={isAdmin} onManualRenew={isAdmin ? handleManualRenew : undefined} />
+							<ExpiredMembersTable
+								members={visibleExpiredRows}
+								isAdmin={isAdmin}
+								onManualRenew={isAdmin ? handleManualRenew : undefined}
+								onResign={isAdmin ? handleResign : undefined}
+							/>
 							{!searching && remainingExpiredRows > 0 && (
 								<button
 									type="button"
@@ -183,6 +223,18 @@ export function RenewalWorklistView() {
 
 			<RenewalFormDialog mode="manual" preselectedMember={manualMember} open={manualMember !== null} onClose={() => setManualMember(null)} />
 			<ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
+			<ResignMemberDialog
+				member={resignTarget}
+				isResigning={resignMutation.isPending}
+				onOpenChange={(open) => {
+					// Guard like the member-delete dialog: pending requests can't be
+					// dismissed (no double submission, no lost confirm).
+					if (!open && !resignMutation.isPending) {
+						setResignTarget(null)
+					}
+				}}
+				onConfirm={handleConfirmResign}
+			/>
 		</div>
 	)
 }
