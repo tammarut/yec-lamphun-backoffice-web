@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import "reflect-metadata"
 
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -26,7 +27,9 @@ const logger = createLogger(["membership-renewals", "route", "stat"])
 // read, ADR-0010/ADR-0017); the only failure mode is infra: DatabaseError →
 // 500 `{ error_message: "Internal Server Error" }` (no leaky details).
 // ============================================================================
-export async function GET(): Promise<NextResponse<RenewalStatResponse | ResponseBodyError>> {
+export const GET = withPublicGuard("PUBLIC_READ", getRenewalStat)
+
+async function getRenewalStat(): Promise<NextResponse<RenewalStatResponse | ResponseBodyError>> {
 	const service = container.resolve<GetRenewalStatService>(REGISTER_KEY.GET_RENEWAL_STAT_SERVICE)
 	const result = await service.execute()
 	if (result.isErr()) {

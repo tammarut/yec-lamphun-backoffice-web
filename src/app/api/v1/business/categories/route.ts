@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 import { BusinessCategoryDomain } from "src/modules/business-categories/domain/business-category.domain"
 import { container } from "src/modules/container"
@@ -19,7 +20,9 @@ function toBusinessCategoriesResponse(categories: readonly BusinessCategoryDomai
 	}
 }
 
-export async function GET() {
+export const GET = withPublicGuard("PUBLIC_READ", listBusinessCategories)
+
+async function listBusinessCategories() {
 	const businessCategoriesService = container.resolve<BusinessCategoriesService>(REGISTER_KEY.BUSINESS_CATEGORIES_SERVICE)
 	const result = await businessCategoriesService.getBusinessCategories()
 

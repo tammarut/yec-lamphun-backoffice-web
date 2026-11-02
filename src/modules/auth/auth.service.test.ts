@@ -33,6 +33,7 @@ describe("AuthService", () => {
 			PRESIGNED_URL_EXPIRES_IN: 3600,
 			ID_CARD_AES_KEY: "x".repeat(44),
 			BLIND_INDEX_HMAC_KEY: "y".repeat(44),
+			CLOUDFLARE_CIDRS: "",
 		}
 
 		mockSessionStore = mock<ISessionStore>()

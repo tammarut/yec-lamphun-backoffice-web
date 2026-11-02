@@ -1,6 +1,7 @@
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "src/app/api/middleware/with-auth"
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
@@ -24,7 +25,9 @@ function toSystemSettingsResponse(settings: readonly SystemSettingDomain[]): Rec
 	return response
 }
 
-export async function GET() {
+export const GET = withPublicGuard("PUBLIC_READ", getSystemSettings)
+
+async function getSystemSettings() {
 	const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
 	const result = await systemSettingsService.getAllSettings()
 

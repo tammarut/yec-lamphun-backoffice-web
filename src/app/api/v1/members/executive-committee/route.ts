@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import "reflect-metadata"
 
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -30,7 +31,9 @@ const logger = createLogger(["members", "route", "executive-committee"])
 // (sqlc, ADR-0010); the only failure mode is infra: DatabaseError → 500
 // `{ error_message: "Internal Server Error" }` (no leaky details).
 // ============================================================================
-export async function GET(): Promise<NextResponse<GetExecutiveCommitteeResponse | ResponseBodyError>> {
+export const GET = withPublicGuard("PUBLIC_READ", getExecutiveCommittee)
+
+async function getExecutiveCommittee(): Promise<NextResponse<GetExecutiveCommitteeResponse | ResponseBodyError>> {
 	const service = container.resolve<GetExecutiveCommitteeService>(REGISTER_KEY.GET_EXECUTIVE_COMMITTEE_SERVICE)
 	const result = await service.execute()
 	if (result.isErr()) {

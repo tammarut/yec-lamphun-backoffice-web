@@ -28,6 +28,7 @@ vi.mock("src/shared/lib/logger/logger", () => ({
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { SystemSettingDomain } from "src/modules/system-settings/domain/system-setting.domain"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 
@@ -44,7 +45,11 @@ describe("GET /api/v1/system-settings", () => {
 		mockService = mock<SystemSettingsService>()
 		// Configure container to return valid service mock
 		// The generic type argument doesn't matter much for the spy but helps types
-		vi.mocked(container.resolve).mockReturnValue(mockService)
+		vi.mocked(container.resolve).mockImplementation((token) => {
+			if (token === SystemSettingsService || token === REGISTER_KEY.SYSTEM_SETTINGS_SERVICE) return mockService
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) return new RateLimiterService(() => new Date())
+			return {}
+		})
 	})
 
 	it("should return 200 and transformed settings keys-values", async () => {
@@ -68,7 +73,7 @@ describe("GET /api/v1/system-settings", () => {
 		// Use okAsync to create a ResultAsync logic, satisfying the return type
 		mockService.getAllSettings.mockReturnValue(Promise.resolve(okAsync(mockSettings)) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>)
 
-		const response = await GET()
+		const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
 
 		expect(response).toBeInstanceOf(NextResponse)
 		expect(response.status).toBe(200)
@@ -85,7 +90,7 @@ describe("GET /api/v1/system-settings", () => {
 			Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
 		)
 
-		const response = await GET()
+		const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
 
 		expect(response.status).toBe(500)
 		const json = await response.json()
@@ -122,6 +127,7 @@ describe("PATCH /api/v1/system-settings", () => {
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === AuthService || token === REGISTER_KEY.AUTH_SERVICE) return mockAuthService
 			if (token === SystemSettingsService || token === REGISTER_KEY.SYSTEM_SETTINGS_SERVICE) return mockService
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) return new RateLimiterService(() => new Date())
 			return {}
 		})
 	})

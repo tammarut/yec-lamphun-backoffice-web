@@ -4,6 +4,7 @@ import "reflect-metadata"
 import { safeParse } from "valibot"
 
 import { withAuth } from "src/app/api/middleware/with-auth"
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -74,7 +75,9 @@ export const POST = withAuth<CreatedMemberResponse | ResponseBodyError>(async fu
 // Query idiom: Bun SQL native (dynamic read) — see docs/adr/0010-... .
 // ============================================================================
 
-export async function GET(request: NextRequest): Promise<NextResponse<ListMembersPageResponse | ResponseBodyError>> {
+export const GET = withPublicGuard("PUBLIC_READ", listMembers)
+
+async function listMembers(request: NextRequest): Promise<NextResponse<ListMembersPageResponse | ResponseBodyError>> {
 	// 1. Read query string into a plain object for Valibot.
 	const searchParams = request.nextUrl.searchParams
 	const rawQuery: Record<string, string | undefined> = {

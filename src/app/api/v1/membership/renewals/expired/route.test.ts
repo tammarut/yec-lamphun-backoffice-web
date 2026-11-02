@@ -7,6 +7,7 @@ import { mock } from "vitest-mock-extended"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { InvalidCursorError } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.errors"
 import { GetListExpiredMembershipService } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.service"
 import type {
@@ -60,6 +61,7 @@ describe("GET /api/v1/membership/renewals/expired", () => {
 
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.GET_LIST_EXPIRED_MEMBERSHIP_SERVICE) return mockService
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) return new RateLimiterService(() => new Date())
 			return {}
 		})
 	})

@@ -1,5 +1,5 @@
 import { err, ok } from "neverthrow"
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -26,6 +26,7 @@ vi.mock("src/shared/lib/logger/logger", () => ({
 
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { BusinessCategoryDomain } from "src/modules/business-categories/domain/business-category.domain"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 
@@ -38,7 +39,11 @@ describe("GET /api/v1/business/categories", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockService = mock<BusinessCategoriesService>()
-		vi.mocked(container.resolve).mockReturnValue(mockService)
+		vi.mocked(container.resolve).mockImplementation((token) => {
+			if (token === REGISTER_KEY.BUSINESS_CATEGORIES_SERVICE) return mockService
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) return new RateLimiterService(() => new Date())
+			return {}
+		})
 	})
 
 	it("should return 200 and mapped business categories", async () => {
@@ -49,7 +54,7 @@ describe("GET /api/v1/business/categories", () => {
 
 		mockService.getBusinessCategories.mockResolvedValue(ok(mockCategories))
 
-		const response = await GET()
+		const response = await GET(new NextRequest("http://localhost/api/v1/business/categories"))
 
 		expect(response).toBeInstanceOf(NextResponse)
 		expect(response.status).toBe(200)
@@ -68,7 +73,7 @@ describe("GET /api/v1/business/categories", () => {
 	it("should return 200 with empty array when no categories exist", async () => {
 		mockService.getBusinessCategories.mockResolvedValue(ok([]))
 
-		const response = await GET()
+		const response = await GET(new NextRequest("http://localhost/api/v1/business/categories"))
 
 		expect(response.status).toBe(200)
 		const json = await response.json()
@@ -78,7 +83,7 @@ describe("GET /api/v1/business/categories", () => {
 	it("should return 500 when service returns error", async () => {
 		mockService.getBusinessCategories.mockResolvedValue(err(new DatabaseError("DB Error")))
 
-		const response = await GET()
+		const response = await GET(new NextRequest("http://localhost/api/v1/business/categories"))
 
 		expect(response.status).toBe(500)
 		const json = await response.json()

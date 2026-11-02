@@ -24,6 +24,7 @@ function makeConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 		PRESIGNED_URL_EXPIRES_IN: 3600,
 		ID_CARD_AES_KEY: randomBytes(32).toString("hex"),
 		BLIND_INDEX_HMAC_KEY: randomBytes(32).toString("hex"),
+		CLOUDFLARE_CIDRS: "",
 		...overrides,
 	}
 }

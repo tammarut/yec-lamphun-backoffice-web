@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { safeParse } from "valibot"
 
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { AuthService } from "src/modules/auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
@@ -153,7 +154,9 @@ function mapError(error: CreateRenewalError): NextResponse<ResponseBodyError> {
 // rendering; the error body is `{ error_message }` per the house contract (the
 // pseudocode's `{ error }` shape contradicts the spec's own sequence diagram).
 // ============================================================================
-export async function GET(request: NextRequest): Promise<NextResponse<ListMembershipRenewalPageResponse | ResponseBodyError>> {
+export const GET = withPublicGuard("PUBLIC_READ", listMembershipRenewals)
+
+async function listMembershipRenewals(request: NextRequest): Promise<NextResponse<ListMembershipRenewalPageResponse | ResponseBodyError>> {
 	// 1. Read query string into a plain object for Valibot.
 	const searchParams = request.nextUrl.searchParams
 	const rawQuery: Record<string, string | undefined> = {

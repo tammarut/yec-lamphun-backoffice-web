@@ -25,6 +25,10 @@ export type EnvConfig = {
 	// Both are hex strings: `openssl rand -hex 32` (64 chars / 32 bytes).
 	ID_CARD_AES_KEY: string
 	BLIND_INDEX_HMAC_KEY: string
+	// Abuse protection (SEC-1, spec #124): comma-separated Cloudflare CIDR ranges
+	// (IPv4 and/or IPv6). `cf-connecting-ip` is trusted only when the
+	// proxy-reported peer is inside one of these. Empty (default) = never trust.
+	CLOUDFLARE_CIDRS: string
 }
 
 export const envConfig = createEnv({
@@ -57,6 +61,10 @@ export const envConfig = createEnv({
 		// checked here; the crypto adapters re-validate the decoded byte length.
 		ID_CARD_AES_KEY: v.pipe(v.string(), v.minLength(1, "ID_CARD_AES_KEY is required")),
 		BLIND_INDEX_HMAC_KEY: v.pipe(v.string(), v.minLength(32, "BLIND_INDEX_HMAC_KEY must be at least 32 chars")),
+		// Comma-separated CIDR list; empty/absent → never trust cf-connecting-ip.
+		// The consumer (resolveTrustedClientIp) does the splitting — kept a plain
+		// string here like the DB_* numeric-string inputs.
+		CLOUDFLARE_CIDRS: v.optional(v.string(), ""),
 	},
 	client: {},
 	runtimeEnv: {
@@ -77,5 +85,6 @@ export const envConfig = createEnv({
 		PRESIGNED_URL_EXPIRES_IN: process.env["PRESIGNED_URL_EXPIRES_IN"],
 		ID_CARD_AES_KEY: process.env["ID_CARD_AES_KEY"],
 		BLIND_INDEX_HMAC_KEY: process.env["BLIND_INDEX_HMAC_KEY"],
+		CLOUDFLARE_CIDRS: process.env["CLOUDFLARE_CIDRS"],
 	},
 })

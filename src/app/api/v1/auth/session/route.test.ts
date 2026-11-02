@@ -14,6 +14,7 @@ vi.mock("src/modules/container", () => ({
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 
 import { ResponseBodyError } from "src/app/api/shared/types"
 // Import route AFTER mocks
@@ -39,6 +40,7 @@ describe("GET /api/v1/auth/session", () => {
 		// Configure container to return correct mock based on requested token
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === AuthService || token === REGISTER_KEY.AUTH_SERVICE) return mockAuthService
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) return new RateLimiterService(() => new Date())
 			return {}
 		})
 	})

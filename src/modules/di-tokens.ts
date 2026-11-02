@@ -110,4 +110,10 @@ export const REGISTER_KEY = {
 	// tests can pin the clock; anything else that needs `now` injectable may
 	// reuse it.
 	WALL_CLOCK: Symbol("WALL_CLOCK"),
+	// Shared abuse protection (SEC-1, spec #124). The in-memory fixed-window
+	// rate limiter behind withPublicGuard. Its window map is per-process state
+	// shared by every guarded request, so the registration MUST be a Singleton.
+	// Budgets live in RATE_LIMIT_BUDGETS (rate-limiter.service.ts); time comes
+	// from WALL_CLOCK.
+	RATE_LIMITER_SERVICE: Symbol("RATE_LIMITER_SERVICE"),
 } as const

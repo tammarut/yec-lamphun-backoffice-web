@@ -1,5 +1,5 @@
 import { err, ok } from "neverthrow"
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock } from "vitest-mock-extended"
@@ -7,6 +7,7 @@ import { mock } from "vitest-mock-extended"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { GetExecutiveCommitteeService } from "src/modules/members/use-case/get-executive-committee/get-executive-committee.service"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 
@@ -71,13 +72,16 @@ describe("GET /api/v1/members/executive-committee", () => {
 			if (token === REGISTER_KEY.GET_EXECUTIVE_COMMITTEE_SERVICE) {
 				return mockService
 			}
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
+				return new RateLimiterService(() => new Date())
+			}
 			return {}
 		})
 	})
 
 	describe("Happy cases", () => {
 		it("returns 200 with the President-rooted tree", async () => {
-			const response = await GET()
+			const response = await GET(new NextRequest("http://localhost/api/v1/members/executive-committee"))
 
 			expect(response).toBeInstanceOf(NextResponse)
 			expect(response.status).toBe(200)
@@ -87,14 +91,14 @@ describe("GET /api/v1/members/executive-committee", () => {
 		it("returns 200 with body null when there is no live PRESIDENT holder", async () => {
 			mockService.execute.mockResolvedValue(ok(null))
 
-			const response = await GET()
+			const response = await GET(new NextRequest("http://localhost/api/v1/members/executive-committee"))
 
 			expect(response.status).toBe(200)
 			expect(await response.json()).toBeNull()
 		})
 
 		it("PUBLIC (no cookie): serves the tree without resolving any auth — no 401 path", async () => {
-			const response = await GET()
+			const response = await GET(new NextRequest("http://localhost/api/v1/members/executive-committee"))
 
 			expect(response.status).toBe(200)
 			expect(vi.mocked(container.resolve)).toHaveBeenCalledWith(REGISTER_KEY.GET_EXECUTIVE_COMMITTEE_SERVICE)
@@ -107,7 +111,7 @@ describe("GET /api/v1/members/executive-committee", () => {
 			mockService.execute.mockResolvedValue(err(new DatabaseError("boom")))
 			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-			const response = await GET()
+			const response = await GET(new NextRequest("http://localhost/api/v1/members/executive-committee"))
 
 			expect(response.status).toBe(500)
 			const json = (await response.json()) as ResponseBodyError
