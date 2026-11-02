@@ -37,9 +37,17 @@ type WindowState = {
 // Fixed-window counters keyed `${budgetName}:${clientKey}`. A boundary burst
 // up to 2x the limit is the accepted tradeoff for O(1) bookkeeping; sliding
 // windows can come later if a real abuse wave needs them. Bounded memory:
-// admitting a NEW key past the cap prunes expired windows first, so unique-IP
-// floods cannot grow the map without bound (single-container deployment).
-const MAX_TRACKED_KEYS = 10_000
+// admitting a NEW key past the cap prunes expired windows, then — if the map
+// is still full under an active flood — evicts the OLDEST tracked window, so
+// unique-IP floods can never grow the map past the cap (scrutiny BLOCKER, PR
+// #132; single-container deployment).
+export const MAX_TRACKED_KEYS = 10_000
+
+// The expired-window sweep is O(N); without a floor, every request past the
+// cap would rescan the whole map (quadratic under flood). Once per interval
+// is plenty for a hygiene pass — the hard cap is enforced by eviction, not
+// by pruning.
+const PRUNE_MIN_INTERVAL_MS = 10_000
 
 /**
  * In-memory per-client rate limiter behind `withPublicGuard` (SEC-1, spec
@@ -48,8 +56,14 @@ const MAX_TRACKED_KEYS = 10_000
 @injectable()
 export class RateLimiterService {
 	private readonly windows = new Map<string, WindowState>()
+	private lastPruneMs = 0
 
 	constructor(@inject(REGISTER_KEY.WALL_CLOCK) private readonly wallClock: () => Date) {}
+
+	/** Observable size of the tracking map — the memory-bound seam for tests/ops. */
+	get trackedKeyCount(): number {
+		return this.windows.size
+	}
 
 	check(budgetName: RateLimitBudgetName, clientKey: string): Result<RateLimitAllowance, RateLimitExceededError> {
 		const budget = RATE_LIMIT_BUDGETS[budgetName]
@@ -64,14 +78,35 @@ export class RateLimiterService {
 			}
 			return ok({ allowed: true })
 		}
-		if (current === undefined && this.windows.size >= MAX_TRACKED_KEYS) {
-			this.pruneExpiredWindows(nowMs)
+		if (current === undefined) {
+			this.admitNewKey(nowMs)
 		}
 		this.windows.set(key, { windowStartMs: nowMs, count: 1 })
 		return ok({ allowed: true })
 	}
 
+	private admitNewKey(nowMs: number): void {
+		if (this.windows.size < MAX_TRACKED_KEYS) {
+			return
+		}
+		this.pruneExpiredWindows(nowMs)
+		if (this.windows.size < MAX_TRACKED_KEYS) {
+			return
+		}
+		// Still full after pruning — an active flood of unique keys. Evict the
+		// OLDEST tracked window (Map preserves insertion order) to keep the map
+		// hard-capped; that client's counter simply restarts.
+		const oldest = this.windows.keys().next().value
+		if (oldest !== undefined) {
+			this.windows.delete(oldest)
+		}
+	}
+
 	private pruneExpiredWindows(nowMs: number): void {
+		if (nowMs - this.lastPruneMs < PRUNE_MIN_INTERVAL_MS) {
+			return
+		}
+		this.lastPruneMs = nowMs
 		const maxWindowMs = Math.max(...Object.values(RATE_LIMIT_BUDGETS).map((budget) => budget.windowMs))
 		for (const [key, state] of this.windows) {
 			if (nowMs - state.windowStartMs >= maxWindowMs) {

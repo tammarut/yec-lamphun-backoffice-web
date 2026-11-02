@@ -24,7 +24,20 @@ type PublicRouteHandler = (request: NextRequest, context: unknown) => NextRespon
 export function withPublicGuard(budgetName: RateLimitBudgetName, handler: PublicRouteHandler): (request: NextRequest, context?: unknown) => Promise<NextResponse> {
 	return async function publicGuard(request: NextRequest, context?: unknown): Promise<NextResponse> {
 		const envConfig = container.resolve<EnvConfig>(REGISTER_KEY.ENV_CONFIG)
+		// Dev free pass: `next dev` has no reverse proxy, so every request would
+		// share the "unknown" bucket. Deliberately NOT `!== "production"` — that
+		// would also disable the guard under vitest (NODE_ENV=test).
+		if (envConfig.NODE_ENV === "development") {
+			return handler(request, context)
+		}
 		const trustedIp = resolveTrustedClientIp(request.headers, envConfig.CLOUDFLARE_CIDRS)
+		if (trustedIp === null) {
+			// Prod hit with no proxy-reported peer — the budget would collapse all
+			// unproxied callers into one "unknown" bucket, so make it observable.
+			logger.warn("No trusted client IP: endpoint={endpoint} — reverse proxy XFF missing?", {
+				endpoint: request.nextUrl.pathname,
+			})
+		}
 		const clientKey = trustedIp ?? "unknown"
 
 		const limiter = container.resolve<RateLimiterService>(REGISTER_KEY.RATE_LIMITER_SERVICE)

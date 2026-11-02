@@ -35,6 +35,12 @@ describe("resolveTrustedClientIp", () => {
 			expect(ip).toBe("103.21.244.7")
 		})
 
+		it("falls back to the peer when cf-connecting-ip is present but malformed (SEC-1 scrutiny NIT)", () => {
+			const headers = headersWith({ "x-forwarded-for": "103.21.244.7", "cf-connecting-ip": "not-an-ip" })
+			const ip = resolveTrustedClientIp(headers, CF_V4_CIDRS)
+			expect(ip).toBe("103.21.244.7")
+		})
+
 		it("falls back to the peer when the CIDR list is empty (never trust the header)", () => {
 			const headers = headersWith({ "x-forwarded-for": "103.21.244.7", "cf-connecting-ip": "198.51.100.23" })
 			const ip = resolveTrustedClientIp(headers, "")

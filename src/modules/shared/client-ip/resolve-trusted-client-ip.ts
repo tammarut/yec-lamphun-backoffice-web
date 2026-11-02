@@ -23,17 +23,59 @@ export function resolveTrustedClientIp(headers: Headers, cloudflareCidrsRaw: str
 	if (peer === null) {
 		return null
 	}
-	const cloudflareCidrs = (cloudflareCidrsRaw ?? "")
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0)
+	const cloudflareCidrs = parseCidrList(cloudflareCidrsRaw ?? "")
 	if (isIpInAnyCidr(peer, cloudflareCidrs)) {
 		const cfIp = normalizeIp(headers.get("cf-connecting-ip") ?? "")
-		if (cfIp !== null) {
+		// NIT fix (SEC-1 scrutiny): a malformed CF header must not become the
+		// trusted key — fall back to the peer instead.
+		if (cfIp !== null && parseIp(cfIp) !== null) {
 			return cfIp
 		}
 	}
 	return peer
+}
+
+type ParsedCidr = {
+	rangeIp: bigint
+	shift: bigint
+	isIpv6: boolean
+}
+
+// The env CIDR string is immutable per process, so a single-slot memo turns
+// the per-request split/trim/regex/BigInt-parse work (scrutiny MAJOR, PR #132)
+// into one plain compare loop. Tests pass varying literals → cache misses.
+let cidrCacheRaw: string | null = null
+let cidrCache: ParsedCidr[] = []
+
+function parseCidrList(raw: string): ParsedCidr[] {
+	if (raw === cidrCacheRaw) {
+		return cidrCache
+	}
+	const parsed = raw
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0)
+		.map(parseCidr)
+		.filter((cidr): cidr is ParsedCidr => cidr !== null)
+	cidrCacheRaw = raw
+	cidrCache = parsed
+	return parsed
+}
+
+function parseCidr(cidr: string): ParsedCidr | null {
+	const slashIndex = cidr.lastIndexOf("/")
+	const rangeText = slashIndex === -1 ? cidr : cidr.slice(0, slashIndex)
+	const isIpv6 = rangeText.includes(":")
+	const maxBits = isIpv6 ? 128 : 32
+	const bits = slashIndex === -1 ? maxBits : Number(cidr.slice(slashIndex + 1))
+	if (!Number.isInteger(bits) || bits < 0 || bits > maxBits) {
+		return null
+	}
+	const rangeIp = parseIp(rangeText)
+	if (rangeIp === null) {
+		return null
+	}
+	return { rangeIp: rangeIp, shift: BigInt(maxBits - bits), isIpv6: isIpv6 }
 }
 
 /** Strip surrounding space and the IPv4-mapped-IPv6 prefix (`::ffff:a.b.c.d`). */
@@ -51,30 +93,13 @@ function normalizeIp(raw: string): string | null {
 	return trimmed
 }
 
-function isIpInAnyCidr(ip: string, cidrs: readonly string[]): boolean {
-	return cidrs.some((cidr) => isIpInCidr(ip, cidr))
-}
-
-function isIpInCidr(ip: string, cidr: string): boolean {
-	const slashIndex = cidr.lastIndexOf("/")
-	const rangeText = slashIndex === -1 ? cidr : cidr.slice(0, slashIndex)
-	const isIpv6Range = rangeText.includes(":")
-	const maxBits = isIpv6Range ? 128 : 32
-	const bits = slashIndex === -1 ? maxBits : Number(cidr.slice(slashIndex + 1))
-	if (!Number.isInteger(bits) || bits < 0 || bits > maxBits) {
-		return false
-	}
-	// Address family must match the range's family.
-	if (ip.includes(":") !== isIpv6Range) {
-		return false
-	}
-	const rangeIp = parseIp(rangeText)
+function isIpInAnyCidr(ip: string, cidrs: readonly ParsedCidr[]): boolean {
 	const candidateIp = parseIp(ip)
-	if (rangeIp === null || candidateIp === null) {
+	if (candidateIp === null) {
 		return false
 	}
-	const shift = BigInt(maxBits - bits)
-	return candidateIp >> shift === rangeIp >> shift
+	const isIpv6 = ip.includes(":")
+	return cidrs.some((cidr) => cidr.isIpv6 === isIpv6 && candidateIp >> cidr.shift === cidr.rangeIp >> cidr.shift)
 }
 
 function parseIp(ip: string): bigint | null {

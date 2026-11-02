@@ -34,6 +34,7 @@ describe("withPublicGuard", () => {
 	let limiter: RateLimiterService
 	let handlerResponse: NextResponse<{ ok: boolean }>
 	let handler: ReturnType<typeof vi.fn<(request: NextRequest, context: unknown) => Promise<NextResponse<{ ok: boolean }>>>>
+	let envStub: EnvConfig
 
 	beforeEach(() => {
 		nowMs = BASE_MS
@@ -41,13 +42,14 @@ describe("withPublicGuard", () => {
 		handlerResponse = NextResponse.json({ ok: true })
 		handler = vi.fn<(request: NextRequest, context: unknown) => Promise<NextResponse<{ ok: boolean }>>>()
 		handler.mockResolvedValue(handlerResponse)
+		envStub = { CLOUDFLARE_CIDRS: "", NODE_ENV: "test" } as unknown as EnvConfig
 
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
 				return limiter
 			}
 			if (token === REGISTER_KEY.ENV_CONFIG) {
-				return { CLOUDFLARE_CIDRS: "" } as unknown as EnvConfig
+				return envStub
 			}
 			return {}
 		})
@@ -114,6 +116,37 @@ describe("withPublicGuard", () => {
 				endpoint: "/api/v1/test",
 				ip: "203.0.113.9",
 				budget: "PUBLIC_READ",
+			})
+		)
+	})
+
+	it("bypasses the budget entirely in development (no reverse proxy → shared bucket)", async () => {
+		envStub = { CLOUDFLARE_CIDRS: "", NODE_ENV: "development" } as unknown as EnvConfig
+		const budget = RATE_LIMIT_BUDGETS["PUBLIC_READ"]
+		const guarded = withPublicGuard("PUBLIC_READ", handler)
+
+		for (let i = 0; i <= budget.limit; i += 1) {
+			const response = await guarded(guardedRequest("203.0.113.9"), undefined)
+			expect(response.status).toBe(200)
+		}
+		expect(handler).toHaveBeenCalledTimes(budget.limit + 1)
+	})
+
+	it("warns and keys unproxied traffic under the shared 'unknown' bucket outside development", async () => {
+		const unproxied = new NextRequest("http://localhost/api/v1/test")
+		const budget = RATE_LIMIT_BUDGETS["SESSION_PROBE"]
+		const guarded = withPublicGuard("SESSION_PROBE", handler)
+
+		for (let i = 0; i < budget.limit; i += 1) {
+			await guarded(unproxied, undefined)
+		}
+		const response = await guarded(unproxied, undefined)
+
+		expect(response.status).toBe(429)
+		expect(loggerWarnSpy).toHaveBeenCalledWith(
+			expect.stringContaining("No trusted client IP"),
+			expect.objectContaining({
+				endpoint: "/api/v1/test",
 			})
 		)
 	})

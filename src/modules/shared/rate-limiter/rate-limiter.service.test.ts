@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest"
 
-import { RateLimitExceededError, RATE_LIMIT_BUDGETS, RateLimiterService } from "./rate-limiter.service"
+import { RateLimitExceededError, RATE_LIMIT_BUDGETS, RateLimiterService, MAX_TRACKED_KEYS } from "./rate-limiter.service"
 
 const BASE_MS = 1_700_000_000_000
 
@@ -116,7 +116,7 @@ describe("RateLimiterService", () => {
 
 	describe("key pruning", () => {
 		test("prunes expired windows when a new key arrives past the tracking cap", () => {
-			for (let i = 0; i < 10_000; i += 1) {
+			for (let i = 0; i < MAX_TRACKED_KEYS; i += 1) {
 				take("PUBLIC_READ", `10.0.0.${i % 256}.${Math.floor(i / 256)}`)
 			}
 			// Advance past every budget window, then admit one more key: the
@@ -124,6 +124,27 @@ describe("RateLimiterService", () => {
 			nowMs += RATE_LIMIT_BUDGETS["PUBLIC_READ"].windowMs + 1
 			expect(take("PUBLIC_READ", "203.0.113.9").isOk()).toBe(true)
 			expect(take("PUBLIC_READ", "203.0.113.9").isOk()).toBe(true)
+		})
+
+		// Falsifies the scrutiny BLOCKER: the cap must hold under an ACTIVE
+		// flood (no clock jump — every window still live, so pruning frees
+		// nothing and eviction has to carry the bound).
+		test("hard-caps tracked keys under an active unique-key flood with a frozen clock", () => {
+			for (let i = 0; i < MAX_TRACKED_KEYS + 500; i += 1) {
+				const result = take("PUBLIC_READ", `flood-${i}`)
+				expect(result.isOk()).toBe(true)
+				expect(limiter.trackedKeyCount).toBeLessThanOrEqual(MAX_TRACKED_KEYS)
+			}
+		})
+
+		test("still admits new keys and keeps them working after eviction at the cap", () => {
+			for (let i = 0; i < MAX_TRACKED_KEYS; i += 1) {
+				take("PUBLIC_READ", `flood-${i}`)
+			}
+			// The very first flooded key was evicted by admission #MAX_TRACKED_KEYS+1;
+			// its counter must restart as a fresh window (still allowed).
+			expect(take("PUBLIC_READ", "flood-0").isOk()).toBe(true)
+			expect(take("PUBLIC_READ", "flood-0").isOk()).toBe(true)
 		})
 	})
 })
