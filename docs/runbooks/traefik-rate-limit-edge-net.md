@@ -44,21 +44,32 @@ Save, then redeploy the app from the Dokploy UI so Traefik reloads the config.
 
 ## Step 2 — Verify
 
-From any machine, hammer the public API through the real hostname and confirm Traefik (not the app) starts rejecting:
+Two ground rules learned from the first live verification (2026-11-03):
+
+- **Never send `CF-Connecting-IP` from the client.** Cloudflare 403s any inbound request carrying that header (spoof guard, `error code: 1000`-style body). Through a real proxied path CF stamps the header itself with your real IP — just send plain requests.
+- **Sequential curl can't outrun the edge net.** At ~3–5 req/s round-trip pace, the 10/s refill never drains; only the app's tighter 120/min budget trips (that's the design — edge looser than app). To exercise Traefik you must go parallel.
+
+The app budget (2/s) trips before the edge net (10/s) at normal pace — expect app-authored 429s there. Then hammer parallel to exceed 10/s and confirm the edge net:
 
 ```bash
-for i in $(seq 1 100); do
-  curl -s -o /dev/null -w "%{http_code} " -H "CF-Connecting-IP: 203.0.113.99" https://<dev-host>/api/v1/business/categories
-done; echo
+# 1. Who answers the 429s under parallel load?
+seq 1 150 | xargs -P 20 -I{} curl -s \
+  "https://<dev-host>/api/v1/business/categories" | sort | uniq -c
+
+# Expected mix:
+#   {"error_message":"Too Many Requests"}  <- app guard (the first wave)
+#   429 Too Many Requests (plain text)     <- Traefik edge net (burst drained)
+
+# 2. Status histogram
+seq 1 150 | xargs -P 20 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
+  "https://<dev-host>/api/v1/business/categories" | sort | uniq -c
 ```
 
-Expected: mostly 200s, then `429`s once the bucket drains (100 requests > burst 50 at avg 10/s). Then confirm the app never saw the flood:
+Then confirm the flood never reached Node: the app's structured warn lines (`Rate limit tripped`) stop appearing once Traefik's plain-text 429s take over:
 
 ```bash
-docker logs <app-container> --since 5m | grep -c "429" || echo "no app-side 429s"
+docker logs <app-container> --since 5m | grep -c "Rate limit tripped"
 ```
-
-Also sanity-check a second key (`CF-Connecting-IP: 203.0.113.98`) still gets 200s — buckets are per header value.
 
 ## Step 3 — Prod
 
