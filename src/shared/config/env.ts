@@ -29,6 +29,13 @@ export type EnvConfig = {
 	// (IPv4 and/or IPv6). `cf-connecting-ip` is trusted only when the
 	// proxy-reported peer is inside one of these. Empty (default) = never trust.
 	CLOUDFLARE_CIDRS: string
+	// Abuse protection (SEC-2, spec #124): comma-separated allowed origins for
+	// the lenient Origin/Referer gate on the state-changing public routes
+	// (scheme + host entries, e.g. `https://yec.example.com`). A request whose
+	// Origin (or, as fallback, Referer) is present and NOT in this list gets
+	// 403; absent headers pass, so non-browser tooling is unaffected. Empty =
+	// every Origin-bearing request is blocked outside development.
+	ORIGIN_ALLOW_LIST: string
 }
 
 export const envConfig = createEnv({
@@ -65,6 +72,9 @@ export const envConfig = createEnv({
 		// The consumer (resolveTrustedClientIp) does the splitting — kept a plain
 		// string here like the DB_* numeric-string inputs.
 		CLOUDFLARE_CIDRS: v.optional(v.string(), ""),
+		// Comma-separated origin list for the lenient Origin/Referer gate
+		// (origin-gate.ts does the splitting/parsing, like CLOUDFLARE_CIDRS).
+		ORIGIN_ALLOW_LIST: v.optional(v.string(), ""),
 	},
 	client: {},
 	runtimeEnv: {
@@ -86,5 +96,6 @@ export const envConfig = createEnv({
 		ID_CARD_AES_KEY: process.env["ID_CARD_AES_KEY"],
 		BLIND_INDEX_HMAC_KEY: process.env["BLIND_INDEX_HMAC_KEY"],
 		CLOUDFLARE_CIDRS: process.env["CLOUDFLARE_CIDRS"],
+		ORIGIN_ALLOW_LIST: process.env["ORIGIN_ALLOW_LIST"],
 	},
 })

@@ -18,6 +18,7 @@ function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfi
 		R2_ACCESS_KEY_ID: "key",
 		R2_SECRET_ACCESS_KEY: "secret",
 		CLOUDFLARE_CIDRS: "",
+		ORIGIN_ALLOW_LIST: "",
 		R2_PUBLIC_BUCKET: "public",
 		R2_PRIVATE_BUCKET: "private",
 		R2_PUBLIC_BASE_URL: "https://test.r2.cloudflarestorage.com/public",

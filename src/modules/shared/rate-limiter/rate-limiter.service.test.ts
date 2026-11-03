@@ -4,6 +4,16 @@ import { RateLimitExceededError, RATE_LIMIT_BUDGETS, RateLimiterService, MAX_TRA
 
 const BASE_MS = 1_700_000_000_000
 
+describe("RATE_LIMIT_BUDGETS", () => {
+	// The write budgets are ticket-AC numbers (SEC-2, #126): upload 10/10 min,
+	// renewal submission 20/hour. Locked here so a tune-after-renewal-season
+	// edit is a deliberate, reviewable diff against the ticket.
+	test("carries the SEC-2 write budgets verbatim", () => {
+		expect(RATE_LIMIT_BUDGETS["UPLOAD_WRITE"]).toEqual({ limit: 10, windowMs: 600_000 })
+		expect(RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"]).toEqual({ limit: 20, windowMs: 3_600_000 })
+	})
+})
+
 describe("RateLimiterService", () => {
 	let nowMs: number
 	let limiter: RateLimiterService

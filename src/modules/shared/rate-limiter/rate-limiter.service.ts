@@ -12,6 +12,11 @@ import { AppError } from "src/shared/core/errors/app-error"
 export const RATE_LIMIT_BUDGETS = {
 	PUBLIC_READ: { limit: 120, windowMs: 60_000 },
 	SESSION_PROBE: { limit: 60, windowMs: 60_000 },
+	// Write budgets (SEC-2, #126): the state-changing public POSTs. Upload is
+	// 6-files-per-renewal-dialog traffic; renewal submission is one dialog per
+	// hour at most for a legitimate member (group submissions are ONE request).
+	UPLOAD_WRITE: { limit: 10, windowMs: 600_000 },
+	RENEWAL_SUBMIT: { limit: 20, windowMs: 3_600_000 },
 } as const
 
 export type RateLimitBudgetName = keyof typeof RATE_LIMIT_BUDGETS

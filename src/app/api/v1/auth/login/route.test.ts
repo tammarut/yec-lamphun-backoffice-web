@@ -87,4 +87,21 @@ describe("POST /api/v1/auth/login", () => {
 		const json = (await res.json()) as ResponseBodyError
 		expect(json.error_message).toContain("password")
 	})
+
+	test("should return 403 when the Origin header is present but not allow-listed (SEC-2)", async () => {
+		const body = JSON.stringify({
+			username: "admin",
+			password: "Energetic9-Mulch2-Arknight6",
+		})
+		const req = new NextRequest("http://localhost/api/v1/auth/login", {
+			method: "POST",
+			body: body,
+			headers: { origin: "https://evil.example.net" },
+		})
+
+		const res = await POST(req)
+		expect(res.status).toBe(403)
+		const json = await res.json()
+		expect(json).toEqual({ error_message: "Forbidden" })
+	})
 })
