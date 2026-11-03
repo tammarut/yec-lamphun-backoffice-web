@@ -51,7 +51,7 @@ export function withOriginGate(handler: PublicRouteHandler): (request: NextReque
  * Origin/Referer origin is in the allow-list. Judge Origin first; Referer only
  * when Origin is absent (browsers send Origin on every fetch/form POST).
  */
-export function isOriginAllowed(headers: Headers, allowListRaw: string | null | undefined): boolean {
+function isOriginAllowed(headers: Headers, allowListRaw: string | null | undefined): boolean {
 	const origin = headers.get("origin")
 	if (origin !== null) {
 		return originInAllowList(origin, allowListRaw)
