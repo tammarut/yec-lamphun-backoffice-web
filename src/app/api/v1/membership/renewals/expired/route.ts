@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { safeParse } from "valibot"
 
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -35,7 +36,9 @@ const logger = createLogger(["membership", "route", "list-expired"])
 // even though the query reads only the members table.
 // ============================================================================
 
-export async function GET(request: NextRequest): Promise<NextResponse<ListExpiredMembershipPageResponse | ResponseBodyError>> {
+export const GET = withPublicGuard("PUBLIC_READ", listExpiredMemberships)
+
+async function listExpiredMemberships(request: NextRequest): Promise<NextResponse<ListExpiredMembershipPageResponse | ResponseBodyError>> {
 	// 1. Read query string into a plain object for Valibot.
 	const searchParams = request.nextUrl.searchParams
 	const rawQuery: Record<string, string | undefined> = {

@@ -7,6 +7,7 @@ import * as v from "valibot"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { resolveTrustedClientIp } from "src/modules/shared/client-ip/resolve-trusted-client-ip"
 import { envConfig } from "src/shared/config/env"
 
 export const dynamic = "force-dynamic"
@@ -33,8 +34,8 @@ export async function POST(request: NextRequest) {
 
 	// Extract metadata
 	const userAgent = request.headers.get("user-agent")
-	const reqForwardedFor = request.headers.get("x-forwarded-for")
-	const ip = reqForwardedFor?.split(",")[0] ?? null
+	// Trusted derivation (SEC-1): replaces the spoofable first-token XFF read.
+	const ip = resolveTrustedClientIp(request.headers, envConfig.CLOUDFLARE_CIDRS)
 
 	// Use auth service for business logic
 	const authService = container.resolve<AuthService>(REGISTER_KEY.AUTH_SERVICE)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 
+import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
@@ -8,7 +9,9 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: NextRequest) {
+export const GET = withPublicGuard("SESSION_PROBE", probeSession)
+
+async function probeSession(request: NextRequest) {
 	const sessionId = request.cookies.get("session_id")?.value
 
 	if (!sessionId) {

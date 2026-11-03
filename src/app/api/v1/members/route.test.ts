@@ -8,6 +8,7 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { MemberConflictError, MemberValidationError } from "src/modules/members/use-case/create-new-member/create-member.errors"
 import { CreateNewMemberService } from "src/modules/members/use-case/create-new-member/create-new-member.service"
 import { InvalidCursorError } from "src/modules/members/use-case/get-list-members/get-list-members.errors"
@@ -99,6 +100,9 @@ describe("POST /api/v1/members", () => {
 			}
 			if (token === REGISTER_KEY.CREATE_NEW_MEMBER_SERVICE) {
 				return mockService
+			}
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
+				return new RateLimiterService(() => new Date())
 			}
 			return {}
 		})
@@ -292,6 +296,7 @@ describe("GET /api/v1/members", () => {
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.AUTH_SERVICE) return mockAuthService
 			if (token === REGISTER_KEY.GET_LIST_MEMBERS_SERVICE) return mockListService
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) return new RateLimiterService(() => new Date())
 			return {}
 		})
 	})

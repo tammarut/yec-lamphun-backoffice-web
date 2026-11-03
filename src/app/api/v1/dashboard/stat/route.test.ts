@@ -7,6 +7,7 @@ import { mock } from "vitest-mock-extended"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { GetDashboardStatService } from "src/modules/dashboard/use-case/get-dashboard-stat/get-dashboard-stat.service"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 
@@ -47,6 +48,9 @@ describe("GET /api/v1/dashboard/stat", () => {
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.GET_DASHBOARD_STAT_SERVICE) {
 				return mockService
+			}
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
+				return new RateLimiterService(() => new Date())
 			}
 			return {}
 		})

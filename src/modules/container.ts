@@ -29,6 +29,7 @@ import { GetRenewalStatService } from "src/modules/membership-renewals/use-case/
 import { ReviewRenewalService } from "src/modules/membership-renewals/use-case/review-renewal/review-renewal.service"
 import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encryption.service"
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
 import { R2StorageClient } from "src/modules/shared/storage/r2-storage.client"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
@@ -368,5 +369,11 @@ container.register(REGISTER_KEY.MEMBER_RESIGN_REPOSITORY, {
 	useClass: MembersRepository,
 })
 container.register(REGISTER_KEY.MEMBER_RESIGN_SERVICE, { useClass: ResignMemberService }, { lifecycle: Lifecycle.Singleton })
+
+// 16. Register shared abuse protection (SEC-1, spec #124). The rate limiter
+// MUST be a Singleton: its fixed-window map is per-process state shared by
+// every guarded request. Its time source is the WALL_CLOCK useValue from
+// section 14; budgets live in RATE_LIMIT_BUDGETS (rate-limiter.service.ts).
+container.register(REGISTER_KEY.RATE_LIMITER_SERVICE, { useClass: RateLimiterService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }

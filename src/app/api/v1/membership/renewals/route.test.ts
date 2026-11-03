@@ -8,6 +8,7 @@ import { AuthService } from "src/modules/auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import { InvalidCursorError } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
@@ -86,6 +87,9 @@ describe("POST /api/v1/membership/renewals", () => {
 			}
 			if (token === REGISTER_KEY.CREATE_RENEWAL_SERVICE) {
 				return mockService
+			}
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
+				return new RateLimiterService(() => new Date())
 			}
 			return {}
 		})
@@ -387,6 +391,9 @@ describe("GET /api/v1/membership/renewals", () => {
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.GET_LIST_MEMBERSHIP_RENEWAL_SERVICE) {
 				return mockListService
+			}
+			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
+				return new RateLimiterService(() => new Date())
 			}
 			return {}
 		})
