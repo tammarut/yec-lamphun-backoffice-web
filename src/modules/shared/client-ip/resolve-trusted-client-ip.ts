@@ -51,12 +51,18 @@ function parseCidrList(raw: string): ParsedCidr[] {
 	if (raw === cidrCacheRaw) {
 		return cidrCache
 	}
-	const parsed = raw
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0)
-		.map(parseCidr)
-		.filter((cidr): cidr is ParsedCidr => cidr !== null)
+	const entries = raw.split(",")
+	const parsed: ParsedCidr[] = []
+	for (const entry of entries) {
+		const trimmed = entry.trim()
+		if (trimmed.length === 0) {
+			continue
+		}
+		const cidr = parseCidr(trimmed)
+		if (cidr !== null) {
+			parsed.push(cidr)
+		}
+	}
 	cidrCacheRaw = raw
 	cidrCache = parsed
 	return parsed
@@ -99,7 +105,15 @@ function isIpInAnyCidr(ip: string, cidrs: readonly ParsedCidr[]): boolean {
 		return false
 	}
 	const isIpv6 = ip.includes(":")
-	return cidrs.some((cidr) => cidr.isIpv6 === isIpv6 && candidateIp >> cidr.shift === cidr.rangeIp >> cidr.shift)
+	for (const cidr of cidrs) {
+		if (cidr.isIpv6 !== isIpv6) {
+			continue
+		}
+		if (candidateIp >> cidr.shift === cidr.rangeIp >> cidr.shift) {
+			return true
+		}
+	}
+	return false
 }
 
 function parseIp(ip: string): bigint | null {
@@ -125,21 +139,39 @@ function parseIpv4(ip: string): bigint | null {
 	return value
 }
 
+// Parse the colon-separated groups of one half of an IPv6 address. Each group
+// is 1-4 hex digits; an invalid group yields null so the caller can reject.
+function parseGroups(text: string): Array<number | null> {
+	const groups: Array<number | null> = []
+	if (text.length === 0) {
+		return groups
+	}
+	for (const group of text.split(":")) {
+		const isValidHexGroup = /^[0-9a-fA-F]{1,4}$/.test(group)
+		if (isValidHexGroup) {
+			groups.push(Number.parseInt(group, 16))
+		} else {
+			groups.push(null)
+		}
+	}
+	return groups
+}
+
+// parseGroups rejected nothing — this narrowing tells the compiler the list
+// holds only numbers once the null check has passed.
+function isFullyParsed(groups: Array<number | null>): groups is number[] {
+	return !groups.includes(null)
+}
+
 function parseIpv6(ip: string): bigint | null {
-	// `::` zero-compression, at most once; groups are 1-4 hex digits.
+	// `::` zero-compression, at most once.
 	const sections = ip.split("::")
 	if (sections.length > 2) {
 		return null
 	}
-	const parseGroups = (text: string): Array<number | null> => {
-		if (text.length === 0) {
-			return []
-		}
-		return text.split(":").map((group) => (/^[0-9a-fA-F]{1,4}$/.test(group) ? Number.parseInt(group, 16) : null))
-	}
 	const left = parseGroups(sections[0] ?? "")
 	const right = sections.length === 2 ? parseGroups(sections[1] ?? "") : []
-	if (left.includes(null) || right.includes(null)) {
+	if (!isFullyParsed(left) || !isFullyParsed(right)) {
 		return null
 	}
 	if (sections.length === 2) {
@@ -147,8 +179,17 @@ function parseIpv6(ip: string): bigint | null {
 		if (missing < 1) {
 			return null
 		}
-		const zeros = Array.from({ length: missing }, () => 0)
-		return groupsToBigint([...left, ...zeros, ...right] as number[])
+		const groups: number[] = []
+		for (const group of left) {
+			groups.push(group)
+		}
+		for (let i = 0; i < missing; i += 1) {
+			groups.push(0)
+		}
+		for (const group of right) {
+			groups.push(group)
+		}
+		return groupsToBigint(groups)
 	}
 	if (left.length !== 8) {
 		return null

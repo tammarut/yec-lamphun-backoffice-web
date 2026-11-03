@@ -107,7 +107,12 @@ export class RateLimiterService {
 			return
 		}
 		this.lastPruneMs = nowMs
-		const maxWindowMs = Math.max(...Object.values(RATE_LIMIT_BUDGETS).map((budget) => budget.windowMs))
+		let maxWindowMs = 0
+		for (const budget of Object.values(RATE_LIMIT_BUDGETS)) {
+			if (budget.windowMs > maxWindowMs) {
+				maxWindowMs = budget.windowMs
+			}
+		}
 		for (const [key, state] of this.windows) {
 			if (nowMs - state.windowStartMs >= maxWindowMs) {
 				this.windows.delete(key)
