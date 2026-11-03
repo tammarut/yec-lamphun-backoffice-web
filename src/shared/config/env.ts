@@ -29,12 +29,13 @@ export type EnvConfig = {
 	// (IPv4 and/or IPv6). `cf-connecting-ip` is trusted only when the
 	// proxy-reported peer is inside one of these. Empty (default) = never trust.
 	CLOUDFLARE_CIDRS: string
-	// Abuse protection (SEC-2, spec #124): comma-separated allowed origins for
-	// the lenient Origin/Referer gate on the state-changing public routes
-	// (scheme + host entries, e.g. `https://yec.example.com`). A request whose
-	// Origin (or, as fallback, Referer) is present and NOT in this list gets
-	// 403; absent headers pass, so non-browser tooling is unaffected. Empty =
-	// every Origin-bearing request is blocked outside development.
+	// Abuse protection (SEC-2, spec #124): comma-separated EXTRA trusted
+	// cross-origin origins for the lenient Origin/Referer gate on the
+	// state-changing public routes. Same-origin traffic always passes
+	// automatically (origin-gate.ts), so the site's own hostname does NOT need
+	// an entry — this list is only for additional domains allowed to fire
+	// these POSTs (today: none). Absent headers pass, so non-browser tooling
+	// is unaffected. Empty is a valid steady state.
 	ORIGIN_ALLOW_LIST: string
 }
 

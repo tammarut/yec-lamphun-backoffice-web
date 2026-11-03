@@ -72,7 +72,10 @@ function preParseBodyGuard(request: NextRequest): NextResponse<ResponseBodyError
 		return NextResponse.json({ error_message: "Content-Length required" } satisfies ResponseBodyError, { status: 411 })
 	}
 	const contentLength = Number(contentLengthRaw)
-	if (!Number.isFinite(contentLength) || contentLength > MAX_UPLOAD_BODY_BYTES) {
+	// Negative / non-integer values are malformed (RFC 9110 §8.6) — fail-closed
+	// into the same 413 branch rather than letting them reach formData()
+	// (scrutiny MAJOR-1, PR #133).
+	if (!Number.isFinite(contentLength) || !Number.isInteger(contentLength) || contentLength < 0 || contentLength > MAX_UPLOAD_BODY_BYTES) {
 		return NextResponse.json({ error_message: "Request body too large" } satisfies ResponseBodyError, { status: 413 })
 	}
 	return null

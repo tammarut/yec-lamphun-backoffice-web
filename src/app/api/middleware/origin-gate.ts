@@ -17,10 +17,12 @@ type PublicRouteHandler = (request: NextRequest, context: unknown) => NextRespon
  * `export const POST = withOriginGate(withPublicGuard("UPLOAD_WRITE", handler))`.
  *
  * A request is blocked with 403 `{ error_message }` ONLY when an Origin (or,
- * as fallback, Referer) header is present AND its origin is not in the
- * env-configured `ORIGIN_ALLOW_LIST`. Absent headers pass, so curl / Apidog /
- * vitest keep working unchanged. This kills the CORS-safelisted drive-by
- * multipart class (no preflight needed for those POSTs); it is explicitly NOT
+ * as fallback, Referer) header is present AND its origin is neither the
+ * request's own origin (same-origin traffic always passes — zero-config
+ * correct) nor in the env-configured `ORIGIN_ALLOW_LIST` (extra trusted
+ * cross-origin domains only). Absent headers pass, so curl / Apidog / vitest
+ * keep working unchanged. This kills the CORS-safelisted drive-by multipart
+ * class (no preflight needed for those POSTs); it is explicitly NOT
  * authentication.
  *
  * Dev free pass mirrors withPublicGuard: `next dev` same-origin localhost
@@ -34,7 +36,7 @@ export function withOriginGate(handler: PublicRouteHandler): (request: NextReque
 		if (envConfig.NODE_ENV === "development") {
 			return handler(request, context)
 		}
-		if (!isOriginAllowed(request.headers, envConfig.ORIGIN_ALLOW_LIST)) {
+		if (!isOriginAllowed(request.headers, request.nextUrl.origin, envConfig.ORIGIN_ALLOW_LIST)) {
 			const blockedOrigin = request.headers.get("origin") ?? request.headers.get("referer")
 			logger.warn("Origin gate blocked: endpoint={endpoint} blockedOrigin={blockedOrigin}", {
 				endpoint: request.nextUrl.pathname,
@@ -47,28 +49,30 @@ export function withOriginGate(handler: PublicRouteHandler): (request: NextReque
 }
 
 /**
- * True when the request may pass the gate: both headers absent, or the
- * Origin/Referer origin is in the allow-list. Judge Origin first; Referer only
- * when Origin is absent (browsers send Origin on every fetch/form POST).
+ * True when the request may pass the gate. Absent headers pass (non-browser
+ * tooling). A present Origin/Referer passes when its origin equals the
+ * request's OWN origin (same-origin traffic — browsers enforce Origin
+ * integrity, JS cannot spoof it; this is what keeps the app's own frontend
+ * working with NO env configuration, scrutiny MAJOR-3, PR #133) or is in the
+ * env allow-list. Judge Origin first; Referer only when Origin is absent
+ * (browsers send Origin on every fetch/form POST).
+ *
+ * The env allow-list is therefore only needed for EXTRA trusted cross-origin
+ * domains, not for the site itself.
  */
-function isOriginAllowed(headers: Headers, allowListRaw: string | null | undefined): boolean {
-	const origin = headers.get("origin")
-	if (origin !== null) {
-		return originInAllowList(origin, allowListRaw)
+function isOriginAllowed(headers: Headers, requestOrigin: string, allowListRaw: string | null | undefined): boolean {
+	const headerValue = headers.get("origin") ?? headers.get("referer")
+	if (headerValue === null) {
+		return true
 	}
-	const referer = headers.get("referer")
-	if (referer !== null) {
-		return originInAllowList(referer, allowListRaw)
-	}
-	return true
-}
-
-function originInAllowList(headerValue: string, allowListRaw: string | null | undefined): boolean {
 	const origin = parseOrigin(headerValue)
 	if (origin === null) {
 		// Present but unparseable (`Origin: null` opaque origin, junk) — never
 		// allow-listable.
 		return false
+	}
+	if (origin === requestOrigin) {
+		return true
 	}
 	const entries = allowListRaw?.split(",") ?? []
 	for (const entry of entries) {

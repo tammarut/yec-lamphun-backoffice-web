@@ -156,5 +156,32 @@ describe("RateLimiterService", () => {
 			expect(take("PUBLIC_READ", "flood-0").isOk()).toBe(true)
 			expect(take("PUBLIC_READ", "flood-0").isOk()).toBe(true)
 		})
+
+		// Falsifies the scrutiny MAJOR-2 (PR #133): the global maxWindowMs sweep
+		// freed nothing once the 1-hour renewal budget landed, so cap pressure
+		// evicted the OLDEST — a LIVE long-window budget — instead of the
+		// already-expired short-window key. Per-entry windows must free the
+		// expired read key and keep the mid-window renewal budget intact.
+		test("frees an expired short-window key at cap pressure and keeps a live long-window budget intact", () => {
+			// Arrange: a renewal client spends its full 20/hour budget; a read key
+			// goes stale right after.
+			for (let i = 0; i < RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"].limit; i += 1) {
+				expect(take("RENEWAL_SUBMIT", "10.8.8.8").isOk()).toBe(true)
+			}
+			expect(take("RENEWAL_SUBMIT", "10.8.8.8").isErr()).toBe(true)
+			take("PUBLIC_READ", "10.9.9.9")
+
+			// 61s later: the read key is expired, the renewal window is live.
+			nowMs += RATE_LIMIT_BUDGETS["PUBLIC_READ"].windowMs + 1
+
+			// Fill to exactly the cap so the LAST admission triggers one prune
+			// sweep (the 10s throttle keeps it to one) — and no eviction.
+			for (let i = 0; i < MAX_TRACKED_KEYS - 1; i += 1) {
+				take("RENEWAL_SUBMIT", `flood-${i}`)
+			}
+
+			// Assert: the live renewal window SURVIVED — the client stays blocked.
+			expect(take("RENEWAL_SUBMIT", "10.8.8.8").isErr()).toBe(true)
+		})
 	})
 })

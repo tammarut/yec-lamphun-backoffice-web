@@ -127,11 +127,39 @@ describe("withOriginGate", () => {
 		expect(response).toBe(handlerResponse)
 	})
 
-	it("blocks every Origin-bearing request when the allow-list is empty", async () => {
+	it("blocks every FOREIGN Origin-bearing request when the allow-list is empty", async () => {
 		envStub = { ORIGIN_ALLOW_LIST: "", NODE_ENV: "test" } as unknown as EnvConfig
 		const guarded = withOriginGate(handler)
 
 		const response = await guarded(requestWithHeaders({ origin: "https://yec.example.com" }), undefined)
+
+		expect(response.status).toBe(403)
+	})
+
+	it("auto-allows the SAME-ORIGIN request even with an empty allow-list (scrutiny MAJOR-3: browsers always send Origin on POSTs)", async () => {
+		envStub = { ORIGIN_ALLOW_LIST: "", NODE_ENV: "test" } as unknown as EnvConfig
+		const guarded = withOriginGate(handler)
+
+		const response = await guarded(requestWithHeaders({ origin: "http://localhost" }), undefined)
+
+		expect(response).toBe(handlerResponse)
+		expect(handler).toHaveBeenCalledTimes(1)
+	})
+
+	it("auto-allows a same-origin Referer with an empty allow-list", async () => {
+		envStub = { ORIGIN_ALLOW_LIST: "", NODE_ENV: "test" } as unknown as EnvConfig
+		const guarded = withOriginGate(handler)
+
+		const response = await guarded(requestWithHeaders({ referer: "http://localhost/membership/renewal" }), undefined)
+
+		expect(response).toBe(handlerResponse)
+	})
+
+	it("does NOT let a host-suffix lookalike pass as same-origin", async () => {
+		envStub = { ORIGIN_ALLOW_LIST: "", NODE_ENV: "test" } as unknown as EnvConfig
+		const guarded = withOriginGate(handler)
+
+		const response = await guarded(requestWithHeaders({ origin: "http://localhost.evil.com" }), undefined)
 
 		expect(response.status).toBe(403)
 	})

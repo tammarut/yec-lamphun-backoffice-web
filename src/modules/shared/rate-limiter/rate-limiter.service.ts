@@ -36,6 +36,10 @@ export class RateLimitExceededError extends AppError {
 
 type WindowState = {
 	windowStartMs: number
+	// The owning budget's window size, carried per entry so the prune sweep
+	// expires each key by ITS OWN budget — a 60s PUBLIC_READ key must not
+	// linger for the 1h RENEWAL_SUBMIT window (scrutiny MAJOR-2, PR #133).
+	windowMs: number
 	count: number
 }
 
@@ -86,7 +90,7 @@ export class RateLimiterService {
 		if (current === undefined) {
 			this.admitNewKey(nowMs)
 		}
-		this.windows.set(key, { windowStartMs: nowMs, count: 1 })
+		this.windows.set(key, { windowStartMs: nowMs, windowMs: budget.windowMs, count: 1 })
 		return ok({ allowed: true })
 	}
 
@@ -112,14 +116,8 @@ export class RateLimiterService {
 			return
 		}
 		this.lastPruneMs = nowMs
-		let maxWindowMs = 0
-		for (const budget of Object.values(RATE_LIMIT_BUDGETS)) {
-			if (budget.windowMs > maxWindowMs) {
-				maxWindowMs = budget.windowMs
-			}
-		}
 		for (const [key, state] of this.windows) {
-			if (nowMs - state.windowStartMs >= maxWindowMs) {
+			if (nowMs - state.windowStartMs >= state.windowMs) {
 				this.windows.delete(key)
 			}
 		}

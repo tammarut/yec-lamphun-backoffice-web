@@ -118,6 +118,26 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(passedInputs).toHaveLength(1)
 			expect(passedInputs[0]).toMatchObject({ field: "profile_avatar" })
 		})
+
+		it("still succeeds with NO Origin header (plain curl / Apidog unaffected — gate passes absent headers)", async () => {
+			mockService.uploadFiles.mockReturnValue(
+				Promise.resolve(
+					ok({
+						id_card_image_file_path: null,
+						company_certificate_file_path: null,
+						profile_avatar_file_path: "members/profile_avatars/p.png",
+						business_logo_file_path: null,
+						business_product_file_path: null,
+						payment_slip_file_path: null,
+					})
+				) as unknown as Promise<Result<UploadedFilePathResponse, never>>
+			)
+
+			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })
+			const response = await POST(request)
+
+			expect(response.status).toBe(200)
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -179,9 +199,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Invalid request body")
 		})
-	})
 
-	describe("SEC-2 guards", () => {
 		it("returns 413 BEFORE parsing when Content-Length exceeds the ~47 MB body cap", async () => {
 			// 6 files x 7 MB per-file cap + multipart overhead = 47 MiB
 			// (49,283,072 bytes); one byte above the cap must never reach
@@ -198,6 +216,32 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(response.status).toBe(413)
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Request body too large")
+			expect(mockService.uploadFiles).not.toHaveBeenCalled()
+		})
+
+		it("returns 413 for a NEGATIVE Content-Length (scrutiny MAJOR-1: fail-closed on malformed headers)", async () => {
+			const request = new NextRequest("http://localhost/api/v1/members/file/upload", {
+				method: "POST",
+				body: "x",
+				headers: { "content-length": "-1" },
+			})
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(413)
+			expect(mockService.uploadFiles).not.toHaveBeenCalled()
+		})
+
+		it("returns 413 for a NON-INTEGER Content-Length", async () => {
+			const request = new NextRequest("http://localhost/api/v1/members/file/upload", {
+				method: "POST",
+				body: "x",
+				headers: { "content-length": "12.5" },
+			})
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(413)
 			expect(mockService.uploadFiles).not.toHaveBeenCalled()
 		})
 
@@ -251,26 +295,6 @@ describe("POST /api/v1/members/file/upload", () => {
 
 			expect(response.status).toBe(403)
 			expect(mockService.uploadFiles).not.toHaveBeenCalled()
-		})
-
-		it("still succeeds with NO Origin header (plain curl / Apidog unaffected)", async () => {
-			mockService.uploadFiles.mockReturnValue(
-				Promise.resolve(
-					ok({
-						id_card_image_file_path: null,
-						company_certificate_file_path: null,
-						profile_avatar_file_path: "members/profile_avatars/p.png",
-						business_logo_file_path: null,
-						business_product_file_path: null,
-						payment_slip_file_path: null,
-					})
-				) as unknown as Promise<Result<UploadedFilePathResponse, never>>
-			)
-
-			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })
-			const response = await POST(request)
-
-			expect(response.status).toBe(200)
 		})
 
 		it("returns 429 with Retry-After once the UPLOAD_WRITE budget (10/10 min) exhausts", async () => {

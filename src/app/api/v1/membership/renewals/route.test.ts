@@ -67,6 +67,15 @@ function makeRequest(body: unknown, sessionCookie?: string): NextRequest {
 	return req
 }
 
+/** POST request with explicit headers — the SEC-2 gate/budget cases need an Origin/Referer set. */
+function makeRequestWithHeaders(body: unknown, headers: Record<string, string>): NextRequest {
+	return new NextRequest("http://localhost/api/v1/membership/renewals", {
+		method: "POST",
+		body: typeof body === "string" ? body : JSON.stringify(body),
+		headers: headers,
+	})
+}
+
 describe("POST /api/v1/membership/renewals", () => {
 	let mockService: ReturnType<typeof mock<CreateRenewalService>>
 	let mockAuthService: ReturnType<typeof mock<AuthService>>
@@ -196,6 +205,17 @@ describe("POST /api/v1/membership/renewals", () => {
 				],
 				group_id: "01900000-0000-7000-8000-000000000001",
 			})
+		})
+
+		it("passes with NO Origin header (plain curl / Apidog unaffected — gate passes absent headers)", async () => {
+			// Arrange
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(201)
 		})
 	})
 
@@ -353,16 +373,6 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(json.error_message).toBe("Internal Server Error")
 			consoleSpy.mockRestore()
 		})
-	})
-
-	describe("SEC-2 guards", () => {
-		function makeRequestWithHeaders(body: unknown, headers: Record<string, string>): NextRequest {
-			return new NextRequest("http://localhost/api/v1/membership/renewals", {
-				method: "POST",
-				body: typeof body === "string" ? body : JSON.stringify(body),
-				headers: headers,
-			})
-		}
 
 		it("returns 403 when the Origin header is present but not allow-listed", async () => {
 			// Arrange — the container mock resolves ENV_CONFIG to {} (no allow-list),
@@ -389,17 +399,6 @@ describe("POST /api/v1/membership/renewals", () => {
 			// Assert
 			expect(response.status).toBe(403)
 			expect(mockService.execute).not.toHaveBeenCalled()
-		})
-
-		it("passes with NO Origin header (plain curl / Apidog unaffected)", async () => {
-			// Arrange
-			const request = makeRequest(validBody)
-
-			// Act
-			const response = await POST(request)
-
-			// Assert
-			expect(response.status).toBe(201)
 		})
 
 		it("returns 429 with Retry-After once the RENEWAL_SUBMIT budget (20/hour) exhausts", async () => {
