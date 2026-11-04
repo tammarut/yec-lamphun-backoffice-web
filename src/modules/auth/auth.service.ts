@@ -6,7 +6,7 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
 import { AuthError, InvalidCredentialsError } from "./errors"
 import type { ISessionStore } from "./interfaces"
-import { LoginLockoutService, loginPairKey } from "./login-lockout.service"
+import { LoginFailureLockoutService, loginPairKey } from "./login-failure-lockout.service"
 import type { LoginParams, SessionData } from "./types"
 
 const SESSION_TTL_PERSISTENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
@@ -30,7 +30,7 @@ export class AuthService {
 	constructor(
 		@tsyringe.inject(REGISTER_KEY.ENV_CONFIG) private readonly config: EnvConfig,
 		@tsyringe.inject(REGISTER_KEY.SESSION_STORE) private readonly sessionStore: ISessionStore,
-		@tsyringe.inject(REGISTER_KEY.LOGIN_LOCKOUT_SERVICE) private readonly loginLockout: LoginLockoutService
+		@tsyringe.inject(REGISTER_KEY.LOGIN_FAILURE_LOCKOUT_SERVICE) private readonly loginLockout: LoginFailureLockoutService
 	) {}
 
 	/**
@@ -56,8 +56,14 @@ export class AuthService {
 		const adminUsername = this.config.ADMIN_USERNAME
 		const adminPassword = this.config.ADMIN_PASSWORD
 
-		// Verify credentials — timing-safe, length-normalized (SEC-3)
-		if (!timingSafeStringEqual(sanitizedUsername, adminUsername) || !timingSafeStringEqual(password, adminPassword)) {
+		// Verify credentials — timing-safe, length-normalized (SEC-3). BOTH
+		// compares run unconditionally (scrutiny MAJOR: a `||` short-circuit
+		// would skip the password digest+compare whenever the username is
+		// wrong, leaking username validity through response timing — spec #124
+		// story 9 promises constant-time comparison).
+		const isUsernameValid = timingSafeStringEqual(sanitizedUsername, adminUsername)
+		const isPasswordValid = timingSafeStringEqual(password, adminPassword)
+		if (!isUsernameValid || !isPasswordValid) {
 			this.loginLockout.recordFailure(lockKey)
 			return neverthrow.err(new InvalidCredentialsError())
 		}

@@ -12,8 +12,11 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { resolveTrustedClientIp } from "src/modules/shared/client-ip/resolve-trusted-client-ip"
 import { RateLimitExceededError } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { envConfig } from "src/shared/config/env"
+import { createLogger } from "src/shared/lib/logger/logger"
 
 export const dynamic = "force-dynamic"
+
+const logger = createLogger(["auth", "route", "login"])
 
 const LoginRequestBodySchema = v.object({
 	username: v.pipe(v.string("Username must be a string"), v.minLength(1, "Username is required"), v.maxLength(100, "Username cannot exceed 100 characters")),
@@ -61,6 +64,15 @@ async function login(request: NextRequest) {
 		if (error instanceof RateLimitExceededError) {
 			// SEC-3: the IP+username pair is locked out — the canonical 429
 			// contract (same shape as withPublicGuard), even for correct passwords.
+			// Spec #124 story 20 / AC: every rate-limit trip gets a structured
+			// log line with the trusted client IP, or brute-force waves stay
+			// invisible to ops (scrutiny MAJOR).
+			logger.warn("Login lockout tripped: endpoint={endpoint} ip={ip} username={username} retry_after_seconds={retryAfterSeconds}", {
+				endpoint: request.nextUrl.pathname,
+				ip: ip ?? "unknown",
+				username: reqBody.username,
+				retryAfterSeconds: error.retryAfterSeconds,
+			})
 			return NextResponse.json({ error_message: "Too Many Requests" } satisfies ResponseBodyError, {
 				status: 429,
 				headers: { "Retry-After": String(error.retryAfterSeconds) },

@@ -1,6 +1,6 @@
 import "reflect-metadata"
 import { AuthService } from "src/modules/auth/auth.service"
-import { LoginLockoutService } from "src/modules/auth/login-lockout.service"
+import { LoginFailureLockoutService } from "src/modules/auth/login-failure-lockout.service"
 import { BusinessCategoriesService } from "src/modules/business-categories/business-categories.service"
 import { BusinessCategoriesRepository } from "src/modules/business-categories/repository/business-categories.repository"
 import { DashboardRepository } from "src/modules/dashboard/repository/dashboard.repository"
@@ -126,8 +126,8 @@ container.register(REGISTER_KEY.AUTH_SERVICE, {
 // The login lockout MUST be a Singleton: its IP+username pair map is
 // per-process state shared by every login attempt (SEC-3, spec #124). Time
 // comes from the WALL_CLOCK useValue; the failure numbers live in
-// login-lockout.service.ts.
-container.register(REGISTER_KEY.LOGIN_LOCKOUT_SERVICE, { useClass: LoginLockoutService }, { lifecycle: Lifecycle.Singleton })
+// login-failure-lockout.service.ts.
+container.register(REGISTER_KEY.LOGIN_FAILURE_LOCKOUT_SERVICE, { useClass: LoginFailureLockoutService }, { lifecycle: Lifecycle.Singleton })
 
 // 8. Register Members File Module
 // R2StorageClient is the single R2 adapter: it implements BOTH IStorageClient

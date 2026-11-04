@@ -8,9 +8,9 @@ import { RateLimitExceededError, type RateLimitAllowance } from "src/modules/sha
 // within 15 minutes lock the IP+username pair out for 15 minutes — even
 // attempts carrying the correct password (checkLock gates BEFORE the
 // credential compare in AuthService).
-export const LOGIN_LOCKOUT_MAX_FAILURES = 5
-export const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000
-export const LOGIN_LOCKOUT_DURATION_MS = 15 * 60 * 1000
+export const LOGIN_FAILURE_LOCKOUT_MAX_FAILURES = 5
+export const LOGIN_FAILURE_LOCKOUT_WINDOW_MS = 15 * 60 * 1000
+export const LOGIN_FAILURE_LOCKOUT_DURATION_MS = 15 * 60 * 1000
 
 // Bounded memory, same model as the shared limiter (SEC-1): admitting a NEW
 // pair past the cap prunes dead pairs, then evicts the OLDEST NON-LOCKED pair
@@ -50,7 +50,7 @@ export function loginPairKey(ip: string | null, sanitizedUsername: string): stri
  * Time comes from the injected WALL_CLOCK — no test sleeps.
  */
 @injectable()
-export class LoginLockoutService {
+export class LoginFailureLockoutService {
 	private readonly entries = new Map<string, LockoutState>()
 	private lastPruneMs = 0
 
@@ -80,14 +80,19 @@ export class LoginLockoutService {
 	recordFailure(clientKey: string): void {
 		const nowMs = this.wallClock().getTime()
 		const entry = this.entries.get(clientKey)
-		if (entry === undefined || nowMs - entry.windowStartMs >= LOGIN_LOCKOUT_WINDOW_MS) {
+		if (entry === undefined) {
+			// Only a genuinely NEW pair can grow the map — an expired existing
+			// pair overwrites in place, so cap pressure must not evict a
+			// bystander on its behalf (scrutiny NIT, mirrors the limiter's guard).
 			this.admitNewPair(nowMs)
+		}
+		if (entry === undefined || nowMs - entry.windowStartMs >= LOGIN_FAILURE_LOCKOUT_WINDOW_MS) {
 			this.entries.set(clientKey, { windowStartMs: nowMs, failureCount: 1, lockedUntilMs: null })
 			return
 		}
 		entry.failureCount += 1
-		if (entry.failureCount >= LOGIN_LOCKOUT_MAX_FAILURES) {
-			entry.lockedUntilMs = nowMs + LOGIN_LOCKOUT_DURATION_MS
+		if (entry.failureCount >= LOGIN_FAILURE_LOCKOUT_MAX_FAILURES) {
+			entry.lockedUntilMs = nowMs + LOGIN_FAILURE_LOCKOUT_DURATION_MS
 		}
 	}
 
@@ -116,7 +121,7 @@ export class LoginLockoutService {
 			// Dead = BOTH the failure window and the lockout are over. The
 			// conjunction matters: a lockout armed mid-window outlives the
 			// window it was armed in (lock end ≥ window end).
-			const windowOver = nowMs - state.windowStartMs >= LOGIN_LOCKOUT_WINDOW_MS
+			const windowOver = nowMs - state.windowStartMs >= LOGIN_FAILURE_LOCKOUT_WINDOW_MS
 			const lockOver = state.lockedUntilMs === null || nowMs >= state.lockedUntilMs
 			if (windowOver && lockOver) {
 				this.entries.delete(key)

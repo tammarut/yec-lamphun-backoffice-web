@@ -120,5 +120,5 @@ export const REGISTER_KEY = {
 	// failures per IP+username pair (5 in 15 minutes → 15-minute lockout on the
 	// pair). Its pair map is per-process state shared by every login attempt,
 	// so the registration MUST be a Singleton; time comes from WALL_CLOCK.
-	LOGIN_LOCKOUT_SERVICE: Symbol("LOGIN_LOCKOUT_SERVICE"),
+	LOGIN_FAILURE_LOCKOUT_SERVICE: Symbol("LOGIN_FAILURE_LOCKOUT_SERVICE"),
 } as const

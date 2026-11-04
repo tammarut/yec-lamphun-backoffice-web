@@ -6,13 +6,13 @@ import { RateLimitExceededError } from "src/modules/shared/rate-limiter/rate-lim
 import { AuthService } from "./auth.service"
 import { InvalidCredentialsError } from "./errors"
 import type { ISessionStore } from "./interfaces"
-import { LoginLockoutService } from "./login-lockout.service"
+import { LoginFailureLockoutService } from "./login-failure-lockout.service"
 
 describe("AuthService", () => {
 	let authService: AuthService
 	let mockConfig: EnvConfig
 	let mockSessionStore: MockProxy<ISessionStore>
-	let mockLoginLockout: MockProxy<LoginLockoutService>
+	let mockLoginLockout: MockProxy<LoginFailureLockoutService>
 	let mockSessionId: string
 
 	beforeEach(() => {
@@ -44,7 +44,7 @@ describe("AuthService", () => {
 		mockSessionStore = mock<ISessionStore>()
 		mockSessionStore.createSession.mockReturnValue(mockSessionId)
 
-		mockLoginLockout = mock<LoginLockoutService>()
+		mockLoginLockout = mock<LoginFailureLockoutService>()
 		mockLoginLockout.checkLock.mockReturnValue(ok({ allowed: true }))
 
 		authService = new AuthService(mockConfig, mockSessionStore, mockLoginLockout)
