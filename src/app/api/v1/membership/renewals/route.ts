@@ -68,13 +68,15 @@ type CreatedRenewalResponse = {
 // SEC-2 hardening (spec #124): the Origin gate decides before the write budget
 // (composed OUTERMOST), so a foreign-origin drive-by never burns a budget slot.
 //
-// SEC-4 hardening (spec #124): inside the handler, a guest (no/invalid cookie)
-// must pass the open_membership_renewal window check — closed season → 403
-// before the use case runs; a valid admin session skips the check entirely.
-//
 // SEC-5 hardening (spec #124): the same session fork gates Cloudflare Turnstile
 // — guests must carry a human-verified token (JSON body `turnstile_token`);
 // missing/invalid/expired → 403, siteverify unreachable → 503 (turnstile-gate.ts).
+//
+// SEC-4 hardening (spec #124): a guest past the human gate must then pass the
+// open_membership_renewal window check — closed season → 403 before the use
+// case runs; a valid admin session skips both checks. The Turnstile gate runs
+// BEFORE the window's DB read (scrutiny MAJOR-2): tokenless bots never spend a
+// pool slot.
 // ============================================================================
 export const POST = withOriginGate(withPublicGuard("RENEWAL_SUBMIT", createRenewal))
 
@@ -100,11 +102,27 @@ async function createRenewal(request: NextRequest): Promise<NextResponse<Created
 	//    isAdmin=false (no 401); valid -> isAdmin=true.
 	const isAdmin = resolveIsAdmin(request)
 
-	// 3.5 SEC-4 hardening (spec #124): the renewal window gate. A valid admin
+	// 3.5 SEC-5 hardening (spec #124): the Turnstile human gate — deliberately
+	//     BEFORE the SEC-4 window read (scrutiny MAJOR-2): the gate is
+	//     stateless-with-one-outbound-call, the window check is a DB query, so
+	//     a tokenless bot flood must never spend a pool slot just to be told
+	//     "closed". Guests (no or invalid cookie) must present a human-verified
+	//     token from the JSON body; a valid admin session skips verification
+	//     entirely — the SAME session fork as the window gate below.
+	//     Missing/invalid/expired token → 403, siteverify
+	//     unreachable/timed out → 503; neither ever reaches the DB or the use
+	//     case (fail-closed).
+	const turnstileRejection = await enforceTurnstileToken(request, parsed.output.turnstile_token, isAdmin)
+	if (turnstileRejection !== null) {
+		return turnstileRejection
+	}
+
+	// 3.6 SEC-4 hardening (spec #124): the renewal window gate. A valid admin
 	//    session bypasses the check entirely (staff filing on a member's behalf
 	//    is never blocked by the season toggle) — guests read the flag
 	//    server-side, and a closed season rejects with 403 BEFORE the use case
-	//    runs. 409 stays reserved for duplicate-conflict semantics.
+	//    runs (only reachable by a human-verified guest, per 3.5 above; 409
+	//    stays reserved for duplicate-conflict semantics).
 	if (!isAdmin) {
 		const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
 		const windowResult = await systemSettingsService.isRenewalWindowOpen()
@@ -119,17 +137,6 @@ async function createRenewal(request: NextRequest): Promise<NextResponse<Created
 		if (!windowResult.value) {
 			return NextResponse.json({ error_message: "membership renewal is currently closed" } satisfies ResponseBodyError, { status: 403 })
 		}
-	}
-
-	// 3.6 SEC-5 hardening (spec #124): the Turnstile human gate. Guests (no or
-	//     invalid cookie) must present a human-verified token from the JSON body;
-	//     a valid admin session skips verification entirely — the SAME session
-	//     fork as the window gate above. Missing/invalid/expired token → 403,
-	//     siteverify unreachable/timed out → 503; neither ever reaches the use
-	//     case (fail-closed).
-	const turnstileRejection = await enforceTurnstileToken(request, parsed.output.turnstile_token, isAdmin)
-	if (turnstileRejection !== null) {
-		return turnstileRejection
 	}
 
 	// 4. Hand the validated DTO to the use case. The service selects the status

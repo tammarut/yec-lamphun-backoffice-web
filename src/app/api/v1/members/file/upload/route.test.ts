@@ -420,6 +420,30 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(mockService.uploadFiles).not.toHaveBeenCalled()
 		})
 
+		it("SEC-5 scrutiny MINOR-1: guest + whitespace-only token: 403 without burning a siteverify round-trip", async () => {
+			mockService.uploadFiles.mockReturnValue(
+				Promise.resolve(
+					ok({
+						id_card_image_file_path: null,
+						company_certificate_file_path: null,
+						profile_avatar_file_path: "members/profile_avatars/p.png",
+						business_logo_file_path: null,
+						business_product_file_path: null,
+						payment_slip_file_path: null,
+					})
+				) as unknown as Promise<Result<UploadedFilePathResponse, never>>
+			)
+			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") }, "   ")
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.uploadFiles).not.toHaveBeenCalled()
+		})
+
 		it("SEC-5: siteverify rejects the token (invalid/expired): 403, no upload occurs", async () => {
 			mockTurnstileService.verify.mockResolvedValue(err(new TurnstileVerificationError()))
 			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") })

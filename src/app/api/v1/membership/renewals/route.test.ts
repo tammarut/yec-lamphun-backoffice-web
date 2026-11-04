@@ -291,6 +291,70 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(response.status).toBe(201)
 			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
 		})
+
+		it("SEC-5 scrutiny MAJOR-1: ADMIN + explicit turnstile_token null: schema admits it, verification skipped", async () => {
+			// Arrange — React form payloads serialize uninitialized state as null;
+			// the admin bypass contract must survive that shape.
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
+			const request = makeRequest({ ...validBody, turnstile_token: null }, "valid-session-id")
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(response.status).toBe(201)
+			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
+		})
+
+		it("SEC-5 scrutiny MAJOR-1: guest + explicit turnstile_token null: 403 at the gate, NOT a 400", async () => {
+			// Arrange — null ≡ absent: the gate decides, not the schema.
+			const request = makeRequest({ ...validBody, turnstile_token: null })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5 scrutiny MINOR-1: guest + whitespace-only token: 403 without burning a siteverify round-trip", async () => {
+			// Arrange
+			const request = makeRequest({ ...validBody, turnstile_token: "   " })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5 scrutiny MAJOR-2: guest + missing token + CLOSED season: gate 403 wins, DB settings read NEVER runs", async () => {
+			// Arrange — tokenless bots must not reach the stateful resource even to
+			// be told the season is closed (defense-in-depth: stateless gate first).
+			mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(false))
+			const { turnstile_token, ...tokenlessBody } = validBody
+			void turnstile_token
+			const request = makeRequest(tokenlessBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockSettingsService.isRenewalWindowOpen).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
 	})
 
 	describe("Unhappy cases", () => {

@@ -43,7 +43,9 @@ export async function enforceTurnstileToken(request: NextRequest, token: string 
 	if (isAdmin) {
 		return null
 	}
-	if (token === undefined || token === null || token.length === 0) {
+	if (token === undefined || token === null || token.trim().length === 0) {
+		// Whitespace-only counts as missing (scrutiny MINOR-1): the cheap local
+		// check must not burn a siteverify round-trip on junk.
 		return NextResponse.json({ error_message: "Human verification failed" } satisfies ResponseBodyError, { status: 403 })
 	}
 	const turnstileService = container.resolve<TurnstileService>(REGISTER_KEY.TURNSTILE_SERVICE)

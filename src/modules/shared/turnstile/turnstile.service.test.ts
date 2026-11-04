@@ -154,6 +154,16 @@ describe("TurnstileService", () => {
 				expect(result._unsafeUnwrapErr()).toBeInstanceOf(TurnstileServiceError)
 				expect(fetchMock).not.toHaveBeenCalled()
 			})
+
+			test("WHITESPACE-only secret counts as empty (scrutiny MINOR-1): 503, siteverify never called", async () => {
+				const service = new TurnstileService(makeEnv("   "))
+
+				const result = await service.verify("tok_abc123", new Headers())
+
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(TurnstileServiceError)
+				expect(fetchMock).not.toHaveBeenCalled()
+			})
 		})
 	})
 })

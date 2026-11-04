@@ -85,7 +85,7 @@ export class TurnstileService {
 	constructor(@inject(REGISTER_KEY.ENV_CONFIG) private readonly envConfig: EnvConfig) {}
 
 	async verify(token: string, headers: Headers): Promise<Result<TurnstileAllowance, TurnstileVerificationError | TurnstileServiceError>> {
-		const secret = this.envConfig.TURNSTILE_SECRET_KEY
+		const secret = this.envConfig.TURNSTILE_SECRET_KEY.trim()
 		if (secret.length === 0) {
 			// Deployment misconfiguration is a SERVER-side fault: never a silent
 			// pass, and never burned into a guest-attributed 403.
