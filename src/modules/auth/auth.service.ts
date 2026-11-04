@@ -6,7 +6,7 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
 import { AuthError, InvalidCredentialsError } from "./errors"
 import type { ISessionStore } from "./interfaces"
-import { LoginLockoutService } from "./login-lockout.service"
+import { LoginLockoutService, loginPairKey } from "./login-lockout.service"
 import type { LoginParams, SessionData } from "./types"
 
 const SESSION_TTL_PERSISTENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
@@ -47,7 +47,7 @@ export class AuthService {
 
 		// SEC-3: key the lockout pair on ip + SANITIZED username — junk-character
 		// padding sanitizes to the same key, so it cannot split the failure streak.
-		const lockKey = `${ip ?? "unknown"}:${sanitizedUsername}`
+		const lockKey = loginPairKey(ip, sanitizedUsername)
 		const lockResult = this.loginLockout.checkLock(lockKey)
 		if (lockResult.isErr()) {
 			return neverthrow.err(lockResult.error)

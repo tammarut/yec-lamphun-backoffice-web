@@ -33,6 +33,16 @@ type LockoutState = {
 }
 
 /**
+ * The ONE place the `ip:username` pair-key format is built (SEC-3 review:
+ * primitive obsession — callers must not hand-roll the join, or a second
+ * variant would silently split the failure streaks). Username is the
+ * SANITIZED form so junk-character padding lands on the same key.
+ */
+export function loginPairKey(ip: string | null, sanitizedUsername: string): string {
+	return `${ip ?? "unknown"}:${sanitizedUsername}`
+}
+
+/**
  * In-memory failure-counting lockout for the admin login (SEC-3, spec #124).
  * Keys are `ip:username` PAIRS — throttling the pair, not the IP alone, keeps
  * NAT'd offices working while still stopping single-source credential
