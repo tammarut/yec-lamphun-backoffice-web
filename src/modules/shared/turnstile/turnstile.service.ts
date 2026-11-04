@@ -12,6 +12,19 @@ export const TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turns
 /** The ~5 s siteverify budget (spec #124); past it the outcome is 503-retryable. */
 export const TURNSTILE_VERIFY_TIMEOUT_MS = 5_000
 
+/** The one wording every 503-family rejection carries (pinned here, code-review nit). */
+const SERVICE_UNAVAILABLE_MESSAGE = "Human verification is temporarily unavailable"
+
+/**
+ * Siteverify error-codes that describe a SERVER fault, not the client's token
+ * (Cloudflare docs: bad/missing secret, malformed request, their internal
+ * error). These deploy as HTTP 200 + success:false — without this set, a
+ * wrong secret would show guests a non-retryable "token failed" 403 and the
+ * 403/503 split would silently collapse on exactly the faults it exists to
+ * expose.
+ */
+const SERVER_FAULT_SITEVERIFY_CODES: ReadonlySet<string> = new Set(["missing-input-secret", "invalid-input-secret", "bad-request", "internal-error"])
+
 export type TurnstileAllowance = {
 	readonly verified: true
 }
@@ -36,10 +49,26 @@ export class TurnstileServiceError extends AppError {
 /** The narrow shape the gate reads off the siteverify JSON body. */
 type SiteverifyPayload = {
 	success: unknown
+	"error-codes"?: unknown
 }
 
 function isSiteverifyPayload(value: unknown): value is SiteverifyPayload {
 	return typeof value === "object" && value !== null && "success" in value
+}
+
+/** The payload's error-codes as strings, or [] when absent/malformed. */
+function readErrorCodes(payload: SiteverifyPayload): string[] {
+	const codes = payload["error-codes"]
+	if (!Array.isArray(codes)) {
+		return []
+	}
+	const valid: string[] = []
+	for (const code of codes) {
+		if (typeof code === "string") {
+			valid.push(code)
+		}
+	}
+	return valid
 }
 
 /**
@@ -60,7 +89,7 @@ export class TurnstileService {
 		if (secret.length === 0) {
 			// Deployment misconfiguration is a SERVER-side fault: never a silent
 			// pass, and never burned into a guest-attributed 403.
-			return err(new TurnstileServiceError("Human verification is temporarily unavailable", "TURNSTILE_SECRET_KEY is not configured"))
+			return err(new TurnstileServiceError(SERVICE_UNAVAILABLE_MESSAGE, "TURNSTILE_SECRET_KEY is not configured"))
 		}
 
 		const remoteIp = resolveTrustedClientIp(headers, this.envConfig.CLOUDFLARE_CIDRS)
@@ -77,7 +106,7 @@ export class TurnstileService {
 				signal: AbortSignal.timeout(TURNSTILE_VERIFY_TIMEOUT_MS),
 			})
 			if (!response.ok) {
-				return err(new TurnstileServiceError("Human verification is temporarily unavailable", `siteverify HTTP ${String(response.status)}`))
+				return err(new TurnstileServiceError(SERVICE_UNAVAILABLE_MESSAGE, `siteverify HTTP ${String(response.status)}`))
 			}
 			const payload: unknown = await response.json()
 			if (isSiteverifyPayload(payload)) {
@@ -85,15 +114,24 @@ export class TurnstileService {
 					return ok({ verified: true })
 				}
 				if (payload.success === false) {
+					const codes = readErrorCodes(payload)
+					for (const code of codes) {
+						if (SERVER_FAULT_SITEVERIFY_CODES.has(code)) {
+							return err(new TurnstileServiceError(SERVICE_UNAVAILABLE_MESSAGE, `siteverify error-codes: ${codes.join(", ")}`))
+						}
+					}
+					// Token-attributed codes (missing/invalid-input-response,
+					// timeout-or-duplicate) and unknown future codes — the verdict
+					// is on the token, so 403.
 					return err(new TurnstileVerificationError())
 				}
 			}
 			// `success` missing or the wrong type — unparseable, server-side family.
-			return err(new TurnstileServiceError("Human verification is temporarily unavailable", "malformed siteverify payload"))
+			return err(new TurnstileServiceError(SERVICE_UNAVAILABLE_MESSAGE, "malformed siteverify payload"))
 		} catch (error) {
 			// A fetch-level failure: siteverify unreachable OR the 5 s timeout
 			// fired — both retryable 503s, never a pass.
-			return err(new TurnstileServiceError("Human verification is temporarily unavailable", error))
+			return err(new TurnstileServiceError(SERVICE_UNAVAILABLE_MESSAGE, error))
 		}
 	}
 }

@@ -67,6 +67,16 @@ describe("TurnstileService", () => {
 				expect(result._unsafeUnwrapErr().message).toBe("Human verification failed")
 			})
 
+			test("timeout-or-duplicate (expired/reused token) also returns the 403-family verdict", async () => {
+				const service = new TurnstileService(makeEnv("test-secret"))
+				fetchMock.mockResolvedValue(makeSiteverifyResponse({ success: false, "error-codes": ["timeout-or-duplicate"] }))
+
+				const result = await service.verify("tok_reused", new Headers())
+
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(TurnstileVerificationError)
+			})
+
 			test("siteverify non-200 HTTP status returns TurnstileServiceError", async () => {
 				const service = new TurnstileService(makeEnv("test-secret"))
 				fetchMock.mockResolvedValue(makeSiteverifyResponse({ success: true }, 503))
@@ -103,6 +113,31 @@ describe("TurnstileService", () => {
 				const abortError = new Error("The operation was aborted due to timeout")
 				abortError.name = "TimeoutError"
 				fetchMock.mockRejectedValue(abortError)
+
+				const result = await service.verify("tok_abc123", new Headers())
+
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(TurnstileServiceError)
+			})
+
+			test("secret-fault siteverify codes (invalid-input-secret) are SERVER-side: TurnstileServiceError, not a guest 403", async () => {
+				// A wrong-but-present secret deploys as HTTP 200 + success:false with
+				// a secret error-code — that is a deployment fault, so it must land in
+				// the retryable 503 family, indistinguishable-from-403 is the defect
+				// the split exists to prevent (code-review finding, SEC-5).
+				const service = new TurnstileService(makeEnv("wrong-secret"))
+				fetchMock.mockResolvedValue(makeSiteverifyResponse({ success: false, "error-codes": ["invalid-input-secret"] }))
+
+				const result = await service.verify("tok_abc123", new Headers())
+
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toBeInstanceOf(TurnstileServiceError)
+				expect(result._unsafeUnwrapErr().message).toBe("Human verification is temporarily unavailable")
+			})
+
+			test("internal-error from siteverify is SERVER-side: TurnstileServiceError", async () => {
+				const service = new TurnstileService(makeEnv("test-secret"))
+				fetchMock.mockResolvedValue(makeSiteverifyResponse({ success: false, "error-codes": ["internal-error"] }))
 
 				const result = await service.verify("tok_abc123", new Headers())
 
