@@ -34,6 +34,7 @@ describe("AuthService", () => {
 			ID_CARD_AES_KEY: "x".repeat(44),
 			BLIND_INDEX_HMAC_KEY: "y".repeat(44),
 			CLOUDFLARE_CIDRS: "",
+			ORIGIN_ALLOW_LIST: "",
 		}
 
 		mockSessionStore = mock<ISessionStore>()

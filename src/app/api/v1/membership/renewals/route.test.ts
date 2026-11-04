@@ -8,7 +8,7 @@ import { AuthService } from "src/modules/auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
+import { RateLimiterService, RATE_LIMIT_BUDGETS } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import { InvalidCursorError } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
@@ -67,9 +67,19 @@ function makeRequest(body: unknown, sessionCookie?: string): NextRequest {
 	return req
 }
 
+/** POST request with explicit headers — the SEC-2 gate/budget cases need an Origin/Referer set. */
+function makeRequestWithHeaders(body: unknown, headers: Record<string, string>): NextRequest {
+	return new NextRequest("http://localhost/api/v1/membership/renewals", {
+		method: "POST",
+		body: typeof body === "string" ? body : JSON.stringify(body),
+		headers: headers,
+	})
+}
+
 describe("POST /api/v1/membership/renewals", () => {
 	let mockService: ReturnType<typeof mock<CreateRenewalService>>
 	let mockAuthService: ReturnType<typeof mock<AuthService>>
+	let limiter: RateLimiterService
 
 	beforeEach(() => {
 		// Arrange (shared setup): public path defaults. validateSession defaults
@@ -80,6 +90,10 @@ describe("POST /api/v1/membership/renewals", () => {
 		mockAuthService = mock<AuthService>()
 		mockService.execute.mockResolvedValue(ok(soloServiceResult))
 		mockAuthService.validateSession.mockReturnValue(err(new Error("invalid session")))
+		// ONE limiter instance per test: resolving a fresh RateLimiterService per
+		// call would give every request its own empty window and the write budget
+		// could never trip (the container registers it as a Singleton).
+		limiter = new RateLimiterService(() => new Date())
 
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.AUTH_SERVICE) {
@@ -89,7 +103,7 @@ describe("POST /api/v1/membership/renewals", () => {
 				return mockService
 			}
 			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
-				return new RateLimiterService(() => new Date())
+				return limiter
 			}
 			return {}
 		})
@@ -191,6 +205,17 @@ describe("POST /api/v1/membership/renewals", () => {
 				],
 				group_id: "01900000-0000-7000-8000-000000000001",
 			})
+		})
+
+		it("passes with NO Origin header (plain curl / Apidog unaffected — gate passes absent headers)", async () => {
+			// Arrange
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(201)
 		})
 	})
 
@@ -347,6 +372,51 @@ describe("POST /api/v1/membership/renewals", () => {
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Internal Server Error")
 			consoleSpy.mockRestore()
+		})
+
+		it("returns 403 when the Origin header is present but not allow-listed", async () => {
+			// Arrange — the container mock resolves ENV_CONFIG to {} (no allow-list),
+			// so any Origin-bearing request is foreign.
+			const request = makeRequestWithHeaders(validBody, { origin: "https://evil.example.net" })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Forbidden")
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("returns 403 via the Referer fallback when Origin is absent and Referer is foreign", async () => {
+			// Arrange
+			const request = makeRequestWithHeaders(validBody, { referer: "https://evil.example.net/spam" })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("returns 429 with Retry-After once the RENEWAL_SUBMIT budget (20/hour) exhausts", async () => {
+			// Arrange — the beforeEach limiter is fresh, so exactly 20 pass.
+			const budget = RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"]
+			for (let i = 0; i < budget.limit; i += 1) {
+				const underBudget = await POST(makeRequest(validBody))
+				expect(underBudget.status).toBe(201)
+			}
+
+			// Act
+			const overBudget = await POST(makeRequest(validBody))
+
+			// Assert
+			expect(overBudget.status).toBe(429)
+			const json = (await overBudget.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Too Many Requests")
+			expect(overBudget.headers.get("Retry-After")).toBe(String(budget.windowMs / 1000))
 		})
 	})
 })

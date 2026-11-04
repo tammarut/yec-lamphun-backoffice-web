@@ -7,6 +7,7 @@ import * as v from "valibot"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { withOriginGate } from "src/app/api/middleware/origin-gate"
 import { resolveTrustedClientIp } from "src/modules/shared/client-ip/resolve-trusted-client-ip"
 import { envConfig } from "src/shared/config/env"
 
@@ -18,7 +19,12 @@ const LoginRequestBodySchema = v.object({
 	rememberMe: v.optional(v.boolean("rememberMe must be a boolean"), false),
 })
 
-export async function POST(request: NextRequest) {
+// SEC-2 (spec #124): the login POST is a state-changing public route — foreign
+// Origin/Referer requests are blocked before the credential flow runs. The
+// per-IP+username failure throttle arrives with the login-hardening ticket.
+export const POST = withOriginGate(login)
+
+async function login(request: NextRequest) {
 	const parseReqBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseReqBodyResult.isErr()) {
 		return NextResponse.json({ error_message: parseReqBodyResult.error.message }, { status: 400 })

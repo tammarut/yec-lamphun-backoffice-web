@@ -25,6 +25,7 @@ function makeConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 		ID_CARD_AES_KEY: randomBytes(32).toString("hex"),
 		BLIND_INDEX_HMAC_KEY: randomBytes(32).toString("hex"),
 		CLOUDFLARE_CIDRS: "",
+		ORIGIN_ALLOW_LIST: "",
 		...overrides,
 	}
 }

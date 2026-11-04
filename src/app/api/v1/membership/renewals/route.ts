@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { safeParse } from "valibot"
 
+import { withOriginGate } from "src/app/api/middleware/origin-gate"
 import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { AuthService } from "src/modules/auth"
 import { ResponseBodyError } from "src/app/api/shared/types"
@@ -62,8 +63,13 @@ type CreatedRenewalResponse = {
 //      inside one transaction (ADR-0014/ADR-0026).
 // Success → 201 { renewals, group_id }. Errors → { error_message } with the
 // matching status.
+//
+// SEC-2 hardening (spec #124): the Origin gate decides before the write budget
+// (composed OUTERMOST), so a foreign-origin drive-by never burns a budget slot.
 // ============================================================================
-export async function POST(request: NextRequest): Promise<NextResponse<CreatedRenewalResponse | ResponseBodyError>> {
+export const POST = withOriginGate(withPublicGuard("RENEWAL_SUBMIT", createRenewal))
+
+async function createRenewal(request: NextRequest): Promise<NextResponse<CreatedRenewalResponse | ResponseBodyError>> {
 	// 1. Parse JSON body.
 	const parseBodyResult = await ResultAsync.fromPromise(request.json(), (err) => err as Error)
 	if (parseBodyResult.isErr()) {

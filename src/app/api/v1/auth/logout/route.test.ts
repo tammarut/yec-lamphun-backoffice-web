@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest"
 import { mock } from "vitest-mock-extended"
 
 import { AuthService } from "src/modules/auth"
+import { REGISTER_KEY } from "src/modules/di-tokens"
 
 // Mock env config BEFORE importing the route
 vi.mock("src/shared/config/env", () => ({
@@ -33,8 +34,15 @@ describe("POST /api/v1/auth/logout", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks()
-		// Reset the resolve spy to return our local mockAuthService
-		resolveSpy.mockReturnValue(mockAuthService)
+		// Reset the resolve spy: AuthService for its token, a plain env stub for
+		// ENV_CONFIG (the SEC-2 origin gate resolves it per request — the old
+		// blanket mockReturnValue leaked the service mock into the gate).
+		resolveSpy.mockImplementation((token) => {
+			if (token === REGISTER_KEY.ENV_CONFIG) {
+				return { NODE_ENV: "test", ORIGIN_ALLOW_LIST: "" }
+			}
+			return mockAuthService
+		})
 	})
 
 	describe("Happy cases", () => {
@@ -84,6 +92,20 @@ describe("POST /api/v1/auth/logout", () => {
 			const response = await POST(request)
 
 			expect(response.status).toBe(401)
+			expect(mockAuthService.logout).not.toHaveBeenCalled()
+		})
+
+		test("should return 403 when the Origin header is present but not allow-listed (SEC-2)", async () => {
+			const request = new NextRequest("http://localhost/api/v1/auth/logout", {
+				method: "POST",
+				headers: { origin: "https://evil.example.net" },
+			})
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(403)
+			const json = await response.json()
+			expect(json).toEqual({ error_message: "Forbidden" })
 			expect(mockAuthService.logout).not.toHaveBeenCalled()
 		})
 	})
