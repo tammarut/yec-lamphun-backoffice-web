@@ -1,9 +1,12 @@
-import { errAsync, okAsync, ResultAsync } from "neverthrow"
+import { err, ok, Result } from "neverthrow"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { inject, injectable } from "tsyringe"
 import { REGISTER_KEY } from "../di-tokens"
 import { SystemSettingDomain } from "./domain/system-setting.domain"
 import type { ISystemSettingsRepository } from "./interfaces"
+
+/** The feature key that gates public renewal submissions (spec #124 SEC-4). */
+const RENEWAL_WINDOW_FEATURE = "open_membership_renewal"
 
 @injectable()
 export class SystemSettingsService {
@@ -12,11 +15,26 @@ export class SystemSettingsService {
 		private repository: ISystemSettingsRepository
 	) {}
 
-	async getAllSettings(): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
+	async getAllSettings(): Promise<Result<readonly SystemSettingDomain[], DatabaseError>> {
 		return this.repository.getAllSettings()
 	}
 
-	async updateSettings(settings: Record<string, unknown>): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
+	/**
+	 * SEC-4 (spec #124): whether public renewal submissions are currently
+	 * accepted. A missing feature row means closed — the row is seeded, and the
+	 * same assumption updateSetting already makes (it 500s on a missing row).
+	 */
+	async isRenewalWindowOpen(): Promise<Result<boolean, DatabaseError>> {
+		const result = await this.repository.getAllSettings()
+		if (result.isErr()) {
+			return err(result.error)
+		}
+
+		const renewalSetting = result.value.find((setting) => setting.feature === RENEWAL_WINDOW_FEATURE)
+		return ok(renewalSetting?.value === true)
+	}
+
+	async updateSettings(settings: Record<string, unknown>): Promise<Result<readonly SystemSettingDomain[], DatabaseError>> {
 		const updatedSettings: SystemSettingDomain[] = []
 
 		for (const [feature, value] of Object.entries(settings)) {
@@ -26,12 +44,12 @@ export class SystemSettingsService {
 
 			const result = await this.repository.updateSetting(feature, value)
 			if (result.isErr()) {
-				return errAsync(result.error)
+				return err(result.error)
 			}
 
 			updatedSettings.push(result.value)
 		}
 
-		return okAsync(updatedSettings)
+		return ok(updatedSettings)
 	}
 }

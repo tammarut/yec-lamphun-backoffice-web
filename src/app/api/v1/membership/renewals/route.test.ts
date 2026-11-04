@@ -11,6 +11,7 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import { RateLimiterService, RATE_LIMIT_BUDGETS } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
+import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import { InvalidCursorError } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
 import { GetListMembershipRenewalService } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.service"
 import type { ListMembershipRenewalPageResponse } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.types"
@@ -79,17 +80,21 @@ function makeRequestWithHeaders(body: unknown, headers: Record<string, string>):
 describe("POST /api/v1/membership/renewals", () => {
 	let mockService: ReturnType<typeof mock<CreateRenewalService>>
 	let mockAuthService: ReturnType<typeof mock<AuthService>>
+	let mockSettingsService: ReturnType<typeof mock<SystemSettingsService>>
 	let limiter: RateLimiterService
 
 	beforeEach(() => {
 		// Arrange (shared setup): public path defaults. validateSession defaults
 		// to INVALID so a cookie, if present, behaves as not-admin unless a TC
-		// overrides to ok(...).
+		// overrides to ok(...). The renewal window defaults to OPEN (the SEC-4
+		// gate passes) unless a TC overrides to ok(false).
 		vi.clearAllMocks()
 		mockService = mock<CreateRenewalService>()
 		mockAuthService = mock<AuthService>()
+		mockSettingsService = mock<SystemSettingsService>()
 		mockService.execute.mockResolvedValue(ok(soloServiceResult))
 		mockAuthService.validateSession.mockReturnValue(err(new Error("invalid session")))
+		mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(true))
 		// ONE limiter instance per test: resolving a fresh RateLimiterService per
 		// call would give every request its own empty window and the write budget
 		// could never trip (the container registers it as a Singleton).
@@ -104,6 +109,9 @@ describe("POST /api/v1/membership/renewals", () => {
 			}
 			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
 				return limiter
+			}
+			if (token === REGISTER_KEY.SYSTEM_SETTINGS_SERVICE) {
+				return mockSettingsService
 			}
 			return {}
 		})
@@ -216,6 +224,33 @@ describe("POST /api/v1/membership/renewals", () => {
 
 			// Assert
 			expect(response.status).toBe(201)
+		})
+
+		it("SEC-4: OPEN season + guest (no cookie): proceeds to the use case (behavior unchanged)", async () => {
+			// Arrange — beforeEach defaults the window to open.
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(mockSettingsService.isRenewalWindowOpen).toHaveBeenCalledTimes(1)
+			expect(response.status).toBe(201)
+		})
+
+		it("SEC-4: CLOSED season + ADMIN (valid cookie): bypasses the window check entirely", async () => {
+			// Arrange — window closed, but the session is a valid staff session.
+			mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(false))
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
+			const request = makeRequest(validBody, "valid-session-id")
+
+			// Act
+			const response = await POST(request)
+
+			// Assert — the flag is never read on the admin path; the submission proceeds.
+			expect(mockSettingsService.isRenewalWindowOpen).not.toHaveBeenCalled()
+			expect(response.status).toBe(201)
+			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
 		})
 	})
 
@@ -417,6 +452,38 @@ describe("POST /api/v1/membership/renewals", () => {
 			const json = (await overBudget.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Too Many Requests")
 			expect(overBudget.headers.get("Retry-After")).toBe(String(budget.windowMs / 1000))
+		})
+
+		it("SEC-4: CLOSED season + guest (no cookie): 403 before the use case runs (409 stays duplicate-only)", async () => {
+			// Arrange
+			mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(false))
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("membership renewal is currently closed")
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-4: settings read fails + guest: 500 fail-closed, use case never runs", async () => {
+			// Arrange
+			mockSettingsService.isRenewalWindowOpen.mockResolvedValue(err(new DatabaseError("settings query failed")))
+			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(500)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Internal Server Error")
+			expect(mockService.execute).not.toHaveBeenCalled()
+			consoleSpy.mockRestore()
 		})
 	})
 })

@@ -1,4 +1,4 @@
-import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow"
+import { err, ok } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { DatabaseError } from "src/shared/core/errors/app-error"
@@ -70,8 +70,7 @@ describe("GET /api/v1/system-settings", () => {
 			},
 		]
 
-		// Use okAsync to create a ResultAsync logic, satisfying the return type
-		mockService.getAllSettings.mockReturnValue(Promise.resolve(okAsync(mockSettings)) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>)
+		mockService.getAllSettings.mockResolvedValue(ok(mockSettings))
 
 		const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
 
@@ -86,9 +85,7 @@ describe("GET /api/v1/system-settings", () => {
 	})
 
 	it("should return 500 when service returns error", async () => {
-		mockService.getAllSettings.mockReturnValue(
-			Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
-		)
+		mockService.getAllSettings.mockResolvedValue(err(new DatabaseError("DB Error")))
 
 		const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
 
@@ -143,9 +140,7 @@ describe("PATCH /api/v1/system-settings", () => {
 					updatedAt: new Date(),
 				},
 			]
-			mockService.updateSettings.mockReturnValue(
-				Promise.resolve(okAsync(mockUpdatedSettings)) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
-			)
+			mockService.updateSettings.mockResolvedValue(ok(mockUpdatedSettings))
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
@@ -247,9 +242,7 @@ describe("PATCH /api/v1/system-settings", () => {
 
 		it("should return 500 when service fails", async () => {
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
-			mockService.updateSettings.mockReturnValue(
-				Promise.resolve(errAsync(new DatabaseError("DB Error"))) as unknown as Promise<ResultAsync<ReadonlyArray<SystemSettingDomain>, DatabaseError>>
-			)
+			mockService.updateSettings.mockResolvedValue(err(new DatabaseError("DB Error")))
 
 			const request = new NextRequest("http://localhost/api/v1/system-settings", {
 				method: "PATCH",
