@@ -16,6 +16,7 @@ import {
 	type CreateRenewalError,
 } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
+import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
 import type { CreateRenewalRequest } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.types"
 import { InvalidCursorError, type GetListMembershipRenewalError } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.errors"
 import { GetListMembershipRenewalService } from "src/modules/membership-renewals/use-case/get-list-membership-renewal/get-list-membership-renewal.service"
@@ -66,6 +67,10 @@ type CreatedRenewalResponse = {
 //
 // SEC-2 hardening (spec #124): the Origin gate decides before the write budget
 // (composed OUTERMOST), so a foreign-origin drive-by never burns a budget slot.
+//
+// SEC-4 hardening (spec #124): inside the handler, a guest (no/invalid cookie)
+// must pass the open_membership_renewal window check — closed season → 403
+// before the use case runs; a valid admin session skips the check entirely.
 // ============================================================================
 export const POST = withOriginGate(withPublicGuard("RENEWAL_SUBMIT", createRenewal))
 
@@ -95,6 +100,27 @@ async function createRenewal(request: NextRequest): Promise<NextResponse<Created
 		const authService = container.resolve<AuthService>(REGISTER_KEY.AUTH_SERVICE)
 		const sessionResult = authService.validateSession(sessionId)
 		isAdmin = sessionResult.isOk()
+	}
+
+	// 3.5 SEC-4 hardening (spec #124): the renewal window gate. A valid admin
+	//    session bypasses the check entirely (staff filing on a member's behalf
+	//    is never blocked by the season toggle) — guests read the flag
+	//    server-side, and a closed season rejects with 403 BEFORE the use case
+	//    runs. 409 stays reserved for duplicate-conflict semantics.
+	if (!isAdmin) {
+		const systemSettingsService = container.resolve<SystemSettingsService>(REGISTER_KEY.SYSTEM_SETTINGS_SERVICE)
+		const windowResult = await systemSettingsService.isRenewalWindowOpen()
+		if (windowResult.isErr()) {
+			logger.error("membership-renewals/create settings read failed: {errorMessage} (code={code})", {
+				code: windowResult.error.code,
+				errorMessage: windowResult.error.message,
+				cause: windowResult.error.cause,
+			})
+			return NextResponse.json({ error_message: "Internal Server Error" } satisfies ResponseBodyError, { status: 500 })
+		}
+		if (!windowResult.value) {
+			return NextResponse.json({ error_message: "membership renewal is currently closed" } satisfies ResponseBodyError, { status: 403 })
+		}
 	}
 
 	// 4. Hand the validated DTO to the use case. The service selects the status
