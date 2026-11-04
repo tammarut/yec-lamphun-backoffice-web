@@ -141,6 +141,16 @@ describe("AdminLoginDialog", () => {
 			expect(screen.getByText("ผู้ดูแลระบบ")).toBeTruthy()
 		})
 
+		it("should show the Thai too-many-attempts alert on 429 (SEC-3)", async () => {
+			const { onOpenChange } = renderDialog(() => jsonResponse(429, { error_message: "Too Many Requests" }))
+
+			await submitCredentials()
+
+			const alert = await screen.findByRole("alert")
+			expect(alert.textContent).toBe("พยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้ง")
+			expect(onOpenChange).not.toHaveBeenCalledWith(false)
+		})
+
 		it("should show a generic inline error for non-401 failures", async () => {
 			const { onOpenChange } = renderDialog(() => jsonResponse(500, { error_message: "Internal Server Error" }))
 

@@ -30,7 +30,7 @@ type AdminLoginDialogProps = {
 
 export function AdminLoginDialog({ open, onOpenChange }: AdminLoginDialogProps) {
 	const { loginMutation } = useSession()
-	const [apiError, setApiError] = useState<"invalid-credentials" | "unexpected" | null>(null)
+	const [apiError, setApiError] = useState<"invalid-credentials" | "too-many-attempts" | "unexpected" | null>(null)
 	const [showPassword, setShowPassword] = useState(false)
 
 	const {
@@ -59,7 +59,13 @@ export function AdminLoginDialog({ open, onOpenChange }: AdminLoginDialogProps) 
 			await loginMutation.mutateAsync(values)
 			handleOpenChange(false)
 		} catch (error) {
-			setApiError(error instanceof ApiError && error.status === 401 ? "invalid-credentials" : "unexpected")
+			// SEC-3 (#127): a locked IP+username pair answers 429 — tell the user
+			// to wait instead of showing the generic retry alert.
+			if (error instanceof ApiError && error.status === 429) {
+				setApiError("too-many-attempts")
+			} else {
+				setApiError(error instanceof ApiError && error.status === 401 ? "invalid-credentials" : "unexpected")
+			}
 		}
 	}
 
@@ -80,6 +86,11 @@ export function AdminLoginDialog({ open, onOpenChange }: AdminLoginDialogProps) 
 				{apiError === "invalid-credentials" && (
 					<Alert variant="destructive">
 						<AlertTitle>ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง</AlertTitle>
+					</Alert>
+				)}
+				{apiError === "too-many-attempts" && (
+					<Alert variant="destructive">
+						<AlertTitle>พยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้ง</AlertTitle>
 					</Alert>
 				)}
 				{apiError === "unexpected" && (
