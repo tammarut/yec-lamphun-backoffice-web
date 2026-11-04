@@ -52,52 +52,56 @@ describe("GET /api/v1/system-settings", () => {
 		})
 	})
 
-	it("should return 200 and transformed settings keys-values", async () => {
-		const mockSettings: SystemSettingDomain[] = [
-			{
-				feature: "open_membership_renewal",
-				value: true,
-				description: "desc",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			},
-			{
-				feature: "maintenance_mode",
-				value: false,
-				description: "desc",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			},
-		]
+	describe("Happy cases", () => {
+		it("should return 200 and transformed settings keys-values", async () => {
+			const mockSettings: SystemSettingDomain[] = [
+				{
+					feature: "open_membership_renewal",
+					value: true,
+					description: "desc",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+				{
+					feature: "maintenance_mode",
+					value: false,
+					description: "desc",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+			]
 
-		mockService.getAllSettings.mockResolvedValue(ok(mockSettings))
+			mockService.getAllSettings.mockResolvedValue(ok(mockSettings))
 
-		const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
+			const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
 
-		expect(response).toBeInstanceOf(NextResponse)
-		expect(response.status).toBe(200)
+			expect(response).toBeInstanceOf(NextResponse)
+			expect(response.status).toBe(200)
 
-		const json = await response.json()
-		expect(json).toEqual({
-			open_membership_renewal: true,
-			maintenance_mode: false,
+			const json = await response.json()
+			expect(json).toEqual({
+				open_membership_renewal: true,
+				maintenance_mode: false,
+			})
 		})
 	})
 
-	it("should return 500 when service returns error", async () => {
-		mockService.getAllSettings.mockResolvedValue(err(new DatabaseError("DB Error")))
+	describe("Unhappy cases", () => {
+		it("should return 500 when service returns error", async () => {
+			mockService.getAllSettings.mockResolvedValue(err(new DatabaseError("DB Error")))
 
-		const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
+			const response = await GET(new NextRequest("http://localhost/api/v1/system-settings"))
 
-		expect(response.status).toBe(500)
-		const json = await response.json()
-		expect(json).toEqual({ error_message: "Internal Server Error" })
-		// Infra failure is logged with structured detail (ADR-0009).
-		expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
-		expect(loggerErrorSpy).toHaveBeenCalledWith(
-			expect.stringContaining("system-settings fetch failed"),
-			expect.objectContaining({ code: "DATABASE_ERROR", errorMessage: "DB Error" })
-		)
+			expect(response.status).toBe(500)
+			const json = await response.json()
+			expect(json).toEqual({ error_message: "Internal Server Error" })
+			// Infra failure is logged with structured detail (ADR-0009).
+			expect(loggerErrorSpy).toHaveBeenCalledTimes(1)
+			expect(loggerErrorSpy).toHaveBeenCalledWith(
+				expect.stringContaining("system-settings fetch failed"),
+				expect.objectContaining({ code: "DATABASE_ERROR", errorMessage: "DB Error" })
+			)
+		})
 	})
 })
 

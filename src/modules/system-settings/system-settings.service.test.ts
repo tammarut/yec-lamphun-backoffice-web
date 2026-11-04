@@ -17,34 +17,38 @@ describe("SystemSettingsService", () => {
 	})
 
 	describe("getAllSettings", () => {
-		it("should return settings from repository", async () => {
-			const mockSettings: SystemSettingDomain[] = [
-				{
-					feature: "test_feature",
-					value: true,
-					description: "Test",
-					createdAt: new Date(),
-					updatedAt: new Date(),
-				},
-			]
+		describe("Happy cases", () => {
+			it("should return settings from repository", async () => {
+				const mockSettings: SystemSettingDomain[] = [
+					{
+						feature: "test_feature",
+						value: true,
+						description: "Test",
+						createdAt: new Date(),
+						updatedAt: new Date(),
+					},
+				]
 
-			mockRepository.getAllSettings.mockResolvedValue(ok(mockSettings))
+				mockRepository.getAllSettings.mockResolvedValue(ok(mockSettings))
 
-			const result = await service.getAllSettings()
+				const result = await service.getAllSettings()
 
-			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toEqual(mockSettings)
-			expect(mockRepository.getAllSettings).toHaveBeenCalledTimes(1)
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toEqual(mockSettings)
+				expect(mockRepository.getAllSettings).toHaveBeenCalledTimes(1)
+			})
 		})
 
-		it("should propagate database error", async () => {
-			const dbError = new DatabaseError("DB Error")
-			mockRepository.getAllSettings.mockResolvedValue(err(dbError))
+		describe("Unhappy cases", () => {
+			it("should propagate database error", async () => {
+				const dbError = new DatabaseError("DB Error")
+				mockRepository.getAllSettings.mockResolvedValue(err(dbError))
 
-			const result = await service.getAllSettings()
+				const result = await service.getAllSettings()
 
-			expect(result.isErr()).toBe(true)
-			expect(result._unsafeUnwrapErr()).toEqual(dbError)
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toEqual(dbError)
+			})
 		})
 	})
 
@@ -112,44 +116,48 @@ describe("SystemSettingsService", () => {
 	})
 
 	describe("updateSettings", () => {
-		it("should return updated settings on successful updates", async () => {
-			const mockSettingAfter: SystemSettingDomain = {
-				feature: "open_membership_renewal",
-				value: false,
-				description: "desc",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			}
+		describe("Happy cases", () => {
+			it("should return updated settings on successful updates", async () => {
+				const mockSettingAfter: SystemSettingDomain = {
+					feature: "open_membership_renewal",
+					value: false,
+					description: "desc",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				}
 
-			mockRepository.updateSetting.mockResolvedValue(ok(mockSettingAfter))
+				mockRepository.updateSetting.mockResolvedValue(ok(mockSettingAfter))
 
-			const result = await service.updateSettings({ open_membership_renewal: false })
+				const result = await service.updateSettings({ open_membership_renewal: false })
 
-			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toEqual([mockSettingAfter])
-			expect(mockRepository.updateSetting).toHaveBeenCalledWith("open_membership_renewal", false)
-			expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toEqual([mockSettingAfter])
+				expect(mockRepository.updateSetting).toHaveBeenCalledWith("open_membership_renewal", false)
+				expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
+			})
+
+			it("should return empty array when no updates are provided", async () => {
+				const result = await service.updateSettings({})
+
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toEqual([])
+				expect(mockRepository.updateSetting).not.toHaveBeenCalled()
+				expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
+			})
 		})
 
-		it("should return empty array when no updates are provided", async () => {
-			const result = await service.updateSettings({})
+		describe("Unhappy cases", () => {
+			it("should propagate database error on updateSetting call", async () => {
+				const dbError = new DatabaseError("DB Error")
 
-			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toEqual([])
-			expect(mockRepository.updateSetting).not.toHaveBeenCalled()
-			expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
-		})
+				mockRepository.updateSetting.mockResolvedValueOnce(err(dbError))
 
-		it("should propagate database error on updateSetting call", async () => {
-			const dbError = new DatabaseError("DB Error")
+				const result = await service.updateSettings({ open_membership_renewal: false })
 
-			mockRepository.updateSetting.mockResolvedValueOnce(err(dbError))
-
-			const result = await service.updateSettings({ open_membership_renewal: false })
-
-			expect(result.isErr()).toBe(true)
-			expect(result._unsafeUnwrapErr()).toEqual(dbError)
-			expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toEqual(dbError)
+				expect(mockRepository.getAllSettings).not.toHaveBeenCalled()
+			})
 		})
 	})
 })
