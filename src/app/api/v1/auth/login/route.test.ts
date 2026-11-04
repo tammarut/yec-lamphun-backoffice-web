@@ -104,4 +104,43 @@ describe("POST /api/v1/auth/login", () => {
 		const json = await res.json()
 		expect(json).toEqual({ error_message: "Forbidden" })
 	})
+
+	// SEC-3 (#127): 5 failed logins within the window lock the IP+username pair.
+	// The route-level test uses a username unique to this file so the real
+	// container's singleton lockout map cannot leak streaks into sibling tests.
+	test("should return 429 with Retry-After after 5 failed attempts for the same pair — even with the correct password (SEC-3)", async () => {
+		// Act: five wrong-password attempts — each still a normal 401.
+		for (let i = 0; i < 5; i += 1) {
+			const body = JSON.stringify({
+				username: "admin-locked",
+				password: "wrong-password",
+			})
+			const req = new NextRequest("http://localhost/api/v1/auth/login", {
+				method: "POST",
+				body: body,
+			})
+			const res = await POST(req)
+			expect(res.status).toBe(401)
+		}
+
+		// The sixth attempt — even carrying the correct ADMIN_PASSWORD — is
+		// rejected by the lockout gate BEFORE the credential compare.
+		const lockedBody = JSON.stringify({
+			username: "admin-locked",
+			password: "Energetic9-Mulch2-Arknight6",
+		})
+		const lockedReq = new NextRequest("http://localhost/api/v1/auth/login", {
+			method: "POST",
+			body: lockedBody,
+		})
+		const lockedRes = await POST(lockedReq)
+
+		// Assert: the canonical 429 contract with Retry-After.
+		expect(lockedRes.status).toBe(429)
+		const json = await lockedRes.json()
+		expect(json).toEqual({ error_message: "Too Many Requests" })
+		const retryAfter = lockedRes.headers.get("retry-after")
+		expect(retryAfter).not.toBeNull()
+		expect(Number(retryAfter)).toBeGreaterThan(0)
+	})
 })

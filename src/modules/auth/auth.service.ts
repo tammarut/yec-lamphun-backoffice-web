@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto"
 import * as neverthrow from "neverthrow"
 import * as tsyringe from "tsyringe"
 
@@ -5,22 +6,38 @@ import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
 import { AuthError, InvalidCredentialsError } from "./errors"
 import type { ISessionStore } from "./interfaces"
+import { LoginLockoutService } from "./login-lockout.service"
 import type { LoginParams, SessionData } from "./types"
 
 const SESSION_TTL_PERSISTENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 const SESSION_TTL_DEFAULT_SECONDS = 24 * 60 * 60 // 24 hours
 
+/**
+ * Length-normalized constant-time string compare (SEC-3, #127): both sides are
+ * digested to fixed-length SHA-256 first, so `timingSafeEqual`'s equal-length
+ * requirement is met without leaking the plaintext lengths through an
+ * exception path, and the comparison cost no longer scales with where the
+ * first differing byte sits.
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+	const digestA = createHash("sha256").update(a, "utf8").digest()
+	const digestB = createHash("sha256").update(b, "utf8").digest()
+	return timingSafeEqual(digestA, digestB)
+}
+
 @tsyringe.injectable()
 export class AuthService {
 	constructor(
 		@tsyringe.inject(REGISTER_KEY.ENV_CONFIG) private readonly config: EnvConfig,
-		@tsyringe.inject(REGISTER_KEY.SESSION_STORE) private readonly sessionStore: ISessionStore
+		@tsyringe.inject(REGISTER_KEY.SESSION_STORE) private readonly sessionStore: ISessionStore,
+		@tsyringe.inject(REGISTER_KEY.LOGIN_LOCKOUT_SERVICE) private readonly loginLockout: LoginLockoutService
 	) {}
 
 	/**
 	 * Authenticate user with username and password
 	 * @param params - The login input parameters object
-	 * @returns Result with sessionId and TTL if successful, error if authentication fails
+	 * @returns Result with sessionId and TTL if successful, error if authentication fails.
+	 * A locked IP+username pair (SEC-3) rejects with RateLimitExceededError — even for correct credentials.
 	 */
 	login(params: LoginParams): neverthrow.Result<{ sessionId: string; ttlSeconds: number }, Error> {
 		const { username, password, rememberMe, ip, userAgent } = params
@@ -28,13 +45,23 @@ export class AuthService {
 		// Sanitize input username (trim, remove dangerous characters)
 		const sanitizedUsername = username.trim().replace(/[<>'"&;\\]/g, "")
 
+		// SEC-3: key the lockout pair on ip + SANITIZED username — junk-character
+		// padding sanitizes to the same key, so it cannot split the failure streak.
+		const lockKey = `${ip ?? "unknown"}:${sanitizedUsername}`
+		const lockResult = this.loginLockout.checkLock(lockKey)
+		if (lockResult.isErr()) {
+			return neverthrow.err(lockResult.error)
+		}
+
 		const adminUsername = this.config.ADMIN_USERNAME
 		const adminPassword = this.config.ADMIN_PASSWORD
 
-		// Verify credentials
-		if (sanitizedUsername !== adminUsername || password !== adminPassword) {
+		// Verify credentials — timing-safe, length-normalized (SEC-3)
+		if (!timingSafeStringEqual(sanitizedUsername, adminUsername) || !timingSafeStringEqual(password, adminPassword)) {
+			this.loginLockout.recordFailure(lockKey)
 			return neverthrow.err(new InvalidCredentialsError())
 		}
+		this.loginLockout.reset(lockKey)
 
 		// Determine TTL (in seconds)
 		const isPersistent = rememberMe === true

@@ -1,4 +1,5 @@
 export { AuthService } from "./auth.service"
 export { AuthError, InvalidCredentialsError } from "./errors"
 export type { ISessionStore } from "./interfaces"
+export { LoginLockoutService } from "./login-lockout.service"
 export type { LoginParams, SessionData } from "./types"

@@ -1,14 +1,18 @@
+import { err, ok } from "neverthrow"
 import type { EnvConfig } from "src/shared/config/env"
 import { beforeEach, describe, expect, test } from "vitest"
 import { mock, type MockProxy } from "vitest-mock-extended"
+import { RateLimitExceededError } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { AuthService } from "./auth.service"
 import { InvalidCredentialsError } from "./errors"
 import type { ISessionStore } from "./interfaces"
+import { LoginLockoutService } from "./login-lockout.service"
 
 describe("AuthService", () => {
 	let authService: AuthService
 	let mockConfig: EnvConfig
 	let mockSessionStore: MockProxy<ISessionStore>
+	let mockLoginLockout: MockProxy<LoginLockoutService>
 	let mockSessionId: string
 
 	beforeEach(() => {
@@ -40,7 +44,10 @@ describe("AuthService", () => {
 		mockSessionStore = mock<ISessionStore>()
 		mockSessionStore.createSession.mockReturnValue(mockSessionId)
 
-		authService = new AuthService(mockConfig, mockSessionStore)
+		mockLoginLockout = mock<LoginLockoutService>()
+		mockLoginLockout.checkLock.mockReturnValue(ok({ allowed: true }))
+
+		authService = new AuthService(mockConfig, mockSessionStore, mockLoginLockout)
 	})
 
 	describe("login", () => {
@@ -145,6 +152,42 @@ describe("AuthService", () => {
 					expect.any(Number)
 				)
 			})
+
+			test("should reset the pair's lockout streak on successful login (SEC-3)", () => {
+				const result = authService.login({
+					username: "admin",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: "10.0.0.5",
+					userAgent: null,
+				})
+
+				expect(result.isOk()).toBe(true)
+				expect(mockLoginLockout.checkLock).toHaveBeenCalledWith("10.0.0.5:admin")
+				expect(mockLoginLockout.recordFailure).not.toHaveBeenCalled()
+				expect(mockLoginLockout.reset).toHaveBeenCalledWith("10.0.0.5:admin")
+			})
+
+			test("should gate BEFORE the credential compare when the pair is locked — correct password still rejected (SEC-3)", () => {
+				// The locked pair rejects; the compare must never run.
+				const locked = new RateLimitExceededError("Too Many Requests", 900)
+				mockLoginLockout.checkLock.mockReturnValue(err(locked))
+
+				const result = authService.login({
+					username: "admin",
+					password: "Energetic9-Mulch2-Arknight6",
+					rememberMe: false,
+					ip: "10.0.0.5",
+					userAgent: null,
+				})
+
+				expect(result.isErr()).toBe(true)
+				if (result.isErr()) {
+					expect(result.error).toBe(locked)
+				}
+				expect(mockSessionStore.createSession).not.toHaveBeenCalled()
+				expect(mockLoginLockout.recordFailure).not.toHaveBeenCalled()
+			})
 		})
 
 		describe("Unhappy cases", () => {
@@ -197,6 +240,48 @@ describe("AuthService", () => {
 					expect(result.error.message).toBe("Invalid credentials")
 				}
 				expect(mockSessionStore.createSession).not.toHaveBeenCalled()
+			})
+
+			test("should record the failure keyed ip:sanitized-username on invalid password (SEC-3)", () => {
+				// Junk characters in the username sanitize to "admin" — the pair
+				// key must land on the sanitized form so padding can't split keys.
+				const result = authService.login({
+					username: " <admin> ",
+					password: "wrong-password",
+					rememberMe: false,
+					ip: "10.0.0.5",
+					userAgent: null,
+				})
+
+				expect(result.isErr()).toBe(true)
+				expect(mockLoginLockout.recordFailure).toHaveBeenCalledWith("10.0.0.5:admin")
+				expect(mockLoginLockout.reset).not.toHaveBeenCalled()
+			})
+
+			test("should key the failure under unknown when no client ip is present (SEC-3)", () => {
+				const result = authService.login({
+					username: "admin",
+					password: "wrong-password",
+					rememberMe: false,
+					ip: null,
+					userAgent: null,
+				})
+
+				expect(result.isErr()).toBe(true)
+				expect(mockLoginLockout.recordFailure).toHaveBeenCalledWith("unknown:admin")
+			})
+
+			test("should record the failure for an unknown username too (SEC-3)", () => {
+				const result = authService.login({
+					username: "wronguser",
+					password: "wrong-password",
+					rememberMe: false,
+					ip: "10.0.0.5",
+					userAgent: null,
+				})
+
+				expect(result.isErr()).toBe(true)
+				expect(mockLoginLockout.recordFailure).toHaveBeenCalledWith("10.0.0.5:wronguser")
 			})
 		})
 	})
