@@ -1,4 +1,4 @@
-import { array, check, integer, minLength, maxLength, minValue, number, object, pipe, string, type InferOutput } from "valibot"
+import { array, check, integer, minLength, maxLength, minValue, number, object, optional, pipe, string, type InferOutput } from "valibot"
 
 /**
  * Structural request schema for POST /api/v1/membership/renewals.
@@ -16,6 +16,11 @@ import { array, check, integer, minLength, maxLength, minValue, number, object, 
  * - `payment_slip`: a non-empty string. It is an opaque R2 file-path token
  *   returned by POST /api/v1/members/file/upload — trusted as-is, same stance
  *   as `id_card_image` / `company_certificate` in create-member (grilling Q6).
+ * - `turnstile_token` (SEC-5, spec #124): the Cloudflare Turnstile token —
+ *   OPTIONAL-WHEN-AUTHED. Guests must carry one (the route's gate maps a
+ *   missing/invalid token to 403); a valid admin session skips verification
+ *   entirely. A bare `string()` with NO min length on purpose: an empty string
+ *   must reach the gate as "missing" (403), not die here as a 400.
  */
 export const CreateRenewalSchema = object({
 	member_ids: pipe(
@@ -25,6 +30,7 @@ export const CreateRenewalSchema = object({
 		check((ids) => new Set(ids).size === ids.length, "member_ids must be unique")
 	),
 	payment_slip: pipe(string(), minLength(1, "payment_slip is required")),
+	turnstile_token: optional(string()),
 })
 
 export type CreateRenewalSchemaOutput = InferOutput<typeof CreateRenewalSchema>

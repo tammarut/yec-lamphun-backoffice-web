@@ -26,6 +26,7 @@ function makeConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 		BLIND_INDEX_HMAC_KEY: randomBytes(32).toString("hex"),
 		CLOUDFLARE_CIDRS: "",
 		ORIGIN_ALLOW_LIST: "",
+		TURNSTILE_SECRET_KEY: "",
 		...overrides,
 	}
 }

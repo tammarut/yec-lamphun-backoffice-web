@@ -39,6 +39,7 @@ describe("AuthService", () => {
 			BLIND_INDEX_HMAC_KEY: "y".repeat(44),
 			CLOUDFLARE_CIDRS: "",
 			ORIGIN_ALLOW_LIST: "",
+			TURNSTILE_SECRET_KEY: "",
 		}
 
 		mockSessionStore = mock<ISessionStore>()

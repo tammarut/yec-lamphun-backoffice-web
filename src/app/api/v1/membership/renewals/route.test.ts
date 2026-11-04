@@ -9,6 +9,7 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { RateLimiterService, RATE_LIMIT_BUDGETS } from "src/modules/shared/rate-limiter/rate-limiter.service"
+import { TurnstileService, TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/turnstile.service"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
@@ -28,10 +29,12 @@ vi.mock("src/modules/container", () => ({
 import { GET, POST } from "./route"
 
 // A valid snake_case body, as the client sends it (ADR-0026 contract — solo
-// submission = member_ids of one, main member first).
+// submission = member_ids of one, main member first). The turnstile_token
+// carries the guest's human-verification token (SEC-5); staff bodies omit it.
 const validBody = {
 	member_ids: [1],
 	payment_slip: "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg",
+	turnstile_token: "tok_valid",
 }
 
 // The service result the mocked use case resolves to by default (solo submission).
@@ -81,20 +84,24 @@ describe("POST /api/v1/membership/renewals", () => {
 	let mockService: ReturnType<typeof mock<CreateRenewalService>>
 	let mockAuthService: ReturnType<typeof mock<AuthService>>
 	let mockSettingsService: ReturnType<typeof mock<SystemSettingsService>>
+	let mockTurnstileService: ReturnType<typeof mock<TurnstileService>>
 	let limiter: RateLimiterService
 
 	beforeEach(() => {
 		// Arrange (shared setup): public path defaults. validateSession defaults
 		// to INVALID so a cookie, if present, behaves as not-admin unless a TC
 		// overrides to ok(...). The renewal window defaults to OPEN (the SEC-4
-		// gate passes) unless a TC overrides to ok(false).
+		// gate passes) and the Turnstile token defaults to VERIFIED (the SEC-5
+		// gate passes) unless a TC overrides either.
 		vi.clearAllMocks()
 		mockService = mock<CreateRenewalService>()
 		mockAuthService = mock<AuthService>()
 		mockSettingsService = mock<SystemSettingsService>()
+		mockTurnstileService = mock<TurnstileService>()
 		mockService.execute.mockResolvedValue(ok(soloServiceResult))
 		mockAuthService.validateSession.mockReturnValue(err(new Error("invalid session")))
 		mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(true))
+		mockTurnstileService.verify.mockResolvedValue(ok({ verified: true }))
 		// ONE limiter instance per test: resolving a fresh RateLimiterService per
 		// call would give every request its own empty window and the write budget
 		// could never trip (the container registers it as a Singleton).
@@ -112,6 +119,9 @@ describe("POST /api/v1/membership/renewals", () => {
 			}
 			if (token === REGISTER_KEY.SYSTEM_SETTINGS_SERVICE) {
 				return mockSettingsService
+			}
+			if (token === REGISTER_KEY.TURNSTILE_SERVICE) {
+				return mockTurnstileService
 			}
 			return {}
 		})
@@ -249,6 +259,35 @@ describe("POST /api/v1/membership/renewals", () => {
 
 			// Assert — the flag is never read on the admin path; the submission proceeds.
 			expect(mockSettingsService.isRenewalWindowOpen).not.toHaveBeenCalled()
+			expect(response.status).toBe(201)
+			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
+		})
+
+		it("SEC-5: guest + valid token: the body token reaches siteverify, submission proceeds", async () => {
+			// Arrange
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(mockTurnstileService.verify).toHaveBeenCalledTimes(1)
+			expect(mockTurnstileService.verify).toHaveBeenCalledWith("tok_valid", request.headers)
+			expect(response.status).toBe(201)
+		})
+
+		it("SEC-5: ADMIN (valid cookie) + NO token: verification skipped entirely (session fork)", async () => {
+			// Arrange — a staff body: same renewal payload minus the token.
+			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
+			const { turnstile_token, ...staffBody } = validBody
+			void turnstile_token
+			const request = makeRequest(staffBody, "valid-session-id")
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
 			expect(response.status).toBe(201)
 			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
 		})
@@ -482,6 +521,71 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(response.status).toBe(500)
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Internal Server Error")
+			expect(mockService.execute).not.toHaveBeenCalled()
+			consoleSpy.mockRestore()
+		})
+
+		it("SEC-5: guest + MISSING token: 403 'Human verification failed', use case never called", async () => {
+			// Arrange — a guest body without the token field.
+			const { turnstile_token, ...tokenlessBody } = validBody
+			void turnstile_token
+			const request = makeRequest(tokenlessBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert — missing is 403 (not 400): the gate never reaches siteverify.
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5: guest + EMPTY-STRING token: same 403, siteverify never called", async () => {
+			// Arrange — the schema deliberately admits "" so the GATE (not a 400)
+			// decides: an empty token is a missing token.
+			const request = makeRequest({ ...validBody, turnstile_token: "" })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5: siteverify rejects the token (invalid/expired): 403, use case never called", async () => {
+			// Arrange
+			mockTurnstileService.verify.mockResolvedValue(err(new TurnstileVerificationError()))
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5: siteverify unreachable (503 family): 503 'temporarily unavailable', clearly distinct from 403, use case never called", async () => {
+			// Arrange
+			mockTurnstileService.verify.mockResolvedValue(err(new TurnstileServiceError("Human verification is temporarily unavailable")))
+			const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+			const request = makeRequest(validBody)
+
+			// Act
+			const response = await POST(request)
+
+			// Assert — retryable infra failure, never a pass.
+			expect(response.status).toBe(503)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification is temporarily unavailable")
 			expect(mockService.execute).not.toHaveBeenCalled()
 			consoleSpy.mockRestore()
 		})

@@ -37,6 +37,12 @@ export type EnvConfig = {
 	// these POSTs (today: none). Absent headers pass, so non-browser tooling
 	// is unaffected. Empty is a valid steady state.
 	ORIGIN_ALLOW_LIST: string
+	// Human verification (SEC-5, spec #124): the Cloudflare Turnstile SECRET
+	// key — server-only, never a NEXT_PUBLIC_ var. Empty (default) keeps the
+	// gate FAIL-CLOSED: the TurnstileService refuses to call siteverify and
+	// guests get a retryable 503 until the deployment sets it. The site key
+	// (client-side widget) is a separate SEC-6 concern.
+	TURNSTILE_SECRET_KEY: string
 }
 
 export const envConfig = createEnv({
@@ -76,6 +82,9 @@ export const envConfig = createEnv({
 		// Comma-separated origin list for the lenient Origin/Referer gate
 		// (origin-gate.ts does the splitting/parsing, like CLOUDFLARE_CIDRS).
 		ORIGIN_ALLOW_LIST: v.optional(v.string(), ""),
+		// Turnstile secret key (SEC-5). Empty default = fail-closed 503 for
+		// guests until configured; staff sessions skip the gate regardless.
+		TURNSTILE_SECRET_KEY: v.optional(v.string(), ""),
 	},
 	client: {},
 	runtimeEnv: {
@@ -98,5 +107,6 @@ export const envConfig = createEnv({
 		BLIND_INDEX_HMAC_KEY: process.env["BLIND_INDEX_HMAC_KEY"],
 		CLOUDFLARE_CIDRS: process.env["CLOUDFLARE_CIDRS"],
 		ORIGIN_ALLOW_LIST: process.env["ORIGIN_ALLOW_LIST"],
+		TURNSTILE_SECRET_KEY: process.env["TURNSTILE_SECRET_KEY"],
 	},
 })
