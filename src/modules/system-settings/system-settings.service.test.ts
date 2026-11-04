@@ -49,61 +49,65 @@ describe("SystemSettingsService", () => {
 	})
 
 	describe("isRenewalWindowOpen", () => {
-		it("should return true when the feature row holds true", async () => {
-			mockRepository.getAllSettings.mockResolvedValue(
-				ok([
-					{
-						feature: "open_membership_renewal",
-						value: true,
-						description: null,
-						createdAt: new Date(),
-						updatedAt: new Date(),
-					},
-				])
-			)
+		describe("Happy cases", () => {
+			it("should return true when the feature row holds true", async () => {
+				mockRepository.getAllSettings.mockResolvedValue(
+					ok([
+						{
+							feature: "open_membership_renewal",
+							value: true,
+							description: null,
+							createdAt: new Date(),
+							updatedAt: new Date(),
+						},
+					])
+				)
 
-			const result = await service.isRenewalWindowOpen()
+				const result = await service.isRenewalWindowOpen()
 
-			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toBe(true)
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toBe(true)
+			})
+
+			it("should return false when the feature row holds false", async () => {
+				mockRepository.getAllSettings.mockResolvedValue(
+					ok([
+						{
+							feature: "open_membership_renewal",
+							value: false,
+							description: null,
+							createdAt: new Date(),
+							updatedAt: new Date(),
+						},
+					])
+				)
+
+				const result = await service.isRenewalWindowOpen()
+
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toBe(false)
+			})
 		})
 
-		it("should return false when the feature row holds false", async () => {
-			mockRepository.getAllSettings.mockResolvedValue(
-				ok([
-					{
-						feature: "open_membership_renewal",
-						value: false,
-						description: null,
-						createdAt: new Date(),
-						updatedAt: new Date(),
-					},
-				])
-			)
+		describe("Unhappy cases", () => {
+			it("should return false when the feature row is missing (fail-closed)", async () => {
+				mockRepository.getAllSettings.mockResolvedValue(ok([]))
 
-			const result = await service.isRenewalWindowOpen()
+				const result = await service.isRenewalWindowOpen()
 
-			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toBe(false)
-		})
+				expect(result.isOk()).toBe(true)
+				expect(result._unsafeUnwrap()).toBe(false)
+			})
 
-		it("should return false when the feature row is missing (fail-closed)", async () => {
-			mockRepository.getAllSettings.mockResolvedValue(ok([]))
+			it("should propagate database error", async () => {
+				const dbError = new DatabaseError("DB Error")
+				mockRepository.getAllSettings.mockResolvedValue(err(dbError))
 
-			const result = await service.isRenewalWindowOpen()
+				const result = await service.isRenewalWindowOpen()
 
-			expect(result.isOk()).toBe(true)
-			expect(result._unsafeUnwrap()).toBe(false)
-		})
-
-		it("should propagate database error", async () => {
-			const dbError = new DatabaseError("DB Error")
-			mockRepository.getAllSettings.mockResolvedValue(err(dbError))
-
-			const result = await service.isRenewalWindowOpen()
-
-			expect(result.isErr()).toBe(true)
-			expect(result._unsafeUnwrapErr()).toEqual(dbError)
+				expect(result.isErr()).toBe(true)
+				expect(result._unsafeUnwrapErr()).toEqual(dbError)
+			})
 		})
 	})
 

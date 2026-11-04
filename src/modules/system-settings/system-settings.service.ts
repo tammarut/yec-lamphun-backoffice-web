@@ -1,4 +1,4 @@
-import { err, errAsync, ok, okAsync, Result, ResultAsync } from "neverthrow"
+import { err, ok, Result } from "neverthrow"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { inject, injectable } from "tsyringe"
 import { REGISTER_KEY } from "../di-tokens"
@@ -15,7 +15,7 @@ export class SystemSettingsService {
 		private repository: ISystemSettingsRepository
 	) {}
 
-	async getAllSettings(): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
+	async getAllSettings(): Promise<Result<readonly SystemSettingDomain[], DatabaseError>> {
 		return this.repository.getAllSettings()
 	}
 
@@ -34,7 +34,7 @@ export class SystemSettingsService {
 		return ok(renewalSetting?.value === true)
 	}
 
-	async updateSettings(settings: Record<string, unknown>): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
+	async updateSettings(settings: Record<string, unknown>): Promise<Result<readonly SystemSettingDomain[], DatabaseError>> {
 		const updatedSettings: SystemSettingDomain[] = []
 
 		for (const [feature, value] of Object.entries(settings)) {
@@ -44,12 +44,12 @@ export class SystemSettingsService {
 
 			const result = await this.repository.updateSetting(feature, value)
 			if (result.isErr()) {
-				return errAsync(result.error)
+				return err(result.error)
 			}
 
 			updatedSettings.push(result.value)
 		}
 
-		return okAsync(updatedSettings)
+		return ok(updatedSettings)
 	}
 }

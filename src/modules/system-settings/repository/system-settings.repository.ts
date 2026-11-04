@@ -1,4 +1,4 @@
-import { err, ok, ResultAsync } from "neverthrow"
+import { err, ok, Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
@@ -11,7 +11,7 @@ import { ISystemSettingsRepository } from "../interfaces"
 export class SystemSettingsRepository implements ISystemSettingsRepository {
 	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
 
-	async getAllSettings(): Promise<ResultAsync<readonly SystemSettingDomain[], DatabaseError>> {
+	async getAllSettings(): Promise<Result<readonly SystemSettingDomain[], DatabaseError>> {
 		const dbConn = this.dbClient.getRwConnection()
 
 		const getAllSettingFunc = getAllSettings(dbConn as unknown as Sql)
@@ -36,7 +36,7 @@ export class SystemSettingsRepository implements ISystemSettingsRepository {
 		return ok(settings)
 	}
 
-	async updateSetting(feature: string, value: unknown): Promise<ResultAsync<SystemSettingDomain, DatabaseError>> {
+	async updateSetting(feature: string, value: unknown): Promise<Result<SystemSettingDomain, DatabaseError>> {
 		const dbConn = this.dbClient.getRwConnection()
 
 		const updateSettingFunc = updateSetting(dbConn as unknown as Sql, { feature, value: value as never })
