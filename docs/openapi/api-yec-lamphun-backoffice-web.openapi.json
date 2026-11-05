@@ -5,7 +5,14 @@
 		"description": "API for managing members.",
 		"version": "1.0.0"
 	},
-	"tags": [{ "name": "module_member" }, { "name": "public_api" }],
+	"tags": [
+		{
+			"name": "module_member"
+		},
+		{
+			"name": "public_api"
+		}
+	],
 	"paths": {
 		"/api/v1/members/executive-committee": {
 			"get": {
@@ -1048,7 +1055,18 @@
 				"deprecated": false,
 				"description": "# Uploads image files to file storage, and response file path as ref\n\n:::highlight blue 📌\n**NEW (SEC-2, #126 — hardening guards, wraps the whole flow):**\n1. **Origin gate (OUTERMOST)**: blocked with `403 { error_message: \"Forbidden\" }` only when an\n   `Origin` (fallback `Referer`) header is present AND its origin is neither this endpoint's\n   own origin (same-origin always passes) nor in the env `ORIGIN_ALLOW_LIST`. **Absent\n   headers pass** — curl / Apidog unaffected. Kills CORS-safelisted drive-by multipart POSTs\n   (no preflight needed).\n2. **Write budget (`UPLOAD_WRITE`)**: 10 uploads per rolling 10 minutes keyed on the trusted\n   client IP (`CF-Connecting-IP` trusted only when the peer is a Cloudflare IP per\n   `CLOUDFLARE_CIDRS`, else the peer). Over budget → `429 { \"error_message\": \"Too Many\n   Requests\" }` + `Retry-After` (seconds, ≤600). A foreign-origin drive-by never burns a\n   budget slot (the gate decides first).\n3. **Pre-parse body guard**: decided from `Content-Length` ALONE before `formData()` parses —\n   missing header (chunked) → `411 { \"error_message\": \"Content-Length required\" }`;\n   over-limit (~47 MB) → `413 { \"error_message\": \"Request body too large\" }`. The body is\n   never buffered past the limit.\n(NODE_ENV = development free pass on both guards.)\n:::\n\n## ✍️Pseudocode\n1. SEC-2 Origin gate (OUTERMOST guard, before any body processing):\n```typescript\nheaderValue = request.headers[\"origin\"] ?? request.headers[\"referer\"]\n    -> break headerValue absent:                       pass (non-browser tooling keeps working)\n    -> break headerValue unparseable (\"Origin: null\", junk):\n                                       Return 403 { error_message: \"Forbidden\" }\n    -> break parsed origin ≠ this endpoint's own origin AND not in ORIGIN_ALLOW_LIST:\n                                       Return 403 { error_message: \"Forbidden\" }\n```\n\n2. SEC-2 write budget `UPLOAD_WRITE` (in-memory rate limiter, SEC-1 core):\n```typescript\nclientIp = resolveTrustedClientIp(headers, CLOUDFLARE_CIDRS)\ncheck = rateLimiter.check(\"UPLOAD_WRITE\", clientIp ?? \"unknown\")\n    -> break over budget (10 / rolling 10 minutes):\n           Return 429 { error_message: \"Too Many Requests\" } + header Retry-After: {seconds ≤ 600}\n```\n\n3. SEC-2 pre-parse body guard (Content-Length alone; the body is NEVER buffered past this):\n```typescript\ncontentLengthRaw = request.headers[\"content-length\"]\n    -> break header missing (chunked stream):\n           Return 411 { error_message: \"Content-Length required\" }\n    -> break parseInt(contentLengthRaw) > ~47 MB:\n           Return 413 { error_message: \"Request body too large\" }\n```\n\n4. Receive POST request at `/api/v1/members/file/upload`\n5. Extract all uploaded files from the request\nKey: Value(file) `multipart/form-data`\n    - id_card_image\n    - company_certificate (หนังสือรับรองบริษัท/ทะเบียนพาณิชย์)\n    - profile_avatar\n    - business_logo\n    - business_product\n    - payment_slip\n\n6. Fail-Fast Validation Loop:\n    - For each provided file:\n        - If file.size > 7MB:\n             -> Return HTTP 400 Bad Request `{ error_message: \"File exceeds 5MB limit\" }`\n        - If file.extension not in `['.jpg', '.jpeg', '.png', '.webp']`:\n             -> Return HTTP 400 Bad Request `{ error_message: \"Invalid file type. Only images allowed\" }`\n7. Initialize empty response object: `response_body = {}`\n8. Process Each File (if provided):\n   - Generate secure filename: `ulid = generateULID()`\n   - Determine bucket path based on field name (e.g., `id_card_image` -> `members/documents/`)\n   - Construct final path: `file_path = \"bucket_path/\" + field_name + \"_\" + ulid + \".\" + extension`\n   \n   - Upload file buffer to Cloudflare R2 at `file_path`\n   - If R2 upload fails:\n       - Log error\n       - Return HTTP 500 Internal Server Error\n   \n   - Add to response_body: `response_body[field_name + \"_file_path\"] = file_path`\n9. Return HTTP 200 OK with `response_body` object\n\n\n## Cloudflare R2 storage buckets\n\n| # | Field               | Bucket                   | Example                                                               |\n|---|---------------------|--------------------------|-----------------------------------------------------------------------|\n| 1 | id_card_image       | members/documents/       | members/documents/id_card_image_01KDJZK45MQJTYQE53GVQ826F3.jpg        |\n| 2 | company_certificate | members/documents/       | members/documents/company_cert_01KDJZK61J8S6394DP25458ATA.jpg         |\n| 3 | profile_avatar      | members/profile_avatars/ | members/profile_avatars/profile_avatar_01KDJZK61JSQ139HCJFB16QJPR.jpg |\n| 4 | business_logo       | members/business/        | members/business/logo_01KDJZK61JCFTM5J1TQP2TAP2Q.jpg                  |\n| 5 | business_product    | members/business/        | members/business/product_01KDJZK61JJ2ZXK621ERGBT202.jpg               |\n| 6 | payment_slip    | members/documents/        | members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg               |\n\n## 🖼️Sequence diagram\n\n```mermaid\nsequenceDiagram\n    participant browser as Browser\n    participant nextjsapi as Next.js /api\n    participant R2 as Cloudflare R2\n\n    autonumber\n\n    browser->>nextjsapi: POST /api/v1/members/file/upload<br/>(multipart/form-data)\n\n    nextjsapi-->>nextjsapi: SEC-2 Origin gate (OUTERMOST):<br/>Origin/Referer present?<br/>same-origin OR in ORIGIN_ALLOW_LIST?\n\n    break foreign origin (present AND mismatched AND not allow-listed)\n        nextjsapi-->>browser: 403 Forbidden { error_message: \"Forbidden\" }\n    end\n\n    nextjsapi-->>nextjsapi: SEC-2 write budget UPLOAD_WRITE:<br/>10 / rolling 10 minutes, trusted client IP\n\n    break over budget\n        nextjsapi-->>browser: 429 Too Many Requests { error_message: \"Too Many Requests\" }<br/>Retry-After: ≤600\n    end\n\n    nextjsapi-->>nextjsapi: SEC-2 pre-parse guard (Content-Length alone, before formData())\n\n    break Content-Length header missing (chunked)\n        nextjsapi-->>browser: 411 Length Required { error_message: \"Content-Length required\" }\n    end\n    break body over ~47 MB\n        nextjsapi-->>browser: 413 Payload Too Large { error_message: \"Request body too large\" }\n    end\n\n    nextjsapi ->> nextjsapi: Validate request body\n    Note over nextjsapi: 1. Fail-Fast Validation:<br/>- Check file size <= 7MB<br/>- Check extension (.jpg, .jpeg, .png, .webp)<br/>- Reject entire request if ANY file is invalid\n\n    break Invalid request body\n        nextjsapi-->>browser: 400 Bad Request { error_message: \"<error>\" }\n    end\n\n    Note over nextjsapi: 2. Prepare Uploads:<br/>Generate secure ULID filenames for each provided file\n\n    opt id_card_image provided\n        nextjsapi->>R2: PutObject (members/documents/id_card_image_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt company_certificate provided\n        nextjsapi->>R2: PutObject (members/documents/company_cert_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt profile_avatar provided\n        nextjsapi->>R2: PutObject (members/profile_avatars/profile_avatar_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_logo provided\n        nextjsapi->>R2: PutObject (members/business/logo_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt business_product provided\n        nextjsapi->>R2: PutObject (members/business/product_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    opt payment_slip provided\n        nextjsapi->>R2: PutObject (members/documents/payment_slip_{ulid}.ext)\n        R2-->>nextjsapi: Success\n    end\n\n    Note over nextjsapi: 3. Construct Response:<br/>Map uploaded paths to explicit keys\n\n    nextjsapi-->>browser: 200 OK\n```",
 				"tags": ["public_api"],
-				"parameters": [],
+				"parameters": [
+					{
+						"name": "Yec-Turnstile-Token",
+						"in": "header",
+						"description": "Cloudflare Turnstile human-verification token minted by the renewal-dialog widget. Guest must send it; a valid admin session_id cookie skips verification. Single-use, ~5-minute validity",
+						"required": false,
+						"example": "zzzzz",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
 				"requestBody": {
 					"content": {
 						"multipart/form-data": {
@@ -1211,6 +1229,20 @@
 					"429": {
 						"$ref": "#/components/responses/Too Many Requests",
 						"description": ""
+					},
+					"503": {
+						"description": "Siteverify unreachable/timed out, or server-fault codes (invalid-input-secret etc.)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"example": {
+									"error_message": "Human verification is temporarily unavailable"
+								}
+							}
+						},
+						"headers": {}
 					}
 				},
 				"security": []
@@ -2106,6 +2138,16 @@
 						"schema": {
 							"type": "string"
 						}
+					},
+					{
+						"name": "Yec-Turnstile-Token",
+						"in": "header",
+						"description": "Cloudflare Turnstile human-verification token minted by the renewal-dialog widget. Guest must send it; a valid admin session_id cookie skips verification. Single-use, ~5-minute validity",
+						"required": false,
+						"example": "zzzzz",
+						"schema": {
+							"type": "string"
+						}
 					}
 				],
 				"requestBody": {
@@ -2258,6 +2300,18 @@
 										"value": {
 											"error_message": "Forbidden"
 										}
+									},
+									"7": {
+										"summary": "Yec-Turnstile-Token header missing/empty/whitespace-only (no siteverify call)",
+										"value": {
+											"error_message": "Human verification failed"
+										}
+									},
+									"8": {
+										"summary": "siteverify rejects token (invalid/expired/timeout-or-duplicate)",
+										"value": {
+											"error_message": "Human verification failed"
+										}
 									}
 								}
 							}
@@ -2286,13 +2340,13 @@
 									"$ref": "#/components/schemas/ErrorResponse"
 								},
 								"examples": {
-									"8": {
+									"10": {
 										"summary": "status = PENDING_RENEWAL (pre-check)",
 										"value": {
 											"error_message": "member_id 9 already has a pending renewal request"
 										}
 									},
-									"9": {
+									"11": {
 										"summary": "Unique-violation 23505 on INSERT",
 										"value": {
 											"error_message": "member_id 8 already has a pending renewal request"
@@ -2335,6 +2389,31 @@
 								},
 								"example": {
 									"error_message": "Internal Server Error"
+								}
+							}
+						},
+						"headers": {}
+					},
+					"503": {
+						"description": "Siteverify unreachable/timed out, or server-fault codes (invalid-input-secret etc.)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								},
+								"examples": {
+									"14": {
+										"summary": "Siteverify unreachable / timed out (~5 s) / HTTP≠200 / malformed body",
+										"value": {
+											"error_message": "Human verification is temporarily unavailable"
+										}
+									},
+									"15": {
+										"summary": "Server-fault siteverify codes (missing/invalid-input-secret, bad-request, internal-error) or empty/whitespace TURNSTILE_SECRET_KEY",
+										"value": {
+											"error_message": "Human verification is temporarily unavailable"
+										}
+									}
 								}
 							}
 						},
