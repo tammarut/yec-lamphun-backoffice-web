@@ -4,7 +4,7 @@ import type { EnvConfig } from "src/shared/config/env"
 import { TurnstileService, TurnstileServiceError, TurnstileVerificationError, TURNSTILE_SITEVERIFY_URL } from "./turnstile.service"
 
 function makeEnv(secret: string): EnvConfig {
-	return { TURNSTILE_SECRET_KEY: secret, CLOUDFLARE_CIDRS: "" } as unknown as EnvConfig
+	return { CLOUDFLARE_TURNSTILE_SECRET_KEY: secret, CLOUDFLARE_CIDRS: "" } as unknown as EnvConfig
 }
 
 function makeSiteverifyResponse(payload: unknown, status = 200): Response {

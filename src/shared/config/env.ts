@@ -42,7 +42,7 @@ export type EnvConfig = {
 	// gate FAIL-CLOSED: the TurnstileService refuses to call siteverify and
 	// guests get a retryable 503 until the deployment sets it. The site key
 	// (client-side widget) is a separate SEC-6 concern.
-	TURNSTILE_SECRET_KEY: string
+	CLOUDFLARE_TURNSTILE_SECRET_KEY: string
 }
 
 export const envConfig = createEnv({
@@ -84,7 +84,7 @@ export const envConfig = createEnv({
 		ORIGIN_ALLOW_LIST: v.optional(v.string(), ""),
 		// Turnstile secret key (SEC-5). Empty default = fail-closed 503 for
 		// guests until configured; staff sessions skip the gate regardless.
-		TURNSTILE_SECRET_KEY: v.optional(v.string(), ""),
+		CLOUDFLARE_TURNSTILE_SECRET_KEY: v.optional(v.string(), ""),
 	},
 	client: {},
 	runtimeEnv: {
@@ -107,6 +107,6 @@ export const envConfig = createEnv({
 		BLIND_INDEX_HMAC_KEY: process.env["BLIND_INDEX_HMAC_KEY"],
 		CLOUDFLARE_CIDRS: process.env["CLOUDFLARE_CIDRS"],
 		ORIGIN_ALLOW_LIST: process.env["ORIGIN_ALLOW_LIST"],
-		TURNSTILE_SECRET_KEY: process.env["TURNSTILE_SECRET_KEY"],
+		CLOUDFLARE_TURNSTILE_SECRET_KEY: process.env["CLOUDFLARE_TURNSTILE_SECRET_KEY"],
 	},
 })
