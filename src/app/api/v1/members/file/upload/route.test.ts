@@ -20,6 +20,7 @@ import { MemberFileService } from "src/modules/members/member-file.service"
 import type { UploadedFilePathResponse } from "src/modules/members/member-file.types"
 import { RATE_LIMIT_BUDGETS, RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { StorageError } from "src/modules/shared/storage"
+import { TURNSTILE_TOKEN_HEADER } from "src/app/api/middleware/turnstile-gate"
 import { TurnstileService, TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/turnstile.service"
 
 import { ResponseBodyError } from "src/app/api/shared/types"
@@ -43,27 +44,29 @@ const mockSessionData = {
 }
 
 /**
- * Build a multipart upload request. `turnstileToken` controls the SEC-5 form
- * field: default "tok_upload" = a guest carrying a token; null = omitted
- * (the guest-missing-token and staff-body cases).
+ * Build a multipart upload request. `turnstileToken` controls the SEC-5
+ * `Yec-Turnstile-Token` request HEADER (ADR-0028 — the token is a credential,
+ * never body data): default "tok_upload" = a guest carrying a token; null =
+ * header omitted (the guest-missing-token and staff cases).
  */
 function buildUploadRequest(fields: Record<string, File>, turnstileToken: string | null = "tok_upload", sessionCookie?: string): NextRequest {
 	const form = new FormData()
 	for (const [name, file] of Object.entries(fields)) {
 		form.append(name, file)
 	}
-	if (turnstileToken !== null) {
-		form.append("turnstile_token", turnstileToken)
-	}
 	// NextRequest accepts a BodyInit; FormData is a valid BodyInit. The explicit
 	// Content-Length mirrors real clients (browsers/curl always send it for a
 	// fully-serialized multipart body) — undici does not derive it from a
 	// FormData body on the Request object, and the SEC-2 pre-parse guard needs
 	// it to route past the 411 check.
+	const headers: Record<string, string> = { "content-length": "10240" }
+	if (turnstileToken !== null) {
+		headers[TURNSTILE_TOKEN_HEADER] = turnstileToken
+	}
 	const request = new NextRequest("http://localhost/api/v1/members/file/upload", {
 		method: "POST",
 		body: form,
-		headers: { "content-length": "10240" },
+		headers: headers,
 	})
 	if (sessionCookie !== undefined) {
 		request.cookies.set("session_id", sessionCookie)
@@ -201,7 +204,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(response.status).toBe(200)
 		})
 
-		it("SEC-5: ADMIN (valid cookie) + NO token: verification skipped — staff wizard uploads unaffected", async () => {
+		it("SEC-5: ADMIN (valid cookie) + NO header: verification skipped — staff wizard uploads unaffected", async () => {
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
 			mockService.uploadFiles.mockReturnValue(
 				Promise.resolve(
@@ -408,7 +411,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(overBudget.headers.get("Retry-After")).toBe(String(budget.windowMs / 1000))
 		})
 
-		it("SEC-5: guest + MISSING token: 403 'Human verification failed', no upload occurs", async () => {
+		it("SEC-5: guest + missing header: 403 'Human verification failed', no upload occurs", async () => {
 			const request = buildUploadRequest({ profile_avatar: makeImageFile("a.png") }, null)
 
 			const response = await POST(request)
@@ -420,7 +423,26 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(mockService.uploadFiles).not.toHaveBeenCalled()
 		})
 
-		it("SEC-5 scrutiny MINOR-1: guest + whitespace-only token: 403 without burning a siteverify round-trip", async () => {
+		it("SEC-5 (header-only, ADR-0028): guest sending a body turnstile_token field WITHOUT the header → 403 — the body field is not honored", async () => {
+			const form = new FormData()
+			form.append("profile_avatar", makeImageFile("a.png"))
+			form.append("turnstile_token", "tok_in_body")
+			const request = new NextRequest("http://localhost/api/v1/members/file/upload", {
+				method: "POST",
+				body: form,
+				headers: { "content-length": "10240" },
+			})
+
+			const response = await POST(request)
+
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.uploadFiles).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5 scrutiny MINOR-1: guest + whitespace-only header token: 403 without burning a siteverify round-trip", async () => {
 			mockService.uploadFiles.mockReturnValue(
 				Promise.resolve(
 					ok({

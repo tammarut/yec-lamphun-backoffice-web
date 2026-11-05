@@ -68,9 +68,10 @@ type CreatedRenewalResponse = {
 // SEC-2 hardening (spec #124): the Origin gate decides before the write budget
 // (composed OUTERMOST), so a foreign-origin drive-by never burns a budget slot.
 //
-// SEC-5 hardening (spec #124): the same session fork gates Cloudflare Turnstile
-// — guests must carry a human-verified token (JSON body `turnstile_token`);
-// missing/invalid/expired → 403, siteverify unreachable → 503 (turnstile-gate.ts).
+// SEC-5 hardening (spec #124, transport per ADR-0028): the same session fork
+// gates Cloudflare Turnstile — guests must carry a human-verified token in the
+// `Yec-Turnstile-Token` request header; missing/invalid/expired → 403,
+// siteverify unreachable → 503 (turnstile-gate.ts).
 //
 // SEC-4 hardening (spec #124): a guest past the human gate must then pass the
 // open_membership_renewal window check — closed season → 403 before the use
@@ -102,17 +103,17 @@ async function createRenewal(request: NextRequest): Promise<NextResponse<Created
 	//    isAdmin=false (no 401); valid -> isAdmin=true.
 	const isAdmin = resolveIsAdmin(request)
 
-	// 3.5 SEC-5 hardening (spec #124): the Turnstile human gate — deliberately
-	//     BEFORE the SEC-4 window read (scrutiny MAJOR-2): the gate is
-	//     stateless-with-one-outbound-call, the window check is a DB query, so
-	//     a tokenless bot flood must never spend a pool slot just to be told
-	//     "closed". Guests (no or invalid cookie) must present a human-verified
-	//     token from the JSON body; a valid admin session skips verification
-	//     entirely — the SAME session fork as the window gate below.
-	//     Missing/invalid/expired token → 403, siteverify
-	//     unreachable/timed out → 503; neither ever reaches the DB or the use
-	//     case (fail-closed).
-	const turnstileRejection = await enforceTurnstileToken(request, parsed.output.turnstile_token, isAdmin)
+	// 3.5 SEC-5 hardening (spec #124, transport per ADR-0028): the Turnstile
+	//     human gate — deliberately BEFORE the SEC-4 window read (scrutiny
+	//     MAJOR-2): the gate is stateless-with-one-outbound-call, the window
+	//     check is a DB query, so a tokenless bot flood must never spend a pool
+	//     slot just to be told "closed". Guests (no or invalid cookie) must
+	//     present a human-verified token in the Yec-Turnstile-Token request
+	//     header; a valid admin session skips verification entirely — the SAME
+	//     session fork as the window gate below. Missing/invalid/expired token
+	//     → 403, siteverify unreachable/timed out → 503; neither ever reaches
+	//     the DB or the use case (fail-closed).
+	const turnstileRejection = await enforceTurnstileToken(request, isAdmin)
 	if (turnstileRejection !== null) {
 		return turnstileRejection
 	}

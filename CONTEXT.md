@@ -76,6 +76,18 @@ _Avoid_: citizen id, national id, id number
 The display form of an ID Card (e.g. `632XXXXXX1483`): the first three and last four digits of the plaintext, with the middle six replaced by `X`. Staff see this form in the backoffice; the plaintext and ciphertext are never displayed. Derived at read time by decrypting the ID Card ciphertext and applying a pure mask function.
 _Avoid_: masked id number, hidden id, redacted id
 
+**Turnstile Token**:
+The single-use Cloudflare human-verification credential guests present on the two public renewal-flow POSTs (slip upload, renewal submission). It travels in the `Yec-Turnstile-Token` request header — a credential, not request data, so it never rides the body (ADR-0028). The widget mints it; server-side siteverify consumes it.
+_Avoid_: captcha token, `turnstile_token` field, cf-turnstile-response
+
+**Human Gate**:
+The fail-closed Turnstile verification guests pass before a public state-changing write (slip upload, renewal submission): missing/invalid/expired token → 403, verification-service fault → 503 (retryable) — and no state change ever occurs on failure. Runs before the renewal-window check so tokenless bots never reach the database.
+_Avoid_: captcha check, bot check, human verification challenge
+
+**Session Fork**:
+The soft check of the optional `session_id` cookie (ADR-0015) that splits a public route's behavior in two: absent/invalid ≡ guest (Human Gate and renewal-window apply), valid ≡ staff (both skipped). It never produces a 401 — the fork only selects which gates run. The same fork governs the renewal submission kind (see **Public Submission** / **Admin Submission**).
+_Avoid_: admin bypass, cookie check, role detection
+
 ## Membership Renewal
 
 **Membership Renewal**:

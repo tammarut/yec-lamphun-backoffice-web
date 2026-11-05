@@ -27,10 +27,11 @@ const MAX_UPLOAD_BODY_BYTES = 47 * 1024 * 1024
 
 // Public endpoint — no auth/session required (per the OpenAPI spec). SEC-2
 // hardening: the Origin gate decides before the write budget, then the
-// pre-parse body guard, then the existing multipart handling. SEC-5 hardening:
-// the Turnstile gate — guests must carry a human-verified token as a multipart
-// form field; a valid admin session skips verification (turnstile-gate.ts), so
-// staff wizard uploads are unaffected.
+// pre-parse body guard, then the existing multipart handling. SEC-5 hardening
+// (transport per ADR-0028): the Turnstile gate — guests must carry a
+// human-verified token in the `Yec-Turnstile-Token` request header; a valid
+// admin session skips verification (turnstile-gate.ts), so staff wizard
+// uploads are unaffected.
 export const POST = withOriginGate(withPublicGuard("UPLOAD_WRITE", uploadMemberFiles))
 
 async function uploadMemberFiles(request: NextRequest): Promise<NextResponse<UploadedFilePathResponse | ResponseBodyError>> {
@@ -48,14 +49,13 @@ async function uploadMemberFiles(request: NextRequest): Promise<NextResponse<Upl
 	}
 	const formData = parseFormResult.value
 
-	// 2. SEC-5 session fork (ADR-0015 soft check): a valid admin session makes
-	//    the Turnstile token optional; guests (no/invalid cookie) must pass the
-	//    human gate below. The token rides as a plain string form field — a
-	//    non-string entry (e.g. a File) counts as missing.
+	// 2. SEC-5 session fork (ADR-0015 soft check) + human gate (transport per
+	//    ADR-0028): a valid admin session makes the token optional; guests
+	//    (no/invalid cookie) must present it in the Yec-Turnstile-Token request
+	//    header. The gate reads the header itself — the multipart body stays
+	//    pure Member File data.
 	const isAdmin = resolveIsAdmin(request)
-	const tokenEntry = formData.get("turnstile_token")
-	const turnstileToken = typeof tokenEntry === "string" ? tokenEntry : null
-	const turnstileRejection = await enforceTurnstileToken(request, turnstileToken, isAdmin)
+	const turnstileRejection = await enforceTurnstileToken(request, isAdmin)
 	if (turnstileRejection !== null) {
 		return turnstileRejection
 	}

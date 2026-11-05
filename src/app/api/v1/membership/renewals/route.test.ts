@@ -9,6 +9,7 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { RateLimiterService, RATE_LIMIT_BUDGETS } from "src/modules/shared/rate-limiter/rate-limiter.service"
+import { TURNSTILE_TOKEN_HEADER } from "src/app/api/middleware/turnstile-gate"
 import { TurnstileService, TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/turnstile.service"
 import { MemberNotFoundError, PendingRenewalExistsError, ResignedMemberError } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.errors"
 import { CreateRenewalService } from "src/modules/membership-renewals/use-case/create-renewal/create-renewal.service"
@@ -29,13 +30,17 @@ vi.mock("src/modules/container", () => ({
 import { GET, POST } from "./route"
 
 // A valid snake_case body, as the client sends it (ADR-0026 contract — solo
-// submission = member_ids of one, main member first). The turnstile_token
-// carries the guest's human-verification token (SEC-5); staff bodies omit it.
+// submission = member_ids of one, main member first). The human-verification
+// token (SEC-5) does NOT ride the body: it travels in the Yec-Turnstile-Token
+// request header (ADR-0028) — the body stays pure domain data.
 const validBody = {
 	member_ids: [1],
 	payment_slip: "members/documents/payment_slip_01KDNJJM9BVVRMWZ46DVS4Y1YD.jpg",
-	turnstile_token: "tok_valid",
 }
+
+// The guest header the SEC-5 gate expects by default; tests override or drop
+// it per-TC via makeRequest's headers param.
+const guestTokenHeaders = { [TURNSTILE_TOKEN_HEADER]: "tok_valid" }
 
 // The service result the mocked use case resolves to by default (solo submission).
 const soloServiceResult = {
@@ -59,11 +64,14 @@ const mockSessionData = {
  *   undefined -> no cookie (public path);
  *   any string -> that cookie value is set (the mock AuthService decides
  *   whether it's "valid" — defaults to invalid, override per-TC for admin).
+ * `headers` defaults to the guest token header; pass {} (or an override) for
+ * the SEC-5 missing/whitespace/bad-token cases.
  */
-function makeRequest(body: unknown, sessionCookie?: string): NextRequest {
+function makeRequest(body: unknown, sessionCookie?: string, headers: Record<string, string> = guestTokenHeaders): NextRequest {
 	const req = new NextRequest("http://localhost/api/v1/membership/renewals", {
 		method: "POST",
 		body: typeof body === "string" ? body : JSON.stringify(body),
+		headers: headers,
 	})
 	if (sessionCookie !== undefined) {
 		req.cookies.set("session_id", sessionCookie)
@@ -263,8 +271,8 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
 		})
 
-		it("SEC-5: guest + valid token: the body token reaches siteverify, submission proceeds", async () => {
-			// Arrange
+		it("SEC-5: guest + Yec-Turnstile-Token header: the header token reaches siteverify, submission proceeds", async () => {
+			// Arrange — makeRequest defaults to the guest token header.
 			const request = makeRequest(validBody)
 
 			// Act
@@ -276,12 +284,10 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(response.status).toBe(201)
 		})
 
-		it("SEC-5: ADMIN (valid cookie) + NO token: verification skipped entirely (session fork)", async () => {
-			// Arrange — a staff body: same renewal payload minus the token.
+		it("SEC-5: ADMIN (valid cookie) + NO header: verification skipped entirely (session fork)", async () => {
+			// Arrange — a staff caller sends no token header at all.
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
-			const { turnstile_token, ...staffBody } = validBody
-			void turnstile_token
-			const request = makeRequest(staffBody, "valid-session-id")
+			const request = makeRequest(validBody, "valid-session-id", {})
 
 			// Act
 			const response = await POST(request)
@@ -292,11 +298,11 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
 		})
 
-		it("SEC-5 scrutiny MAJOR-1: ADMIN + explicit turnstile_token null: schema admits it, verification skipped", async () => {
-			// Arrange — React form payloads serialize uninitialized state as null;
-			// the admin bypass contract must survive that shape.
+		it("SEC-5: ADMIN + Yec-Turnstile-Token present: still skipped — the session fork wins over the token", async () => {
+			// Arrange — makeRequest's default header rides along; the admin fork
+			// must not verify it anyway.
 			mockAuthService.validateSession.mockReturnValue(ok(mockSessionData))
-			const request = makeRequest({ ...validBody, turnstile_token: null }, "valid-session-id")
+			const request = makeRequest(validBody, "valid-session-id")
 
 			// Act
 			const response = await POST(request)
@@ -304,56 +310,6 @@ describe("POST /api/v1/membership/renewals", () => {
 			// Assert
 			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
 			expect(response.status).toBe(201)
-			expect(mockService.execute).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }))
-		})
-
-		it("SEC-5 scrutiny MAJOR-1: guest + explicit turnstile_token null: 403 at the gate, NOT a 400", async () => {
-			// Arrange — null ≡ absent: the gate decides, not the schema.
-			const request = makeRequest({ ...validBody, turnstile_token: null })
-
-			// Act
-			const response = await POST(request)
-
-			// Assert
-			expect(response.status).toBe(403)
-			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("Human verification failed")
-			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
-			expect(mockService.execute).not.toHaveBeenCalled()
-		})
-
-		it("SEC-5 scrutiny MINOR-1: guest + whitespace-only token: 403 without burning a siteverify round-trip", async () => {
-			// Arrange
-			const request = makeRequest({ ...validBody, turnstile_token: "   " })
-
-			// Act
-			const response = await POST(request)
-
-			// Assert
-			expect(response.status).toBe(403)
-			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("Human verification failed")
-			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
-			expect(mockService.execute).not.toHaveBeenCalled()
-		})
-
-		it("SEC-5 scrutiny MAJOR-2: guest + missing token + CLOSED season: gate 403 wins, DB settings read NEVER runs", async () => {
-			// Arrange — tokenless bots must not reach the stateful resource even to
-			// be told the season is closed (defense-in-depth: stateless gate first).
-			mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(false))
-			const { turnstile_token, ...tokenlessBody } = validBody
-			void turnstile_token
-			const request = makeRequest(tokenlessBody)
-
-			// Act
-			const response = await POST(request)
-
-			// Assert
-			expect(response.status).toBe(403)
-			const json = (await response.json()) as ResponseBodyError
-			expect(json.error_message).toBe("Human verification failed")
-			expect(mockSettingsService.isRenewalWindowOpen).not.toHaveBeenCalled()
-			expect(mockService.execute).not.toHaveBeenCalled()
 		})
 	})
 
@@ -589,11 +545,9 @@ describe("POST /api/v1/membership/renewals", () => {
 			consoleSpy.mockRestore()
 		})
 
-		it("SEC-5: guest + MISSING token: 403 'Human verification failed', use case never called", async () => {
-			// Arrange — a guest body without the token field.
-			const { turnstile_token, ...tokenlessBody } = validBody
-			void turnstile_token
-			const request = makeRequest(tokenlessBody)
+		it("SEC-5: guest + missing header: 403 'Human verification failed', use case never called", async () => {
+			// Arrange — no Yec-Turnstile-Token header.
+			const request = makeRequest(validBody, undefined, {})
 
 			// Act
 			const response = await POST(request)
@@ -606,10 +560,10 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(mockService.execute).not.toHaveBeenCalled()
 		})
 
-		it("SEC-5: guest + EMPTY-STRING token: same 403, siteverify never called", async () => {
-			// Arrange — the schema deliberately admits "" so the GATE (not a 400)
-			// decides: an empty token is a missing token.
-			const request = makeRequest({ ...validBody, turnstile_token: "" })
+		it("SEC-5 (header-only, ADR-0028): guest sending a body turnstile_token WITHOUT the header → 403 — the body field is not honored", async () => {
+			// Arrange — pins the strict transport: a legacy/body-shaped token must
+			// never silently substitute for the header.
+			const request = makeRequest({ ...validBody, turnstile_token: "tok_in_body" }, undefined, {})
 
 			// Act
 			const response = await POST(request)
@@ -619,6 +573,53 @@ describe("POST /api/v1/membership/renewals", () => {
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Human verification failed")
 			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5: guest + EMPTY-STRING header token: same 403, siteverify never called", async () => {
+			// Arrange — "" trims to missing: the GATE decides, not a 400.
+			const request = makeRequest(validBody, undefined, { [TURNSTILE_TOKEN_HEADER]: "" })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5 scrutiny MINOR-1: guest + whitespace-only header token: 403 without burning a siteverify round-trip", async () => {
+			// Arrange
+			const request = makeRequest(validBody, undefined, { [TURNSTILE_TOKEN_HEADER]: "   " })
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockTurnstileService.verify).not.toHaveBeenCalled()
+			expect(mockService.execute).not.toHaveBeenCalled()
+		})
+
+		it("SEC-5 scrutiny MAJOR-2: guest + missing header + CLOSED season: gate 403 wins, DB settings read NEVER runs", async () => {
+			// Arrange — tokenless bots must not reach the stateful resource even to
+			// be told the season is closed (defense-in-depth: stateless gate first).
+			mockSettingsService.isRenewalWindowOpen.mockResolvedValue(ok(false))
+			const request = makeRequest(validBody, undefined, {})
+
+			// Act
+			const response = await POST(request)
+
+			// Assert
+			expect(response.status).toBe(403)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Human verification failed")
+			expect(mockSettingsService.isRenewalWindowOpen).not.toHaveBeenCalled()
 			expect(mockService.execute).not.toHaveBeenCalled()
 		})
 

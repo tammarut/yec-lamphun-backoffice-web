@@ -1,4 +1,4 @@
-import { array, check, integer, minLength, maxLength, minValue, nullish, number, object, pipe, string, type InferOutput } from "valibot"
+import { array, check, integer, minLength, maxLength, minValue, number, object, pipe, string, type InferOutput } from "valibot"
 
 /**
  * Structural request schema for POST /api/v1/membership/renewals.
@@ -16,14 +16,10 @@ import { array, check, integer, minLength, maxLength, minValue, nullish, number,
  * - `payment_slip`: a non-empty string. It is an opaque R2 file-path token
  *   returned by POST /api/v1/members/file/upload — trusted as-is, same stance
  *   as `id_card_image` / `company_certificate` in create-member (grilling Q6).
- * - `turnstile_token` (SEC-5, spec #124): the Cloudflare Turnstile token —
- *   OPTIONAL-WHEN-AUTHED. Guests must carry one (the route's gate maps a
- *   missing/invalid token to 403); a valid admin session skips verification
- *   entirely. `nullish()` (scrutiny MAJOR-1): JSON payloads serialize
- *   uninitialized form state as `null`, and that shape must reach the GATE as
- *   "missing" (guest → 403, admin → bypass), not die here as a 400. A bare
- *   `string()` with NO min length on purpose: an empty string must reach the
- *   gate as "missing" too.
+ *
+ * The SEC-5 human-verification token is deliberately NOT a body field: it is
+ * a credential, not request data, and travels in the `Yec-Turnstile-Token`
+ * request header (ADR-0028) — the body stays pure domain data.
  */
 export const CreateRenewalSchema = object({
 	member_ids: pipe(
@@ -33,7 +29,6 @@ export const CreateRenewalSchema = object({
 		check((ids) => new Set(ids).size === ids.length, "member_ids must be unique")
 	),
 	payment_slip: pipe(string(), minLength(1, "payment_slip is required")),
-	turnstile_token: nullish(string()),
 })
 
 export type CreateRenewalSchemaOutput = InferOutput<typeof CreateRenewalSchema>
