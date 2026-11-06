@@ -74,7 +74,7 @@ function renderPage(options: PageOptions) {
 	const view = render(
 		<QueryClientProvider client={queryClient}>
 			<SessionProvider>
-				<RenewalPageView />
+				<RenewalPageView turnstileSiteKey="" />
 			</SessionProvider>
 		</QueryClientProvider>
 	)

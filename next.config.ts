@@ -23,6 +23,12 @@ const privateFileOrigins = [
 	.filter(Boolean)
 	.join(" ")
 
+// Cloudflare Turnstile (SEC-6, #130): the renewal dialog loads the widget
+// script and renders its challenge iframe from this static origin — so it
+// needs script-src AND frame-src. A literal, never derived from env, so
+// nothing new is baked at build time.
+const turnstileOrigin = "https://challenges.cloudflare.com"
+
 // Security headers (OWASP recommended)
 const securityHeaders = [
 	{ key: "X-Content-Type-Options", value: "nosniff" },
@@ -34,8 +40,8 @@ const securityHeaders = [
 	{
 		key: "Content-Security-Policy",
 		value: isProduction
-			? `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin} ${privateFileOrigins}; font-src 'self'; connect-src 'self'; frame-src none; object-src 'none';`
-			: `default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin} ${privateFileOrigins}; font-src 'self'; connect-src 'self' http://localhost:*`,
+			? `default-src 'self'; script-src 'self' 'unsafe-inline' ${turnstileOrigin}; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin} ${privateFileOrigins}; font-src 'self'; connect-src 'self'; frame-src ${turnstileOrigin}; object-src 'none';`
+			: `default-src 'self' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${turnstileOrigin}; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${publicFileOrigin} ${privateFileOrigins}; font-src 'self'; connect-src 'self' http://localhost:*; frame-src ${turnstileOrigin}`,
 	},
 ]
 

@@ -3,7 +3,8 @@ import { inject, injectable } from "tsyringe"
 
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { resolveTrustedClientIp } from "src/modules/shared/client-ip/resolve-trusted-client-ip"
-import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/errors"
+import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE } from "src/modules/shared/turnstile/constants"
+import { TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/errors"
 import type { EnvConfig } from "src/shared/config/env"
 import { createLogger } from "src/shared/lib/logger/logger"
 
