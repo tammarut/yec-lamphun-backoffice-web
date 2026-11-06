@@ -1,6 +1,7 @@
 import { ResultAsync } from "neverthrow"
 import { NextRequest, NextResponse } from "next/server"
 import { withOriginGate } from "src/app/api/middleware/origin-gate"
+import { enforceTurnstileToken, resolveIsAdmin } from "src/app/api/middleware/turnstile-gate"
 import { withPublicGuard } from "src/app/api/middleware/with-public-guard"
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { container } from "src/modules/container"
@@ -26,7 +27,11 @@ const MAX_UPLOAD_BODY_BYTES = 47 * 1024 * 1024
 
 // Public endpoint — no auth/session required (per the OpenAPI spec). SEC-2
 // hardening: the Origin gate decides before the write budget, then the
-// pre-parse body guard, then the existing multipart handling.
+// pre-parse body guard, then the existing multipart handling. SEC-5 hardening
+// (transport per ADR-0028): the Turnstile gate — guests must carry a
+// human-verified token in the `Yec-Turnstile-Token` request header; a valid
+// admin session skips verification (turnstile-gate.ts), so staff wizard
+// uploads are unaffected.
 export const POST = withOriginGate(withPublicGuard("UPLOAD_WRITE", uploadMemberFiles))
 
 async function uploadMemberFiles(request: NextRequest): Promise<NextResponse<UploadedFilePathResponse | ResponseBodyError>> {
@@ -44,11 +49,22 @@ async function uploadMemberFiles(request: NextRequest): Promise<NextResponse<Upl
 	}
 	const formData = parseFormResult.value
 
-	// 2. Collect provided files. Only the six known field names are considered;
+	// 2. SEC-5 session fork (ADR-0015 soft check) + human gate (transport per
+	//    ADR-0028): a valid admin session makes the token optional; guests
+	//    (no/invalid cookie) must present it in the Yec-Turnstile-Token request
+	//    header. The gate reads the header itself — the multipart body stays
+	//    pure Member File data.
+	const isAdmin = resolveIsAdmin(request)
+	const turnstileRejection = await enforceTurnstileToken(request, isAdmin)
+	if (turnstileRejection !== null) {
+		return turnstileRejection
+	}
+
+	// 3. Collect provided files. Only the six known field names are considered;
 	//    non-File entries and absent fields are skipped.
 	const memberFileRequests = convertFormDataToMemberFileInputReq(formData)
 
-	// 3. Validate + upload via the service (fail-fast on any error).
+	// 4. Validate + upload via the service (fail-fast on any error).
 	const memberFileService = container.resolve<MemberFileService>(REGISTER_KEY.MEMBER_FILE_SERVICE)
 	const result = await memberFileService.uploadFiles(memberFileRequests)
 

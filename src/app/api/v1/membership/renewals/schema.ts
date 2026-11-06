@@ -16,6 +16,10 @@ import { array, check, integer, minLength, maxLength, minValue, number, object, 
  * - `payment_slip`: a non-empty string. It is an opaque R2 file-path token
  *   returned by POST /api/v1/members/file/upload — trusted as-is, same stance
  *   as `id_card_image` / `company_certificate` in create-member (grilling Q6).
+ *
+ * The SEC-5 human-verification token is deliberately NOT a body field: it is
+ * a credential, not request data, and travels in the `Yec-Turnstile-Token`
+ * request header (ADR-0028) — the body stays pure domain data.
  */
 export const CreateRenewalSchema = object({
 	member_ids: pipe(

@@ -121,4 +121,10 @@ export const REGISTER_KEY = {
 	// pair). Its pair map is per-process state shared by every login attempt,
 	// so the registration MUST be a Singleton; time comes from WALL_CLOCK.
 	LOGIN_FAILURE_LOCKOUT_SERVICE: Symbol("LOGIN_FAILURE_LOCKOUT_SERVICE"),
+	// Shared human verification (SEC-5, spec #124). Server-side Cloudflare
+	// Turnstile siteverify call (~5 s timeout, remoteip via the shared
+	// trusted-IP helper, secret from EnvConfig) behind the public renewal
+	// flow's fail-closed 403/503 gate (turnstile-gate.ts). Stateless —
+	// Singleton like the other shared guards.
+	TURNSTILE_SERVICE: Symbol("TURNSTILE_SERVICE"),
 } as const

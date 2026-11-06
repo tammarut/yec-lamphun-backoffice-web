@@ -32,6 +32,7 @@ import { AesGcmEncryptionService } from "src/modules/shared/crypto/aes-gcm-encry
 import { HmacBlindIndexService } from "src/modules/shared/crypto/hmac-blind-index.service"
 import { RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { SessionStore } from "src/modules/shared/session-store/session-store"
+import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
 import { R2StorageClient } from "src/modules/shared/storage/r2-storage.client"
 import { SystemSettingsRepository } from "src/modules/system-settings/repository/system-settings.repository"
 import { SystemSettingsService } from "src/modules/system-settings/system-settings.service"
@@ -382,5 +383,11 @@ container.register(REGISTER_KEY.MEMBER_RESIGN_SERVICE, { useClass: ResignMemberS
 // every guarded request. Its time source is the WALL_CLOCK useValue from
 // section 14; budgets live in RATE_LIMIT_BUDGETS (rate-limiter.service.ts).
 container.register(REGISTER_KEY.RATE_LIMITER_SERVICE, { useClass: RateLimiterService }, { lifecycle: Lifecycle.Singleton })
+
+// 17. Register shared human verification (SEC-5, spec #124). The Turnstile
+// service is a stateless siteverify adapter (secret + CIDRs from EnvConfig),
+// registered Singleton like the other shared guards — every resolve reusing
+// one instance keeps the 5 s budget honest per process.
+container.register(REGISTER_KEY.TURNSTILE_SERVICE, { useClass: TurnstileService }, { lifecycle: Lifecycle.Singleton })
 
 export { container }
