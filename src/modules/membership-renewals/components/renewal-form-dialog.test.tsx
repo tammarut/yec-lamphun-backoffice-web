@@ -801,7 +801,11 @@ function stubTurnstileWidget() {
 }
 
 function submitButton(): HTMLButtonElement {
-	return document.querySelector('[data-slot="renewal-form-submit"]') as HTMLButtonElement
+	const button = document.querySelector<HTMLButtonElement>('[data-slot="renewal-form-submit"]')
+	if (button === null) {
+		throw new Error("submit button not rendered")
+	}
+	return button
 }
 
 function widgetContainer(): Element | null {
@@ -979,8 +983,26 @@ describe("RenewalFormDialog — human verification (SEC-6)", () => {
 
 			turnstile.fail()
 
-			expect(await screen.findByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeTruthy()
+			await waitFor(() => expect(document.querySelector('[data-slot="renewal-form-error"]')?.textContent).toContain(HUMAN_CHECK_UNAVAILABLE_COPY))
+			// The idle hint stands down while the alert carries the same sentence.
+			expect(screen.getAllByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toHaveLength(1)
 			expect(findCall(fetchMock.mock.calls, RENEWALS_URL)).toBeUndefined()
+		})
+
+		it("a widget failure while idle shows the Thai retry hint under the widget until a fresh token arrives", () => {
+			const turnstile = stubTurnstileWidget()
+			renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+
+			turnstile.fail()
+
+			expect(screen.getByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeTruthy()
+			expect(document.querySelector('[data-slot="renewal-turnstile-error"]')).toBeTruthy()
+			expect(submitButton().disabled).toBe(true)
+
+			turnstile.arm("token-recovered")
+
+			expect(screen.queryByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeNull()
+			expect(submitButton().disabled).toBe(false)
 		})
 	})
 })

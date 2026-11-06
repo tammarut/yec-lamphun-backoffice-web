@@ -33,6 +33,8 @@ export type UseTurnstileChallenge = {
 	attachContainer: (element: HTMLDivElement | null) => void
 	/** The armed, unspent token — null while the challenge runs, after reset(), or after expiry. */
 	token: string | null
+	/** The widget broke (script blocked, or a challenge error) and has not issued a token since. */
+	failed: boolean
 	/** Spend the armed token: clears it and re-runs the challenge (tokens are single-use). */
 	reset: () => void
 	/** The armed token, or the next one the widget issues; rejects on widget error or unmount. */
@@ -80,6 +82,7 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 	const tokenRef = useRef<string | null>(null)
 	const waitersRef = useRef<TokenWaiter[]>([])
 	const [token, setToken] = useState<string | null>(null)
+	const [failed, setFailed] = useState(false)
 
 	const armToken = useCallback((next: string | null) => {
 		tokenRef.current = next
@@ -111,6 +114,7 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 				sitekey: siteKey,
 				callback: (nextToken: string) => {
 					armToken(nextToken)
+					setFailed(false)
 					settleWaiters({ token: nextToken })
 				},
 				"expired-callback": () => {
@@ -118,6 +122,7 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 				},
 				"error-callback": () => {
 					armToken(null)
+					setFailed(true)
 					settleWaiters({ error: new Error("Turnstile challenge failed") })
 				},
 			})
@@ -126,8 +131,9 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 		if (window.turnstile !== undefined) {
 			mount(window.turnstile)
 		} else {
-			// shortcut: a blocked script (adblock/CSP) leaves the submit locked with no inline hint; add an error state if members report it.
-			loadTurnstileScript().then(mount, () => {})
+			loadTurnstileScript().then(mount, () => {
+				setFailed(true)
+			})
 		}
 		return () => {
 			cancelled = true
@@ -159,5 +165,5 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 		})
 	}, [])
 
-	return { attachContainer: setContainer, token: token, reset: reset, waitForToken: waitForToken }
+	return { attachContainer: setContainer, token: token, failed: failed, reset: reset, waitForToken: waitForToken }
 }

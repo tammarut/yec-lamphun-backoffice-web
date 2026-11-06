@@ -11,10 +11,6 @@ import { createLogger } from "src/shared/lib/logger/logger"
 
 const logger = createLogger(["api", "middleware", "turnstile-gate"])
 
-// Route tests import the header name from this file — re-export the shared
-// constant so the import sites stay stable (SEC-6 moved the literal).
-export { TURNSTILE_TOKEN_HEADER }
-
 /**
  * The ADR-0015 soft session fork, shared by the public renewal flow's two
  * POST routes (SEC-5, spec #124). The `session_id` cookie is OPTIONAL: absent

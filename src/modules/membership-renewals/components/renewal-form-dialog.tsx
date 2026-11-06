@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
-import { ResultAsync } from "neverthrow"
+import { err, ok, ResultAsync, type Result } from "neverthrow"
 
 import { fullNameTh, memberStatusLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import { RenewalMemberCombobox } from "src/modules/membership-renewals/components/renewal-member-combobox"
@@ -210,6 +210,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 	const {
 		attachContainer: attachTurnstileContainer,
 		token: turnstileToken,
+		failed: turnstileFailed,
 		reset: resetTurnstile,
 		waitForToken: waitForTurnstileToken,
 	} = useTurnstileChallenge({ siteKey: turnstileSiteKey, active: needsHumanCheck })
@@ -289,9 +290,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 	/**
 	 * Upload → (guests: wait for the re-armed token) → create. Each guarded call
 	 * spends one single-use token, so the widget is reset after every send;
-	 * resolves to the inline error copy, or null on success.
+	 * an Err carries the inline error copy.
 	 */
-	const sendRenewal = async (main: RenewalFormMember, slipFile: File, uploadToken: string | null): Promise<string | null> => {
+	const sendRenewal = async (main: RenewalFormMember, slipFile: File, uploadToken: string | null): Promise<Result<void, string>> => {
 		if (needsHumanCheck) {
 			// The upload spends this token: re-arm now so the create's token overlaps the upload round-trip.
 			resetTurnstile()
@@ -304,11 +305,11 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 			body: formData,
 		})
 		if (uploadResult.isErr()) {
-			return describeSubmitFailure("อัปโหลดสลิปไม่สำเร็จ", uploadResult.error)
+			return err(describeSubmitFailure("อัปโหลดสลิปไม่สำเร็จ", uploadResult.error))
 		}
 		const slipPath = uploadResult.value.payment_slip_file_path
 		if (slipPath === null) {
-			return "อัปโหลดสลิปไม่สำเร็จ: ไม่ได้รับพาธไฟล์จากระบบ กรุณาลองใหม่อีกครั้ง"
+			return err("อัปโหลดสลิปไม่สำเร็จ: ไม่ได้รับพาธไฟล์จากระบบ กรุณาลองใหม่อีกครั้ง")
 		}
 
 		let createToken: string | undefined
@@ -316,7 +317,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 			// Rejects on a widget error or when the dialog closes mid-flow — no create fires either way.
 			const tokenOutcome = await ResultAsync.fromPromise(waitForTurnstileToken(), () => HUMAN_CHECK_UNAVAILABLE_COPY)
 			if (tokenOutcome.isErr()) {
-				return tokenOutcome.error
+				return err(tokenOutcome.error)
 			}
 			createToken = tokenOutcome.value
 		}
@@ -336,9 +337,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 				// The create spent its token too: a re-submit starts over with a fresh upload token.
 				resetTurnstile()
 			}
-			return createOutcome.error
+			return err(createOutcome.error)
 		}
-		return null
+		return ok(undefined)
 	}
 
 	const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -351,10 +352,10 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 		}
 
 		setIsSending(true)
-		const failure = await sendRenewal(selected, slip.file, uploadToken)
+		const sendOutcome = await sendRenewal(selected, slip.file, uploadToken)
 		setIsSending(false)
-		if (failure !== null) {
-			setSubmitError(failure)
+		if (sendOutcome.isErr()) {
+			setSubmitError(sendOutcome.error)
 			return
 		}
 		setSucceeded(true)
@@ -615,6 +616,12 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 
 								{/* Human verification (SEC-6): guests only — the widget arms the token the submit waits on. */}
 								{needsHumanCheck && <div ref={attachTurnstileContainer} data-slot="renewal-turnstile-widget" />}
+								{/* A broken widget would otherwise just leave submit locked; skip it when the alert already says the same. */}
+								{needsHumanCheck && turnstileFailed && submitError !== HUMAN_CHECK_UNAVAILABLE_COPY && (
+									<p className="text-destructive mt-1 text-xs font-medium" role="alert" data-slot="renewal-turnstile-error">
+										{HUMAN_CHECK_UNAVAILABLE_COPY}
+									</p>
+								)}
 							</div>
 
 							{/* Right rail: display-only fee summary + payment account (nothing sent to the API) */}

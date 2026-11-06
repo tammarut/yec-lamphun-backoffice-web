@@ -20,7 +20,7 @@ import { MemberFileService } from "src/modules/members/member-file.service"
 import type { UploadedFilePathResponse } from "src/modules/members/member-file.types"
 import { RATE_LIMIT_BUDGETS, RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { StorageError } from "src/modules/shared/storage"
-import { TURNSTILE_TOKEN_HEADER } from "src/app/api/middleware/turnstile-gate"
+import { TURNSTILE_TOKEN_HEADER } from "src/modules/shared/turnstile/constants"
 import { TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/errors"
 import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
 

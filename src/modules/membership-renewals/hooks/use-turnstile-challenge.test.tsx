@@ -39,14 +39,14 @@ function stubTurnstile() {
 		remove: vi.fn(),
 	}
 	vi.stubGlobal("turnstile", api)
-	return { api, rendered }
+	return { api: api, rendered: rendered }
 }
 
 function renderChallenge(siteKey = "site-key-123", active = true) {
 	const latestRef: { current: UseTurnstileChallenge | null } = { current: null }
 	const turnstile = stubTurnstile()
 	const view: RenderResult = render(<ChallengeHarness siteKey={siteKey} active={active} onRender={captureInto(latestRef)} />)
-	return { latestRef, turnstile, view }
+	return { latestRef: latestRef, turnstile: turnstile, view: view }
 }
 
 afterEach(() => {
@@ -194,6 +194,54 @@ describe("useTurnstileChallenge", () => {
 
 			// Assert
 			expect(turnstile.rendered).toHaveLength(0)
+		})
+
+		test("error-callback flags the challenge as failed", () => {
+			// Arrange
+			const { latestRef, turnstile } = renderChallenge()
+
+			// Act
+			act(() => {
+				turnstile.rendered[0]?.options["error-callback"]?.("300030")
+			})
+
+			// Assert
+			expect(latestRef.current?.failed).toBe(true)
+		})
+
+		test("a fresh token clears the failed flag (the widget's auto-retry recovered)", () => {
+			// Arrange
+			const { latestRef, turnstile } = renderChallenge()
+			act(() => {
+				turnstile.rendered[0]?.options["error-callback"]?.("300030")
+			})
+
+			// Act
+			act(() => {
+				turnstile.rendered[0]?.options.callback?.("tok-recovered")
+			})
+
+			// Assert
+			expect(latestRef.current?.failed).toBe(false)
+			expect(latestRef.current?.token).toBe("tok-recovered")
+		})
+
+		test("a blocked Turnstile script (ad blocker / network) flags the challenge as failed", async () => {
+			// Arrange — no window.turnstile, so the hook injects the real script tag.
+			vi.stubGlobal("turnstile", undefined)
+			const latestRef: { current: UseTurnstileChallenge | null } = { current: null }
+			render(<ChallengeHarness siteKey="site-key-123" active={true} onRender={captureInto(latestRef)} />)
+			const script = document.head.querySelector<HTMLScriptElement>('script[src^="https://challenges.cloudflare.com/turnstile/"]')
+
+			// Act
+			await act(async () => {
+				script?.dispatchEvent(new Event("error"))
+			})
+
+			// Assert
+			expect(script).not.toBeNull()
+			expect(latestRef.current?.failed).toBe(true)
+			script?.remove()
 		})
 
 		test("error-callback clears the token and rejects a pending waitForToken", async () => {
