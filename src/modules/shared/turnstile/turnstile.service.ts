@@ -1,4 +1,4 @@
-import { err, ok, type Result } from "neverthrow"
+import { err, ok, ResultAsync, type Result } from "neverthrow"
 import { inject, injectable } from "tsyringe"
 
 import { REGISTER_KEY } from "src/modules/di-tokens"
@@ -78,57 +78,33 @@ export class TurnstileService {
 		})
 		const startedAtMs = Date.now()
 
-		let httpStatus: number | null = null
-		let result: Result<TurnstileAllowance, TurnstileVerificationError | TurnstileServiceError>
-		try {
-			const response = await fetch(TURNSTILE_SITEVERIFY_URL, {
+		// Fetch-level failure: siteverify unreachable OR the 5 s timeout fired —
+		// both retryable 503s, never a pass.
+		const fetchOutcome = await ResultAsync.fromPromise(
+			fetch(TURNSTILE_SITEVERIFY_URL, {
 				method: "POST",
 				headers: { "content-type": "application/x-www-form-urlencoded" },
 				body: form.toString(),
 				signal: AbortSignal.timeout(TURNSTILE_VERIFY_TIMEOUT_MS),
-			})
-			httpStatus = response.status
-			if (!response.ok) {
-				result = err(new TurnstileServiceError(`siteverify HTTP ${String(response.status)}`))
-			} else {
-				const payload: unknown = await response.json()
-				if (isSiteverifyPayload(payload)) {
-					if (payload.success === true) {
-						result = ok({ verified: true })
-					} else if (payload.success === false) {
-						const codes = readErrorCodes(payload)
-						let serverFault = false
-						for (const code of codes) {
-							if (SERVER_FAULT_SITEVERIFY_CODES.has(code)) {
-								serverFault = true
-								break
-							}
-						}
-						if (serverFault) {
-							result = err(new TurnstileServiceError(`siteverify error-codes: ${codes.join(", ")}`))
-						} else {
-							// Token-attributed codes (missing/invalid-input-response,
-							// timeout-or-duplicate) and unknown future codes — the
-							// verdict is on the token, so 403.
-							result = err(new TurnstileVerificationError())
-						}
-					} else {
-						// `success` missing or the wrong type — unparseable,
-						// server-side family.
-						result = err(new TurnstileServiceError("malformed siteverify payload"))
-					}
-				} else {
-					result = err(new TurnstileServiceError("malformed siteverify payload"))
-				}
-			}
-		} catch (error) {
-			// A fetch-level failure: siteverify unreachable OR the 5 s timeout
-			// fired — both retryable 503s, never a pass.
-			result = err(new TurnstileServiceError(undefined, error))
+			}),
+			(error: unknown) => new TurnstileServiceError(undefined, error)
+		)
+		const httpStatus = fetchOutcome.isOk() ? fetchOutcome.value.status : null
+
+		let outcome: Result<TurnstileAllowance, TurnstileVerificationError | TurnstileServiceError>
+		if (fetchOutcome.isErr()) {
+			outcome = err(fetchOutcome.error)
+		} else if (!fetchOutcome.value.ok) {
+			outcome = err(new TurnstileServiceError(`siteverify HTTP ${String(fetchOutcome.value.status)}`))
+		} else {
+			// Body-read failure (truncated / non-JSON) — server-side family; the
+			// payload verdict itself is the flat classifier below.
+			const bodyOutcome = await ResultAsync.fromPromise(fetchOutcome.value.json(), (error: unknown) => new TurnstileServiceError("malformed siteverify body", error))
+			outcome = bodyOutcome.andThen((payload: unknown) => classifySiteverifyPayload(payload))
 		}
 
 		const durationMs = Date.now() - startedAtMs
-		if (result.isOk()) {
+		if (outcome.isOk()) {
 			logger.info("turnstile verify: siteverify response — token verified", {
 				outcome: "ok",
 				http_status: httpStatus,
@@ -136,14 +112,14 @@ export class TurnstileService {
 			})
 		} else {
 			logger.info("turnstile verify: siteverify response — rejected (fail-closed)", {
-				outcome: result.error instanceof TurnstileVerificationError ? "token_rejected" : "service_error",
+				outcome: outcome.error instanceof TurnstileVerificationError ? "token_rejected" : "service_error",
 				http_status: httpStatus,
-				detail: result.error.message,
-				cause: result.error.cause,
+				detail: outcome.error.message,
+				cause: outcome.error.cause,
 				duration_ms: durationMs,
 			})
 		}
-		return result
+		return outcome
 	}
 }
 
@@ -170,4 +146,40 @@ function readErrorCodes(payload: SiteverifyPayload): string[] {
 		}
 	}
 	return valid
+}
+
+function containsServerFaultCode(codes: readonly string[]): boolean {
+	for (const code of codes) {
+		if (SERVER_FAULT_SITEVERIFY_CODES.has(code)) {
+			return true
+		}
+	}
+	return false
+}
+
+/**
+ * The fail-closed verdict for one siteverify payload — flat on purpose:
+ * success=true is the only pass, a token-attributed success=false is the 403
+ * family, and everything else (secret faults, unknown codes, wrong shape) is
+ * the retryable 503 family.
+ */
+function classifySiteverifyPayload(payload: unknown): Result<TurnstileAllowance, TurnstileVerificationError | TurnstileServiceError> {
+	if (!isSiteverifyPayload(payload)) {
+		return err(new TurnstileServiceError("malformed siteverify payload"))
+	}
+	if (payload.success === true) {
+		return ok({ verified: true })
+	}
+	if (payload.success === false) {
+		const codes = readErrorCodes(payload)
+		if (containsServerFaultCode(codes)) {
+			return err(new TurnstileServiceError(`siteverify error-codes: ${codes.join(", ")}`))
+		}
+		// Token-attributed codes (missing/invalid-input-response,
+		// timeout-or-duplicate) and unknown future codes — the verdict is on
+		// the token, so 403.
+		return err(new TurnstileVerificationError())
+	}
+	// `success` missing or the wrong type — unparseable, server-side family.
+	return err(new TurnstileServiceError("malformed siteverify payload"))
 }
