@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import type { EnvConfig } from "src/shared/config/env"
-import { TurnstileService, TurnstileServiceError, TurnstileVerificationError, TURNSTILE_SITEVERIFY_URL } from "./turnstile.service"
+import { TurnstileServiceError, TurnstileVerificationError } from "./errors"
+import { TurnstileService, TURNSTILE_SITEVERIFY_URL } from "./turnstile.service"
 
 function makeEnv(secret: string): EnvConfig {
 	return { CLOUDFLARE_TURNSTILE_SECRET_KEY: secret, CLOUDFLARE_CIDRS: "" } as unknown as EnvConfig
@@ -125,6 +126,10 @@ describe("TurnstileService", () => {
 				// a secret error-code — that is a deployment fault, so it must land in
 				// the retryable 503 family, indistinguishable-from-403 is the defect
 				// the split exists to prevent (code-review finding, SEC-5).
+				// Post-refactor: .message carries the per-case diagnostic detail; the
+				// canonical retryable wording lives in
+				// TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE and is applied at the
+				// response boundary (turnstile-gate.ts), never here.
 				const service = new TurnstileService(makeEnv("wrong-secret"))
 				fetchMock.mockResolvedValue(makeSiteverifyResponse({ success: false, "error-codes": ["invalid-input-secret"] }))
 
@@ -132,7 +137,7 @@ describe("TurnstileService", () => {
 
 				expect(result.isErr()).toBe(true)
 				expect(result._unsafeUnwrapErr()).toBeInstanceOf(TurnstileServiceError)
-				expect(result._unsafeUnwrapErr().message).toBe("Human verification is temporarily unavailable")
+				expect(result._unsafeUnwrapErr().message).toBe("siteverify error-codes: invalid-input-secret")
 			})
 
 			test("internal-error from siteverify is SERVER-side: TurnstileServiceError", async () => {

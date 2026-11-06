@@ -4,7 +4,8 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { TurnstileService, TurnstileServiceError } from "src/modules/shared/turnstile/turnstile.service"
+import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TurnstileServiceError } from "src/modules/shared/turnstile/errors"
+import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
 import { createLogger } from "src/shared/lib/logger/logger"
 
 const logger = createLogger(["api", "middleware", "turnstile-gate"])
@@ -70,10 +71,14 @@ export async function enforceTurnstileToken(request: NextRequest, isAdmin: boole
 	if (verifyResult.error instanceof TurnstileServiceError) {
 		logger.warn("turnstile siteverify unavailable: {errorMessage} (code={code})", {
 			code: verifyResult.error.code,
+			// TurnstileServiceError.message carries the per-case diagnostic detail
+			// (HTTP status / siteverify codes / missing-secret); the RESPONSE body
+			// stays pinned to the canonical retryable wording — never leak
+			// diagnostics into the contract (scrutiny: no leaky details).
 			errorMessage: verifyResult.error.message,
 			cause: verifyResult.error.cause,
 		})
-		return NextResponse.json({ error_message: verifyResult.error.message } satisfies ResponseBodyError, { status: 503 })
+		return NextResponse.json({ error_message: TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE } satisfies ResponseBodyError, { status: 503 })
 	}
 	return NextResponse.json({ error_message: verifyResult.error.message } satisfies ResponseBodyError, { status: 403 })
 }

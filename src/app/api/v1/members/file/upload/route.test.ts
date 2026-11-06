@@ -21,7 +21,8 @@ import type { UploadedFilePathResponse } from "src/modules/members/member-file.t
 import { RATE_LIMIT_BUDGETS, RateLimiterService } from "src/modules/shared/rate-limiter/rate-limiter.service"
 import { StorageError } from "src/modules/shared/storage"
 import { TURNSTILE_TOKEN_HEADER } from "src/app/api/middleware/turnstile-gate"
-import { TurnstileService, TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/turnstile.service"
+import { TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/errors"
+import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
 
 import { ResponseBodyError } from "src/app/api/shared/types"
 // Import route AFTER mocks.
