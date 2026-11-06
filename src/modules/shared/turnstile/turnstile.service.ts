@@ -3,7 +3,7 @@ import { inject, injectable } from "tsyringe"
 
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { resolveTrustedClientIp } from "src/modules/shared/client-ip/resolve-trusted-client-ip"
-import { TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/errors"
+import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TurnstileServiceError, TurnstileVerificationError } from "src/modules/shared/turnstile/errors"
 import type { EnvConfig } from "src/shared/config/env"
 import { createLogger } from "src/shared/lib/logger/logger"
 
@@ -79,7 +79,8 @@ export class TurnstileService {
 		const startedAtMs = Date.now()
 
 		// Fetch-level failure: siteverify unreachable OR the 5 s timeout fired —
-		// both retryable 503s, never a pass.
+		// both retryable 503s, never a pass. The canonical wording is passed
+		// explicitly (no default-param magic); the raw error rides as cause.
 		const fetchOutcome = await ResultAsync.fromPromise(
 			fetch(TURNSTILE_SITEVERIFY_URL, {
 				method: "POST",
@@ -87,7 +88,7 @@ export class TurnstileService {
 				body: form.toString(),
 				signal: AbortSignal.timeout(TURNSTILE_VERIFY_TIMEOUT_MS),
 			}),
-			(error: unknown) => new TurnstileServiceError(undefined, error)
+			(error: unknown) => new TurnstileServiceError(TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, error)
 		)
 		const httpStatus = fetchOutcome.isOk() ? fetchOutcome.value.status : null
 

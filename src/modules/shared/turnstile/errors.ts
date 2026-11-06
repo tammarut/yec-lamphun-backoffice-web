@@ -1,6 +1,6 @@
 import { AppError } from "src/shared/core/errors/app-error"
 
-/** The one wording every 503-family rejection carries (pinned here — TurnstileServiceError's default message). */
+/** The one wording every 503-family rejection carries (pinned here; call sites pass it explicitly). */
 export const TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE = "Human verification is temporarily unavailable"
 
 /** The token itself failed verification (invalid / expired) → the 403 family. */
@@ -16,7 +16,7 @@ export class TurnstileVerificationError extends AppError {
  * from 403.
  */
 export class TurnstileServiceError extends AppError {
-	constructor(message = TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, cause?: unknown) {
+	constructor(message: string, cause?: unknown) {
 		super(message, "TURNSTILE_SERVICE_UNAVAILABLE", cause)
 	}
 }
