@@ -20,6 +20,7 @@ function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfi
 		CLOUDFLARE_CIDRS: "",
 		ORIGIN_ALLOW_LIST: "",
 		CLOUDFLARE_TURNSTILE_SECRET_KEY: "",
+		CLOUDFLARE_TURNSTILE_SITE_KEY: "",
 		R2_PUBLIC_BUCKET: "public",
 		R2_PRIVATE_BUCKET: "private",
 		R2_PUBLIC_BASE_URL: "https://test.r2.cloudflarestorage.com/public",

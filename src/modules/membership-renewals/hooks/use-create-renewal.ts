@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
+import { TURNSTILE_TOKEN_HEADER } from "src/modules/shared/turnstile/constants"
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
 
 export type CreateRenewalInput = {
@@ -11,6 +12,8 @@ export type CreateRenewalInput = {
 	readonly payment_slip: string
 	/** true → POST /renewals/manual (admin: instant APPROVED + clock advance, ADR-0016). */
 	readonly manual: boolean
+	/** Guest human-verification token (SEC-6) — sent as the Yec-Turnstile-Token header (ADR-0028), never in the body. */
+	readonly turnstileToken?: string
 }
 
 type CreatedRenewalRow = {
@@ -36,9 +39,13 @@ async function postRenewal(input: CreateRenewalInput): Promise<CreateRenewalResp
 	// main-first order (index 0 = main); the form's ② สมาชิกเพิ่มเติม (#87)
 	// fills 2..6 entries for a group.
 	const body = { member_ids: [...input.member_ids], payment_slip: input.payment_slip }
+	const headers: Record<string, string> = { "Content-Type": "application/json" }
+	if (input.turnstileToken !== undefined) {
+		headers[TURNSTILE_TOKEN_HEADER] = input.turnstileToken
+	}
 	const result = await fetchJson<CreateRenewalResponse>(url, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: headers,
 		body: JSON.stringify(body),
 	})
 	if (result.isErr()) {

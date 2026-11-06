@@ -4,20 +4,16 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
-import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TurnstileServiceError } from "src/modules/shared/turnstile/errors"
+import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TURNSTILE_TOKEN_HEADER, TURNSTILE_VERIFICATION_FAILED_MESSAGE } from "src/modules/shared/turnstile/constants"
+import { TurnstileServiceError } from "src/modules/shared/turnstile/errors"
 import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
 import { createLogger } from "src/shared/lib/logger/logger"
 
 const logger = createLogger(["api", "middleware", "turnstile-gate"])
 
-/**
- * The ONE transport for the guest human-verification token (SEC-5, ADR-0028):
- * a request header on both public renewal-flow POSTs — a credential, not
- * request data, so it never rides the JSON body or the multipart form.
- * Hyphenated-Pascal-Case, `Yec-` org namespace, no `X-` prefix (RFC 6648),
- * no underscores (proxy-safe). Case-insensitive on the wire.
- */
-export const TURNSTILE_TOKEN_HEADER = "Yec-Turnstile-Token"
+// Route tests import the header name from this file — re-export the shared
+// constant so the import sites stay stable (SEC-6 moved the literal).
+export { TURNSTILE_TOKEN_HEADER }
 
 /**
  * The ADR-0015 soft session fork, shared by the public renewal flow's two
@@ -61,7 +57,7 @@ export async function enforceTurnstileToken(request: NextRequest, isAdmin: boole
 	if (token === null || token.trim().length === 0) {
 		// Missing/empty/whitespace-only all count as absent (scrutiny MINOR-1):
 		// the cheap local check must not burn a siteverify round-trip on junk.
-		return NextResponse.json({ error_message: "Human verification failed" } satisfies ResponseBodyError, { status: 403 })
+		return NextResponse.json({ error_message: TURNSTILE_VERIFICATION_FAILED_MESSAGE } satisfies ResponseBodyError, { status: 403 })
 	}
 	const turnstileService = container.resolve<TurnstileService>(REGISTER_KEY.TURNSTILE_SERVICE)
 	const verifyResult = await turnstileService.verify(token, request.headers)

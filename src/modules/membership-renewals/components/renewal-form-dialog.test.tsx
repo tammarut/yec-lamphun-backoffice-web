@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { RenewalFormDialog, expiredMembershipToFormMember } from "src/modules/membership-renewals/components/renewal-form-dialog"
+import type { TurnstileWidgetOptions } from "src/modules/membership-renewals/hooks/use-turnstile-challenge"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import type { MemberListItemResponse, ListMembersPageResponse } from "src/modules/members/use-case/get-list-members/get-list-members.types"
 
@@ -92,17 +93,25 @@ function pngFile(sizeBytes = 1024): File {
 
 /**
  * Render the dialog against a stubbed fetch. `renewalsResponse` produces the
- * create-POST reply; Debounced autocomplete uses a real 300ms timer —
- * `settleDebounce` before asserting the option list.
+ * create-POST reply, `uploadResponse` the slip-upload reply; Debounced
+ * autocomplete uses a real 300ms timer — `settleDebounce` before asserting
+ * the option list. `turnstileSiteKey`/`isAdmin` default to the no-widget path.
  */
-function renderDialog(options: { mode?: "member" | "manual"; preselectedMember?: ReturnType<typeof expiredMembershipToFormMember>; renewalsResponse?: (url: string) => Response }) {
+function renderDialog(options: {
+	mode?: "member" | "manual"
+	preselectedMember?: ReturnType<typeof expiredMembershipToFormMember>
+	renewalsResponse?: (url: string) => Response
+	uploadResponse?: () => Response
+	turnstileSiteKey?: string
+	isAdmin?: boolean
+}) {
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
 		if (url.startsWith("/api/v1/members?")) {
 			return jsonResponse(200, MEMBER_PAGE)
 		}
 		if (url === "/api/v1/members/file/upload") {
-			return jsonResponse(200, UPLOAD_BODY)
+			return options.uploadResponse?.() ?? jsonResponse(200, UPLOAD_BODY)
 		}
 		if ((url === "/api/v1/membership/renewals" || url === "/api/v1/membership/renewals/manual") && (init?.method ?? "GET") === "POST") {
 			return options.renewalsResponse?.(url) ?? jsonResponse(201, CREATE_RENEWAL_BODY)
@@ -117,7 +126,14 @@ function renderDialog(options: { mode?: "member" | "manual"; preselectedMember?:
 	const onClose = vi.fn()
 	const view = render(
 		<QueryClientProvider client={queryClient}>
-			<RenewalFormDialog mode={options.mode ?? "member"} preselectedMember={options.preselectedMember ?? null} open={true} onClose={onClose} />
+			<RenewalFormDialog
+				mode={options.mode ?? "member"}
+				preselectedMember={options.preselectedMember ?? null}
+				isAdmin={options.isAdmin ?? false}
+				turnstileSiteKey={options.turnstileSiteKey ?? ""}
+				open={true}
+				onClose={onClose}
+			/>
 		</QueryClientProvider>
 	)
 	const settleDebounce = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 350))
@@ -738,6 +754,233 @@ describe("RenewalFormDialog", () => {
 				expect(screen.getByText(/Member 103 already has a pending renewal/)).toBeTruthy()
 				expect(screen.queryByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeNull()
 			})
+		})
+	})
+})
+
+const TURNSTILE_SITE_KEY = "site-key-test"
+const UPLOAD_URL = "/api/v1/members/file/upload"
+const RENEWALS_URL = "/api/v1/membership/renewals"
+const HUMAN_CHECK_FAILED_COPY = "การตรวจสอบความปลอดภัยไม่สำเร็จหรือหมดอายุ กรุณารอสักครู่แล้วกดส่งข้อมูลอีกครั้ง"
+const HUMAN_CHECK_UNAVAILABLE_COPY = "ระบบตรวจสอบความปลอดภัยขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+
+type FetchCall = readonly [RequestInfo | URL, (RequestInit | undefined)?]
+
+/** The Cloudflare widget is the mocked module: window.turnstile captures each render so a test can fire its callbacks. */
+function stubTurnstileWidget() {
+	const widgets: (TurnstileWidgetOptions & { sitekey: string })[] = []
+	const api = {
+		render: vi.fn((_container: HTMLElement, options: TurnstileWidgetOptions & { sitekey: string }) => {
+			widgets.push(options)
+			return `widget-${widgets.length}`
+		}),
+		reset: vi.fn(),
+		remove: vi.fn(),
+	}
+	vi.stubGlobal("turnstile", api)
+	return {
+		api: api,
+		widgets: widgets,
+		/** The challenge passes and the widget issues `token`. */
+		arm: (token: string) => {
+			act(() => {
+				widgets.at(-1)?.callback?.(token)
+			})
+		},
+		expire: () => {
+			act(() => {
+				widgets.at(-1)?.["expired-callback"]?.()
+			})
+		},
+		fail: () => {
+			act(() => {
+				widgets.at(-1)?.["error-callback"]?.("300030")
+			})
+		},
+	}
+}
+
+function submitButton(): HTMLButtonElement {
+	return document.querySelector('[data-slot="renewal-form-submit"]') as HTMLButtonElement
+}
+
+function widgetContainer(): Element | null {
+	return document.querySelector('[data-slot="renewal-turnstile-widget"]')
+}
+
+function findCall(calls: readonly FetchCall[], url: string): FetchCall | undefined {
+	for (const call of calls) {
+		if (String(call[0]) === url) {
+			return call
+		}
+	}
+	return undefined
+}
+
+function tokenHeaderOf(call: FetchCall | undefined): string | null {
+	return new Headers(call?.[1]?.headers).get("Yec-Turnstile-Token")
+}
+
+/** Lets the mocked upload settle so the flow parks on the re-armed token wait. */
+const settleUpload = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50))
+
+/** ① main member + ③ slip + ④ consent — everything the submit needs except the token. */
+async function fillRequiredFields(settleDebounce: () => Promise<void>) {
+	await pickMainMember(/นายสมชาย ใจดี/, settleDebounce)
+	await stageSlipFile(pngFile())
+	fireEvent.click(screen.getByRole("checkbox"))
+}
+
+describe("RenewalFormDialog — human verification (SEC-6)", () => {
+	describe("Happy cases", () => {
+		it("guest member mode renders the widget with the injected site key, and submit stays disabled until a token is armed", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+			await fillRequiredFields(settleDebounce)
+
+			expect(widgetContainer()).toBeTruthy()
+			expect(turnstile.api.render).toHaveBeenCalledTimes(1)
+			expect(turnstile.widgets[0]?.sitekey).toBe(TURNSTILE_SITE_KEY)
+			expect(submitButton().disabled).toBe(true)
+
+			turnstile.arm("token-1")
+
+			expect(submitButton().disabled).toBe(false)
+		})
+
+		it("spends the armed token on the upload, resets the widget, and guards the create with the re-armed token", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { fetchMock, settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+
+			fireEvent.click(submitButton())
+			await waitFor(() => expect(findCall(fetchMock.mock.calls, UPLOAD_URL)).toBeTruthy())
+			await settleUpload()
+
+			expect(tokenHeaderOf(findCall(fetchMock.mock.calls, UPLOAD_URL))).toBe("token-1")
+			expect(turnstile.api.reset).toHaveBeenCalledWith("widget-1")
+			// Parked on the re-arm: no create yet, and no enable-gap between the two guarded calls.
+			expect(findCall(fetchMock.mock.calls, RENEWALS_URL)).toBeUndefined()
+			expect(submitButton().disabled).toBe(true)
+
+			turnstile.arm("token-2")
+
+			expect(await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeTruthy()
+			const createCall = findCall(fetchMock.mock.calls, RENEWALS_URL)
+			expect(tokenHeaderOf(createCall)).toBe("token-2")
+			expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({ member_ids: [101], payment_slip: "members/documents/payment_slip_test.jpg" })
+			expect(turnstile.api.remove).toHaveBeenCalledWith("widget-1")
+		})
+
+		it("an expired token re-locks submit until the widget's auto-refresh arms a fresh one", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+			expect(submitButton().disabled).toBe(false)
+
+			turnstile.expire()
+			expect(submitButton().disabled).toBe(true)
+
+			turnstile.arm("token-refreshed")
+			expect(submitButton().disabled).toBe(false)
+		})
+
+		it("a staff session gets no widget and sends both calls without a token header (the server skips the gate)", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { fetchMock, settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY, isAdmin: true })
+			await fillRequiredFields(settleDebounce)
+
+			expect(widgetContainer()).toBeNull()
+			expect(turnstile.api.render).not.toHaveBeenCalled()
+
+			fireEvent.click(submitButton())
+
+			expect(await screen.findByText("ส่งข้อมูลเรียบร้อยแล้ว")).toBeTruthy()
+			expect(tokenHeaderOf(findCall(fetchMock.mock.calls, UPLOAD_URL))).toBeNull()
+			expect(tokenHeaderOf(findCall(fetchMock.mock.calls, RENEWALS_URL))).toBeNull()
+		})
+
+		it("manual mode never renders the widget", () => {
+			const turnstile = stubTurnstileWidget()
+			renderDialog({ mode: "manual", preselectedMember: expiredMembershipToFormMember(MANUAL_MEMBER_ROW), turnstileSiteKey: TURNSTILE_SITE_KEY })
+
+			expect(widgetContainer()).toBeNull()
+			expect(turnstile.api.render).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		it("an upload rejected by human verification shows the Thai copy, keeps the form data, and re-enables submit once the widget re-arms", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { fetchMock, settleDebounce } = renderDialog({
+				turnstileSiteKey: TURNSTILE_SITE_KEY,
+				uploadResponse: () => jsonResponse(403, { error_message: "Human verification failed" }),
+			})
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+
+			fireEvent.click(submitButton())
+
+			expect(await screen.findByText(HUMAN_CHECK_FAILED_COPY)).toBeTruthy()
+			expect(screen.queryByText(/Human verification failed/)).toBeNull()
+			expect(screen.getAllByText(/สมชาย ใจดี/).length).toBeGreaterThan(0)
+			expect(screen.getByText(/ไฟล์ที่เลือก:/)).toBeTruthy()
+			expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe("true")
+			expect(findCall(fetchMock.mock.calls, RENEWALS_URL)).toBeUndefined()
+			expect(submitButton().disabled).toBe(true)
+
+			turnstile.arm("token-2")
+
+			expect(submitButton().disabled).toBe(false)
+		})
+
+		it("a create rejected by human verification shows the Thai copy and resets the widget so the re-submit starts on a fresh token", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { settleDebounce } = renderDialog({
+				turnstileSiteKey: TURNSTILE_SITE_KEY,
+				renewalsResponse: () => jsonResponse(403, { error_message: "Human verification failed" }),
+			})
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+
+			fireEvent.click(submitButton())
+			await waitFor(() => expect(turnstile.api.reset).toHaveBeenCalledTimes(1))
+			turnstile.arm("token-2")
+
+			expect(await screen.findByText(HUMAN_CHECK_FAILED_COPY)).toBeTruthy()
+			expect(turnstile.api.reset).toHaveBeenCalledTimes(2)
+			expect(submitButton().disabled).toBe(true)
+		})
+
+		it("an unreachable verification service (503) shows the Thai retry copy", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { settleDebounce } = renderDialog({
+				turnstileSiteKey: TURNSTILE_SITE_KEY,
+				uploadResponse: () => jsonResponse(503, { error_message: "Human verification is temporarily unavailable" }),
+			})
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+
+			fireEvent.click(submitButton())
+
+			expect(await screen.findByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeTruthy()
+		})
+
+		it("a widget error while waiting for the create token shows the Thai retry copy and never fires the create POST", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { fetchMock, settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+			fireEvent.click(submitButton())
+			await waitFor(() => expect(findCall(fetchMock.mock.calls, UPLOAD_URL)).toBeTruthy())
+			await settleUpload()
+
+			turnstile.fail()
+
+			expect(await screen.findByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeTruthy()
+			expect(findCall(fetchMock.mock.calls, RENEWALS_URL)).toBeUndefined()
 		})
 	})
 })
