@@ -63,6 +63,8 @@ describe("useTurnstileChallenge", () => {
 			// Assert
 			expect(turnstile.rendered).toHaveLength(1)
 			expect(turnstile.rendered[0]?.options.sitekey).toBe("site-key-123")
+			// The app has no dark mode: never follow the OS into a dark widget.
+			expect(turnstile.rendered[0]?.options.theme).toBe("light")
 		})
 
 		test("arms the token when the widget fires the success callback", () => {

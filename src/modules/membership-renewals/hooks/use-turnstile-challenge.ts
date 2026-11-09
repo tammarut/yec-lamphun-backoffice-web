@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
 
 export type TurnstileWidgetOptions = {
+	theme?: "light" | "dark" | "auto"
 	callback?: (token: string) => void
 	"expired-callback"?: () => void
 	"error-callback"?: (errorCode?: string) => void
@@ -114,6 +115,8 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 			}
 			const widgetId = turnstile.render(container, {
 				sitekey: siteKey,
+				// The app has no dark mode; the default "auto" would follow the OS into a dark box on a white dialog.
+				theme: "light",
 				callback: (nextToken: string) => {
 					armToken(nextToken)
 					setFailed(false)

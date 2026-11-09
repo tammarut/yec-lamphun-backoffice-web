@@ -763,6 +763,11 @@ const UPLOAD_URL = "/api/v1/members/file/upload"
 const RENEWALS_URL = "/api/v1/membership/renewals"
 const HUMAN_CHECK_FAILED_COPY = "การตรวจสอบความปลอดภัยไม่สำเร็จหรือหมดอายุ กรุณารอสักครู่แล้วกดส่งข้อมูลอีกครั้ง"
 const HUMAN_CHECK_UNAVAILABLE_COPY = "ระบบตรวจสอบความปลอดภัยขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+const SUBMIT_PENDING_CHECK_HINT = "กรุณาทำการตรวจสอบความปลอดภัยก่อนส่งข้อมูล"
+
+function footerHint(): HTMLElement | null {
+	return document.querySelector<HTMLElement>('[data-slot="renewal-human-check-hint"]')
+}
 
 type FetchCall = readonly [RequestInfo | URL, (RequestInit | undefined)?]
 
@@ -870,6 +875,37 @@ describe("RenewalFormDialog — human verification (SEC-6)", () => {
 			expect(submitButton().disabled).toBe(false)
 		})
 
+		it("places the widget after the fee summary and bank details in reading order (stacked layouts show it last)", () => {
+			stubTurnstileWidget()
+			renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+
+			const rail = document.querySelector('[data-slot="renewal-form-rail"]')
+			const widget = widgetContainer()
+			if (rail === null || widget === null) {
+				throw new Error("rail or widget not rendered")
+			}
+			expect(rail.compareDocumentPosition(widget) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+			expect(rail.contains(widget)).toBe(false)
+		})
+
+		it("explains the disabled submit in the footer while the check is incomplete, and drops the hint once a token arms", () => {
+			const turnstile = stubTurnstileWidget()
+			renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+
+			const hint = footerHint()
+			expect(hint?.textContent).toBe(SUBMIT_PENDING_CHECK_HINT)
+			expect(submitButton().getAttribute("aria-describedby")).toBe(hint?.id)
+
+			turnstile.arm("token-1")
+
+			expect(footerHint()).toBeNull()
+			expect(submitButton().getAttribute("aria-describedby")).toBeNull()
+
+			turnstile.expire()
+
+			expect(footerHint()).not.toBeNull()
+		})
+
 		it("spends the armed token on the upload, resets the widget, and guards the create with the re-armed token", async () => {
 			const turnstile = stubTurnstileWidget()
 			const { fetchMock, settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
@@ -885,6 +921,8 @@ describe("RenewalFormDialog — human verification (SEC-6)", () => {
 			// Parked on the re-arm: no create yet, and no enable-gap between the two guarded calls.
 			expect(findCall(fetchMock.mock.calls, RENEWALS_URL)).toBeUndefined()
 			expect(submitButton().disabled).toBe(true)
+			// Mid-send the token is null by design — the footer must not ask for a check here.
+			expect(footerHint()).toBeNull()
 
 			turnstile.arm("token-2")
 
@@ -916,6 +954,7 @@ describe("RenewalFormDialog — human verification (SEC-6)", () => {
 
 			expect(widgetContainer()).toBeNull()
 			expect(turnstile.api.render).not.toHaveBeenCalled()
+			expect(footerHint()).toBeNull()
 
 			fireEvent.click(submitButton())
 
@@ -1016,6 +1055,8 @@ describe("RenewalFormDialog — human verification (SEC-6)", () => {
 			expect(screen.getByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeTruthy()
 			expect(document.querySelector('[data-slot="renewal-turnstile-error"]')).toBeTruthy()
 			expect(submitButton().disabled).toBe(true)
+			// The failure message replaces the footer hint — no "do the check" next to "the check is down".
+			expect(footerHint()).toBeNull()
 
 			turnstile.arm("token-recovered")
 

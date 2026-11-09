@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useId, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
 import { err, ok, ResultAsync, type Result } from "neverthrow"
@@ -133,6 +133,8 @@ function validateSlipFile(file: File): string | null {
 /** Human-verification rejection copy (SEC-6, #130) — the widget re-arms by itself, so both invite a plain re-submit. */
 const HUMAN_CHECK_FAILED_COPY = "การตรวจสอบความปลอดภัยไม่สำเร็จหรือหมดอายุ กรุณารอสักครู่แล้วกดส่งข้อมูลอีกครั้ง"
 const HUMAN_CHECK_UNAVAILABLE_COPY = "ระบบตรวจสอบความปลอดภัยขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+/** Footer hint while a guest's check is incomplete — explains the disabled ส่งข้อมูล. */
+const SUBMIT_PENDING_CHECK_HINT = "กรุณาทำการตรวจสอบความปลอดภัยก่อนส่งข้อมูล"
 
 /**
  * Inline copy for a failed upload/create call. Turnstile rejections are matched
@@ -247,6 +249,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 	const isSubmitting = isSending || createRenewal.isPending
 	/** Guests: submit stays locked until the widget has armed a fresh token (single-use, ~5-minute expiry). */
 	const isHumanCheckPending = needsHumanCheck && turnstileToken === null
+	// Hidden mid-send (the token is null by design between the two POSTs) and while the widget's failure message shows.
+	const showCheckPendingHint = isHumanCheckPending && !isSubmitting && !turnstileFailed
+	const checkPendingHintId = useId()
 
 	const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0]
@@ -380,7 +385,8 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 				}
 			}}
 		>
-			<DialogContent data-slot="renewal-form-dialog" className="sm:max-w-4xl">
+			{/* Capped at 56rem but never wider than the viewport minus 1rem per side (tablets were edge-to-edge from 640 to 896px). */}
+			<DialogContent data-slot="renewal-form-dialog" className="sm:max-w-[min(56rem,calc(100%-2rem))]">
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>กรอกข้อมูลและแนบหลักฐานการชำระเงิน</DialogDescription>
@@ -621,15 +627,6 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 										<span className="text-sm">ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขการเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลข้างต้น</span>
 									</label>
 								</div>
-
-								{/* Human verification (SEC-6): guests only — the widget arms the token the submit waits on. */}
-								{needsHumanCheck && <div ref={attachTurnstileContainer} data-slot="renewal-turnstile-widget" />}
-								{/* A broken widget would otherwise just leave submit locked; skip it when the alert already says the same. */}
-								{needsHumanCheck && turnstileFailed && submitError !== HUMAN_CHECK_UNAVAILABLE_COPY && (
-									<p className="text-destructive mt-1 text-xs font-medium" role="alert" data-slot="renewal-turnstile-error">
-										{HUMAN_CHECK_UNAVAILABLE_COPY}
-									</p>
-								)}
 							</div>
 
 							{/* Right rail: display-only fee summary + payment account (nothing sent to the API) */}
@@ -684,6 +681,20 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 									ข้อมูลใช้เวลาอัพเดท 1-2 วันทำการ หากสถานะยังไม่ถูกปรับ กรุณาติดต่อฝ่ายข้อมูลและทะเบียนสมาชิก
 								</p>
 							</div>
+
+							{/* Human verification (SEC-6), guests only. Last grid row, after the fee summary + bank
+							    details: stacked layouts show it at the bottom; two-column spans both columns. */}
+							{needsHumanCheck && (
+								<div className="md:col-span-2" data-slot="renewal-human-check">
+									<div ref={attachTurnstileContainer} data-slot="renewal-turnstile-widget" />
+									{/* A broken widget would otherwise just leave submit locked; skip it when the alert already says the same. */}
+									{turnstileFailed && submitError !== HUMAN_CHECK_UNAVAILABLE_COPY && (
+										<p className="text-destructive mt-1 text-xs font-medium" role="alert" data-slot="renewal-turnstile-error">
+											{HUMAN_CHECK_UNAVAILABLE_COPY}
+										</p>
+									)}
+								</div>
+							)}
 						</div>
 
 						{submitError !== null && (
@@ -704,6 +715,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 								<Button
 									type="submit"
 									disabled={isSubmitting || isHumanCheckPending}
+									aria-describedby={showCheckPendingHint ? checkPendingHintId : undefined}
 									className={isManual ? "bg-success hover:bg-success/90 text-white" : undefined}
 									data-slot="renewal-form-submit"
 								>
@@ -720,6 +732,12 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 									)}
 								</Button>
 							</div>
+							{/* Why ส่งข้อมูล is disabled: on phones the widget sits a scroll below the visible area. */}
+							{showCheckPendingHint && (
+								<p id={checkPendingHintId} className="text-muted-foreground w-full text-xs sm:text-right" data-slot="renewal-human-check-hint">
+									{SUBMIT_PENDING_CHECK_HINT}
+								</p>
+							)}
 						</div>
 					</form>
 				)}
