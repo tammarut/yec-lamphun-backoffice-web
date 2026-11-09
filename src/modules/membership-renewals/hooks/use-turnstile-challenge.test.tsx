@@ -32,7 +32,7 @@ function stubTurnstile() {
 	const rendered: { el: HTMLElement; options: TurnstileRenderOptions }[] = []
 	const api = {
 		render: vi.fn((el: HTMLElement, options: TurnstileRenderOptions) => {
-			rendered.push({ el, options })
+			rendered.push({ el: el, options: options })
 			return `widget-${rendered.length}`
 		}),
 		reset: vi.fn(),
@@ -242,6 +242,30 @@ describe("useTurnstileChallenge", () => {
 			expect(script).not.toBeNull()
 			expect(latestRef.current?.failed).toBe(true)
 			script?.remove()
+		})
+
+		test("a script that loads without exposing the API (e.g. a captive-portal page) lets the next mount retry with a fresh script", async () => {
+			// Arrange — first mount injects the script; it "loads" but window.turnstile never appears.
+			vi.stubGlobal("turnstile", undefined)
+			const firstRef: { current: UseTurnstileChallenge | null } = { current: null }
+			const first = render(<ChallengeHarness siteKey="site-key-123" active={true} onRender={captureInto(firstRef)} />)
+			const firstScript = document.head.querySelector<HTMLScriptElement>('script[src^="https://challenges.cloudflare.com/turnstile/"]')
+			await act(async () => {
+				firstScript?.dispatchEvent(new Event("load"))
+			})
+			first.unmount()
+			firstScript?.remove()
+
+			// Act — the member reopens the dialog.
+			const secondRef: { current: UseTurnstileChallenge | null } = { current: null }
+			render(<ChallengeHarness siteKey="site-key-123" active={true} onRender={captureInto(secondRef)} />)
+			const retryScript = document.head.querySelector<HTMLScriptElement>('script[src^="https://challenges.cloudflare.com/turnstile/"]')
+
+			// Assert
+			expect(firstRef.current?.failed).toBe(true)
+			expect(retryScript).not.toBeNull()
+			retryScript?.dispatchEvent(new Event("error"))
+			retryScript?.remove()
 		})
 
 		test("error-callback clears the token and rejects a pending waitForToken", async () => {

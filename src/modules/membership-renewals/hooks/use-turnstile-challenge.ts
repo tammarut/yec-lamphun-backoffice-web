@@ -52,6 +52,8 @@ function loadTurnstileScript(): Promise<TurnstileApi> {
 			script.async = true
 			script.onload = () => {
 				if (window.turnstile === undefined) {
+					// e.g. a captive portal answering the script URL with its own page: let the next mount retry.
+					scriptLoad = null
 					reject(new Error("Turnstile script loaded without window.turnstile"))
 					return
 				}
@@ -132,7 +134,9 @@ export function useTurnstileChallenge({ siteKey, active }: { siteKey: string; ac
 			mount(window.turnstile)
 		} else {
 			loadTurnstileScript().then(mount, () => {
-				setFailed(true)
+				if (!cancelled) {
+					setFailed(true)
+				}
 			})
 		}
 		return () => {

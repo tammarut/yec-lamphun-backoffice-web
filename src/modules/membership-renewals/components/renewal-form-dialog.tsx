@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
 import { err, ok, ResultAsync, type Result } from "neverthrow"
@@ -205,6 +205,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 	const [succeeded, setSucceeded] = useState(false)
 	const [submitError, setSubmitError] = useState<string | null>(null)
 	const [isSending, setIsSending] = useState(false)
+	// Synchronous re-entrancy latch: a second submit event in the same tick reads
+	// the same render's isSending (still false), so state alone cannot stop it.
+	const sendInFlightRef = useRef(false)
 	const [copiedAccount, setCopiedAccount] = useState(false)
 
 	const {
@@ -344,6 +347,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 
 	const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault()
+		if (sendInFlightRef.current) {
+			return
+		}
 		setSubmitAttempted(true)
 		setSubmitError(null)
 		const uploadToken = turnstileToken
@@ -351,9 +357,11 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 			return
 		}
 
+		sendInFlightRef.current = true
 		setIsSending(true)
 		const sendOutcome = await sendRenewal(selected, slip.file, uploadToken)
 		setIsSending(false)
+		sendInFlightRef.current = false
 		if (sendOutcome.isErr()) {
 			setSubmitError(sendOutcome.error)
 			return

@@ -821,6 +821,24 @@ function findCall(calls: readonly FetchCall[], url: string): FetchCall | undefin
 	return undefined
 }
 
+function countCalls(calls: readonly FetchCall[], url: string): number {
+	let count = 0
+	for (const call of calls) {
+		if (String(call[0]) === url) {
+			count += 1
+		}
+	}
+	return count
+}
+
+function renewalForm(): HTMLFormElement {
+	const form = document.querySelector<HTMLFormElement>('[data-slot="renewal-form-dialog"] form')
+	if (form === null) {
+		throw new Error("renewal form not rendered")
+	}
+	return form
+}
+
 function tokenHeaderOf(call: FetchCall | undefined): string | null {
 	return new Headers(call?.[1]?.headers).get("Yec-Turnstile-Token")
 }
@@ -1003,6 +1021,33 @@ describe("RenewalFormDialog — human verification (SEC-6)", () => {
 
 			expect(screen.queryByText(HUMAN_CHECK_UNAVAILABLE_COPY)).toBeNull()
 			expect(submitButton().disabled).toBe(false)
+		})
+
+		it("a scripted re-submit while a send is in flight (the button is disabled, the form is not) starts no second flow", async () => {
+			// Staff path: no token to spend, so nothing but the in-flight guard can stop flow two.
+			const { fetchMock, settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY, isAdmin: true })
+			await fillRequiredFields(settleDebounce)
+
+			fireEvent.submit(renewalForm())
+			fireEvent.submit(renewalForm())
+			await settleUpload()
+
+			expect(countCalls(fetchMock.mock.calls, UPLOAD_URL)).toBe(1)
+		})
+
+		it("two submits in the same tick, before React commits the sending state, start one flow", async () => {
+			const turnstile = stubTurnstileWidget()
+			const { fetchMock, settleDebounce } = renderDialog({ turnstileSiteKey: TURNSTILE_SITE_KEY })
+			await fillRequiredFields(settleDebounce)
+			turnstile.arm("token-1")
+
+			act(() => {
+				renewalForm().dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+				renewalForm().dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+			})
+			await settleUpload()
+
+			expect(countCalls(fetchMock.mock.calls, UPLOAD_URL)).toBe(1)
 		})
 	})
 })
