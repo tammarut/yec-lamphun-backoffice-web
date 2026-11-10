@@ -40,6 +40,7 @@ describe("AuthService", () => {
 			CLOUDFLARE_CIDRS: "",
 			ORIGIN_ALLOW_LIST: "",
 			CLOUDFLARE_TURNSTILE_SECRET_KEY: "",
+			CLOUDFLARE_TURNSTILE_SITE_KEY: "",
 		}
 
 		mockSessionStore = mock<ISessionStore>()

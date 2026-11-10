@@ -40,9 +40,14 @@ export type EnvConfig = {
 	// Human verification (SEC-5, spec #124): the Cloudflare Turnstile SECRET
 	// key — server-only, never a NEXT_PUBLIC_ var. Empty (default) keeps the
 	// gate FAIL-CLOSED: the TurnstileService refuses to call siteverify and
-	// guests get a retryable 503 until the deployment sets it. The site key
-	// (client-side widget) is a separate SEC-6 concern.
+	// guests get a retryable 503 until the deployment sets it.
 	CLOUDFLARE_TURNSTILE_SECRET_KEY: string
+	// Human verification (SEC-6, spec #130): the widget's SITE key. NOT a
+	// NEXT_PUBLIC_ var — the /renewal page reads it server-side (force-dynamic)
+	// and injects it as a prop into the dialog; the client env block stays
+	// empty (no NEXT_PUBLIC_* precedent). Empty (default) = no widget rendered;
+	// the API gate stays fail-closed for guests either way.
+	CLOUDFLARE_TURNSTILE_SITE_KEY: string
 }
 
 export const envConfig = createEnv({
@@ -85,6 +90,10 @@ export const envConfig = createEnv({
 		// Turnstile secret key (SEC-5). Empty default = fail-closed 503 for
 		// guests until configured; staff sessions skip the gate regardless.
 		CLOUDFLARE_TURNSTILE_SECRET_KEY: v.optional(v.string(), ""),
+		// Turnstile site key (SEC-6). Empty default = the /renewal page injects
+		// no site key → no widget; guests' submissions stay 403-blocked by the
+		// gate (fail-closed), matching the missing-secret steady state.
+		CLOUDFLARE_TURNSTILE_SITE_KEY: v.optional(v.string(), ""),
 	},
 	client: {},
 	runtimeEnv: {
@@ -108,5 +117,6 @@ export const envConfig = createEnv({
 		CLOUDFLARE_CIDRS: process.env["CLOUDFLARE_CIDRS"],
 		ORIGIN_ALLOW_LIST: process.env["ORIGIN_ALLOW_LIST"],
 		CLOUDFLARE_TURNSTILE_SECRET_KEY: process.env["CLOUDFLARE_TURNSTILE_SECRET_KEY"],
+		CLOUDFLARE_TURNSTILE_SITE_KEY: process.env["CLOUDFLARE_TURNSTILE_SITE_KEY"],
 	},
 })

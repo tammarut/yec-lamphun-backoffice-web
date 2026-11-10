@@ -10,7 +10,8 @@ import { ExpiredMembersTable } from "src/modules/membership-renewals/components/
 import { RejectedRenewalPanel } from "src/modules/membership-renewals/components/rejected-renewal-panel"
 import { ResignMemberDialog } from "src/modules/membership-renewals/components/resign-member-dialog"
 import { ReviewDialog, type ReviewDialogTarget } from "src/modules/membership-renewals/components/review-dialog"
-import { RenewalFormDialog, expiredMembershipToFormMember, type RenewalFormMember } from "src/modules/membership-renewals/components/renewal-form-dialog"
+import { RenewalFormDialog } from "src/modules/membership-renewals/components/renewal-form-dialog"
+import { expiredMembershipToFormMember, type RenewalFormMember } from "src/modules/membership-renewals/components/renewal-form-state"
 import { fullNameTh } from "src/modules/membership-renewals/components/renewal-labels"
 import { EXPIRED_MEMBERSHIPS_QUERY_KEY, useExpiredMemberships } from "src/modules/membership-renewals/hooks/use-expired-memberships"
 import { useResignMember } from "src/modules/membership-renewals/hooks/use-resign-member"
@@ -36,7 +37,7 @@ const EXPIRED_SHOWN_STEP = 10
  * the expired table's ต่ออายุ (Manual) + ลาออก kebab (#114) — the review,
  * manual-form, and resign-confirm dialogs live here.
  */
-export function RenewalWorklistView() {
+export function RenewalWorklistView({ turnstileSiteKey }: { turnstileSiteKey: string }) {
 	const { isAdmin } = useSession()
 
 	const [searchTerm, setSearchTerm] = useState("")
@@ -221,7 +222,14 @@ export function RenewalWorklistView() {
 				</>
 			)}
 
-			<RenewalFormDialog mode="manual" preselectedMember={manualMember} open={manualMember !== null} onClose={() => setManualMember(null)} />
+			<RenewalFormDialog
+				mode="manual"
+				preselectedMember={manualMember}
+				isAdmin={isAdmin}
+				turnstileSiteKey={turnstileSiteKey}
+				open={manualMember !== null}
+				onClose={() => setManualMember(null)}
+			/>
 			<ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
 			<ResignMemberDialog
 				member={resignTarget}

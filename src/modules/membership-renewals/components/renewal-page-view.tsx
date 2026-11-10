@@ -26,7 +26,7 @@ import { useSession } from "src/shared/lib/api/session"
  * the three clickable stat cards filtering the area below (ยังไม่ได้ต่ออายุ =
  * the PR 2 worklist, otherwise the รอตรวจสอบ/ปกติ table).
  */
-export function RenewalPageView() {
+export function RenewalPageView({ turnstileSiteKey }: { turnstileSiteKey: string }) {
 	const { isAdmin, isCheckingSession } = useSession()
 	const settings = useSystemSettings()
 	const queryClient = useQueryClient()
@@ -65,16 +65,18 @@ export function RenewalPageView() {
 	// Keyed by audience so the body's default filter re-initializes when the
 	// session probe resolves an admin (mockup default: admins land on the
 	// รอตรวจสอบ review queue) — keyed state instead of a set-state effect.
-	return <RenewalPageBody key={isAdmin ? "admin" : "member"} isAdmin={isAdmin} isOpen={isOpen} />
+	return <RenewalPageBody key={isAdmin ? "admin" : "member"} isAdmin={isAdmin} isOpen={isOpen} turnstileSiteKey={turnstileSiteKey} />
 }
 
 type RenewalPageBodyProps = {
 	isAdmin: boolean
 	/** Whether the renewal window is open (`open_membership_renewal`). */
 	isOpen: boolean
+	/** Server-injected Turnstile site key (SEC-6); the dialog renders the widget for guests only. */
+	turnstileSiteKey: string
 }
 
-function RenewalPageBody({ isAdmin, isOpen }: RenewalPageBodyProps) {
+function RenewalPageBody({ isAdmin, isOpen, turnstileSiteKey }: RenewalPageBodyProps) {
 	const [filter, setFilter] = useState<RenewalFilter>(isAdmin ? "PENDING_REVIEW" : "NOT_RENEWED")
 	const [formOpen, setFormOpen] = useState(false)
 
@@ -102,7 +104,7 @@ function RenewalPageBody({ isAdmin, isOpen }: RenewalPageBodyProps) {
 			<RenewalFeeBanner />
 			<RenewalStats filter={filter} onSelect={setFilter} />
 
-			{filter === "NOT_RENEWED" ? <RenewalWorklistView /> : <RenewalTable status={filter} />}
+			{filter === "NOT_RENEWED" ? <RenewalWorklistView turnstileSiteKey={turnstileSiteKey} /> : <RenewalTable status={filter} />}
 
 			{/* Mobile FAB (mockup v3 has no mobile layout — the primary action stays reachable while scrolling). */}
 			<Button
@@ -115,7 +117,7 @@ function RenewalPageBody({ isAdmin, isOpen }: RenewalPageBodyProps) {
 				ต่ออายุ
 			</Button>
 
-			<RenewalFormDialog mode="member" open={formOpen} onClose={() => setFormOpen(false)} />
+			<RenewalFormDialog mode="member" preselectedMember={null} isAdmin={isAdmin} turnstileSiteKey={turnstileSiteKey} open={formOpen} onClose={() => setFormOpen(false)} />
 		</div>
 	)
 }
