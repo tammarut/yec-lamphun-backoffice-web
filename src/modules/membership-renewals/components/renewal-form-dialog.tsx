@@ -1,16 +1,24 @@
 "use client"
 
-import { useId, useRef, useState } from "react"
+import { useId, useReducer, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, Building01Icon, Cancel01Icon, CheckmarkCircleIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, SentIcon } from "@hugeicons/core-free-icons"
 import { err, ok, ResultAsync, type Result } from "neverthrow"
 
 import { fullNameTh, memberStatusLabel } from "src/modules/membership-renewals/components/renewal-labels"
+import {
+	createRenewalFormState,
+	isCrossBusiness,
+	isSameBusiness,
+	memberListItemToFormMember,
+	renewalFormReducer,
+	validateSlipFile,
+	SLIP_ALLOWED_EXTENSIONS,
+	type RenewalFormMember,
+} from "src/modules/membership-renewals/components/renewal-form-state"
 import { RenewalMemberCombobox } from "src/modules/membership-renewals/components/renewal-member-combobox"
 import { useCreateRenewal } from "src/modules/membership-renewals/hooks/use-create-renewal"
 import { useTurnstileChallenge } from "src/modules/membership-renewals/hooks/use-turnstile-challenge"
-import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
-import type { MemberListItemResponse } from "src/modules/members/use-case/get-list-members/get-list-members.types"
 import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TURNSTILE_TOKEN_HEADER, TURNSTILE_VERIFICATION_FAILED_MESSAGE } from "src/modules/shared/turnstile/constants"
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
@@ -19,10 +27,6 @@ import { Checkbox } from "src/shared/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "src/shared/components/ui/dialog"
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
 import { cn } from "src/shared/lib/utils/utils"
-
-/** Per-file size limit (7MB) and image extensions — mirrors the upload API's server rules (same client copy convention as card 03). */
-const MAX_SLIP_FILE_SIZE_BYTES = 7 * 1024 * 1024
-const SLIP_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"] as const
 
 /** Full per-member renewal rate (main member; also an additional from another business). */
 const FEE_PER_BUSINESS = 5000
@@ -43,69 +47,6 @@ const CROSS_BUSINESS_WARNING = "ไม่ได้อยู่กิจการ
 /** Static payment account (README §8 item 5 static copy); copied to the clipboard digits-only. */
 const BANK_ACCOUNT_DISPLAY = "207-8-13870-2"
 
-/**
- * The member fields the form's ① section displays. Deliberately looser than
- * `MemberListItemResponse`: manual mode preselects from an expired-worklist
- * row, which carries no business name (API wins over the mockup's business
- * line — same precedent as the PR 2 rejected rows).
- */
-export type RenewalFormMember = {
-	readonly id: number
-	readonly profile_avatar: string | null
-	readonly title_name_th: string
-	readonly first_name_th: string
-	readonly last_name_th: string
-	readonly nickname: string
-	readonly position: string
-	readonly status: string
-	readonly businessName: string | null
-}
-
-/** Adapt an autocomplete hit into the form's selected-member shape. */
-function memberListItemToFormMember(member: MemberListItemResponse): RenewalFormMember {
-	return {
-		id: member.id,
-		profile_avatar: member.profile_avatar,
-		title_name_th: member.title_name_th,
-		first_name_th: member.first_name_th,
-		last_name_th: member.last_name_th,
-		nickname: member.nickname,
-		position: member.position,
-		status: member.status,
-		businessName: member.business.name,
-	}
-}
-
-/** Adapt an expired/ rejected worklist row into the form's selected-member shape (manual mode). */
-export function expiredMembershipToFormMember(member: ExpiredMembershipResponse): RenewalFormMember {
-	return {
-		id: member.id,
-		profile_avatar: member.profile_avatar,
-		title_name_th: member.title_name_th,
-		first_name_th: member.first_name_th,
-		last_name_th: member.last_name_th,
-		nickname: member.nickname,
-		position: member.position,
-		status: member.status,
-		businessName: null,
-	}
-}
-
-/**
- * Same-business predicate — TRUE only when BOTH business names are known and
- * equal. Drives both the amber cross-business warning (via the negation seen
- * from the card) and the 4,000 same-business additional rate; an unknown
- * business (manual-mode main) therefore prices at full 5,000 with no warning.
- */
-function isSameBusiness(member: RenewalFormMember, main: RenewalFormMember | null): boolean {
-	return main !== null && member.businessName !== null && main.businessName !== null && member.businessName === main.businessName
-}
-
-/** Cross-business amber warning predicate (ADR-0026 §5: a warning, never a block). */
-function isCrossBusiness(member: RenewalFormMember, main: RenewalFormMember | null): boolean {
-	return main !== null && member.businessName !== null && main.businessName !== null && member.businessName !== main.businessName
-}
-
 /** The mockup's three missing-field summary items, in section order. */
 const MISSING_FIELD_LABELS = {
 	member: "เลือกสมาชิกที่ต่ออายุ",
@@ -118,17 +59,6 @@ const PDPA_DETAIL_TEXT = [
 	"ข้าพเจ้า (เจ้าของข้อมูล) ตกลงยินยอมให้หอการค้าลำพูน เก็บ รวบรวม ใช้ หรือเปิดเผยข้อมูลส่วนบุคคลของข้าพเจ้าที่มีอยู่กับหอการค้าลำพูน เพื่อประโยชน์ในการจดทะเบียนและรักษาสถานะสมาชิก การติดต่อสื่อสารเรื่องกิจกรรมและสิทธิประโยชน์ของสมาชิก ตลอดจนการจัดทำและเก็บรักษาเอกสารทะเบียนสมาชิกตามที่กฎหมายกำหนด",
 	"ข้าพเจ้ามีสิทธิถอนความยินยอมได้ตลอดเวลาโดยติดต่อฝ่ายข้อมูลและทะเบียนสมาชิก ทั้งนี้การถอนความยินยอมอาจส่งผลให้ไม่สามารถดำเนินการต่ออายุสมาชิกได้",
 ]
-
-function validateSlipFile(file: File): string | null {
-	const extension = `.${(file.name.split(".").pop() ?? "").toLowerCase()}`
-	if (!(SLIP_ALLOWED_EXTENSIONS as readonly string[]).includes(extension)) {
-		return `รองรับเฉพาะไฟล์รูปภาพ (${SLIP_ALLOWED_EXTENSIONS.join(", ")})`
-	}
-	if (file.size > MAX_SLIP_FILE_SIZE_BYTES) {
-		return "ขนาดไฟล์ต้องไม่เกิน 7MB"
-	}
-	return null
-}
 
 /** Human-verification rejection copy (SEC-6, #130) — the widget re-arms by itself, so both invite a plain re-submit. */
 const HUMAN_CHECK_FAILED_COPY = "การตรวจสอบความปลอดภัยไม่สำเร็จหรือหมดอายุ กรุณารอสักครู่แล้วกดส่งข้อมูลอีกครั้ง"
@@ -153,12 +83,6 @@ function describeSubmitFailure(action: string, error: unknown): string {
 		return HUMAN_CHECK_UNAVAILABLE_COPY
 	}
 	return `${action}: ${error.message}`
-}
-
-type StagedSlip = {
-	readonly file: File
-	/** CSP-safe local preview (card-03 pattern) — blob: is not allowed by the app's img-src. */
-	readonly dataUrl: string
 }
 
 type RenewalFormDialogProps = {
@@ -195,22 +119,11 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 	// Guests only (SEC-6): manual mode is staff-only, and a staff cookie skips the gate on both POSTs.
 	const needsHumanCheck = !isManual && !isAdmin && turnstileSiteKey !== ""
 	const createRenewal = useCreateRenewal()
-
-	const [selected, setSelected] = useState<RenewalFormMember | null>(preselectedMember)
-	const [additional, setAdditional] = useState<RenewalFormMember[]>([])
-	const [pickerOpen, setPickerOpen] = useState(false)
-	const [slip, setSlip] = useState<StagedSlip | null>(null)
-	const [slipError, setSlipError] = useState<string | null>(null)
-	const [consent, setConsent] = useState(false)
-	const [showPdpaDetail, setShowPdpaDetail] = useState(false)
-	const [submitAttempted, setSubmitAttempted] = useState(false)
-	const [succeeded, setSucceeded] = useState(false)
-	const [submitError, setSubmitError] = useState<string | null>(null)
-	const [isSending, setIsSending] = useState(false)
+	const [form, dispatch] = useReducer(renewalFormReducer, preselectedMember, createRenewalFormState)
 	// Synchronous re-entrancy latch: a second submit event in the same tick reads
-	// the same render's isSending (still false), so state alone cannot stop it.
+	// the same render's sendStatus (still idle), so state alone cannot stop it.
 	const sendInFlightRef = useRef(false)
-	const [copiedAccount, setCopiedAccount] = useState(false)
+	const { selected, additional, pickerOpen, slip, slipError, consent, submitAttempted, submitError } = form
 
 	const {
 		attachContainer: attachTurnstileContainer,
@@ -243,6 +156,8 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 		missing.push(MISSING_FIELD_LABELS.consent)
 	}
 
+	const isSending = form.sendStatus === "sending"
+	const succeeded = form.sendStatus === "success"
 	// One umbrella over upload → token re-arm wait → create: the submit never
 	// re-enables between the two guarded POSTs, so a click there cannot start a
 	// second flow on the token reserved for the create (footer-swap lesson).
@@ -261,38 +176,17 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 		}
 		const validationError = validateSlipFile(file)
 		if (validationError !== null) {
-			setSlipError(validationError)
+			dispatch({ type: "REJECT_SLIP", message: validationError })
 			return
 		}
-		setSlipError(null)
 		// CSP-safe preview (card-03 pattern): img-src allows data:, not blob:.
 		const reader = new FileReader()
 		reader.onload = () => {
 			if (typeof reader.result === "string") {
-				setSlip({ file, dataUrl: reader.result })
+				dispatch({ type: "STAGE_SLIP", slip: { file: file, dataUrl: reader.result } })
 			}
 		}
 		reader.readAsDataURL(file)
-	}
-
-	const clearSlip = () => {
-		setSlip(null)
-	}
-
-	const addAdditional = (member: MemberListItemResponse) => {
-		setAdditional((previous) => [...previous, memberListItemToFormMember(member)])
-		setPickerOpen(false)
-		setSubmitAttempted(false)
-	}
-
-	const removeAdditional = (id: number) => {
-		setAdditional((previous) => previous.filter((member) => member.id !== id))
-	}
-
-	const handleCopyAccount = () => {
-		void navigator.clipboard?.writeText(BANK_ACCOUNT_DISPLAY.replace(/-/g, ""))
-		setCopiedAccount(true)
-		setTimeout(() => setCopiedAccount(false), 2000)
 	}
 
 	/**
@@ -355,23 +249,21 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 		if (sendInFlightRef.current) {
 			return
 		}
-		setSubmitAttempted(true)
-		setSubmitError(null)
+		dispatch({ type: "SUBMIT_ATTEMPT" })
 		const uploadToken = turnstileToken
 		if (missing.length > 0 || selected === null || slip === null || (needsHumanCheck && uploadToken === null)) {
 			return
 		}
 
 		sendInFlightRef.current = true
-		setIsSending(true)
+		dispatch({ type: "SEND_START" })
 		const sendOutcome = await sendRenewal(selected, slip.file, uploadToken)
-		setIsSending(false)
 		sendInFlightRef.current = false
 		if (sendOutcome.isErr()) {
-			setSubmitError(sendOutcome.error)
+			dispatch({ type: "SEND_FAIL", message: sendOutcome.error })
 			return
 		}
-		setSucceeded(true)
+		dispatch({ type: "SEND_SUCCESS" })
 	}
 
 	const title = isManual ? "ต่ออายุสมาชิก (ผู้ดูแลระบบ)" : "แจ้งต่ออายุสมาชิก"
@@ -453,8 +345,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 													onClick={() => {
 														// Additionals survive a main swap (user decision #87) —
 														// warnings and the fee recompute against the new main.
-														setSelected(null)
-														setPickerOpen(false)
+														dispatch({ type: "CLEAR_MAIN" })
 													}}
 													className="text-muted-foreground hover:text-destructive p-1.5"
 													aria-label="เปลี่ยนสมาชิก"
@@ -468,9 +359,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 									) : (
 										<RenewalMemberCombobox
 											onSelect={(member) => {
-												setSelected(memberListItemToFormMember(member))
-												setPickerOpen(false)
-												setSubmitAttempted(false)
+												dispatch({ type: "PICK_MAIN", member: memberListItemToFormMember(member) })
 											}}
 										/>
 									)}
@@ -506,8 +395,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 												<button
 													type="button"
 													onClick={() => {
-														removeAdditional(member.id)
-														setSubmitAttempted(false)
+														dispatch({ type: "REMOVE_ADDITIONAL", id: member.id })
 													}}
 													className="text-muted-foreground hover:text-destructive p-1"
 													aria-label={`นำ ${fullNameTh(member)} ออก`}
@@ -522,7 +410,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 											additional.length < MAX_ADDITIONAL_MEMBERS &&
 											(pickerOpen ? (
 												<RenewalMemberCombobox
-													onSelect={addAdditional}
+													onSelect={(member) => {
+														dispatch({ type: "ADD_ADDITIONAL", member: memberListItemToFormMember(member) })
+													}}
 													excludeIds={[selected.id, ...additional.map((member) => member.id)]}
 													ariaLabel="ค้นหาสมาชิกเพิ่มเติม"
 													placeholder="ค้นหาสมาชิกเพิ่มเติม..."
@@ -533,8 +423,7 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 												<button
 													type="button"
 													onClick={() => {
-														setPickerOpen(true)
-														setSubmitAttempted(false)
+														dispatch({ type: "OPEN_ADDITIONAL_PICKER" })
 													}}
 													className="border-border text-muted-foreground hover:border-primary hover:text-primary w-full rounded-xl border border-dashed py-2 text-sm transition"
 													data-slot="renewal-form-open-additional-picker"
@@ -577,7 +466,9 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 												<p className="text-success text-xs font-medium">ไฟล์ที่เลือก: {slip.file.name}</p>
 												<button
 													type="button"
-													onClick={clearSlip}
+													onClick={() => {
+														dispatch({ type: "CLEAR_SLIP" })
+													}}
 													className="text-destructive hover:text-destructive/80 text-xs font-medium"
 													data-slot="renewal-slip-remove"
 												>
@@ -594,89 +485,14 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 									)}
 								</div>
 
-								{/* ④ หนังสือให้ความยินยอม (PDPA) */}
-								<div>
-									<div className="mb-2 flex items-center justify-between">
-										<span className="text-sm font-bold">④ หนังสือให้ความยินยอม (PDPA)</span>
-										<button
-											type="button"
-											onClick={() => setShowPdpaDetail((previous) => !previous)}
-											className="text-primary text-xs font-medium hover:underline"
-											data-slot="renewal-pdpa-toggle"
-										>
-											{showPdpaDetail ? "ซ่อนรายละเอียด ▴" : "อ่านรายละเอียด ▾"}
-										</button>
-									</div>
-									{showPdpaDetail && (
-										<div className="bg-muted/50 border-border mb-3 h-48 overflow-y-auto rounded-lg border p-4 text-justify text-xs leading-relaxed">
-											{PDPA_DETAIL_TEXT.map((paragraph) => (
-												<p key={paragraph.slice(0, 20)} className="mb-2">
-													{paragraph}
-												</p>
-											))}
-										</div>
-									)}
-									<label className="flex cursor-pointer items-start gap-3">
-										<Checkbox
-											checked={consent}
-											onCheckedChange={(checked) => setConsent(checked === true)}
-											className="mt-0.5"
-											aria-label={MISSING_FIELD_LABELS.consent}
-											data-slot="renewal-pdpa-checkbox"
-										/>
-										<span className="text-sm">ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขการเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลข้างต้น</span>
-									</label>
-								</div>
+								{/* ④ หนังสือให้ความยินยอม (PDPA) — owns its detail-toggle UI state */}
+								<PdpaConsentSection consent={consent} onConsentChange={(checked) => dispatch({ type: "SET_CONSENT", checked: checked })} />
 							</div>
 
 							{/* Right rail: display-only fee summary + payment account (nothing sent to the API) */}
 							<div className="space-y-4 md:sticky md:top-0" data-slot="renewal-form-rail">
-								<div className="border-primary/20 bg-primary/5 rounded-xl border p-4">
-									<p className="mb-2 text-sm font-bold">สรุปค่าธรรมเนียม</p>
-									<div className="space-y-1.5 text-sm">
-										<div className="text-muted-foreground flex justify-between">
-											<span>ค่าธรรมเนียมต่ออายุ ({groupSize} คน)</span>
-											<span className="text-foreground font-semibold">{subtotal === null ? "—" : subtotal.toLocaleString()}</span>
-										</div>
-										<div className="text-success flex justify-between">
-											<span>
-												ส่วนลดคณะทำงาน ({committeeCount} คน × {WORKING_TEAM_DISCOUNT_PER_MEMBER.toLocaleString()})
-											</span>
-											<span className="font-semibold">−{(WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount).toLocaleString()}</span>
-										</div>
-										<div className="border-primary/20 flex items-baseline justify-between border-t pt-2">
-											<span className="font-bold">รวม</span>
-											<span className="text-primary text-xl font-bold">{total === null ? "—" : `${total.toLocaleString()} ฿`}</span>
-										</div>
-									</div>
-								</div>
-								<div className="border-success/30 bg-success/5 flex items-center gap-3 rounded-xl border p-4">
-									<span className="bg-background text-success flex size-10 shrink-0 items-center justify-center rounded-full shadow-sm">
-										<HugeiconsIcon icon={Building01Icon} className="size-5" />
-									</span>
-									<div className="min-w-0">
-										<p className="text-muted-foreground text-xs">ธนาคารกสิกรไทย (KBANK)</p>
-										<p className="text-sm font-bold">YEC LAMPHUN</p>
-										<div className="flex items-center gap-1.5">
-											<p className="text-success font-mono text-base tracking-wider">{BANK_ACCOUNT_DISPLAY}</p>
-											<button
-												type="button"
-												onClick={handleCopyAccount}
-												aria-label="คัดลอกเลขบัญชี"
-												title="คัดลอกเลขบัญชี"
-												data-slot="renewal-copy-account"
-												className={cn(copiedAccount ? "text-success" : "text-muted-foreground hover:text-foreground")}
-											>
-												<HugeiconsIcon icon={copiedAccount ? CheckmarkCircleIcon : Copy01Icon} className="size-4" />
-											</button>
-											{copiedAccount && (
-												<span className="text-success text-xs font-medium" role="status">
-													คัดลอกแล้ว
-												</span>
-											)}
-										</div>
-									</div>
-								</div>
+								<FeeSummaryCard groupSize={groupSize} subtotal={subtotal} committeeCount={committeeCount} total={total} />
+								<BankAccountCard />
 								<p className="text-muted-foreground text-xs leading-relaxed">
 									ข้อมูลใช้เวลาอัพเดท 1-2 วันทำการ หากสถานะยังไม่ถูกปรับ กรุณาติดต่อฝ่ายข้อมูลและทะเบียนสมาชิก
 								</p>
@@ -743,5 +559,111 @@ function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false
 				)}
 			</DialogContent>
 		</Dialog>
+	)
+}
+
+/** Display-only fee summary (right rail) — the math is derived in the body; nothing here is sent to the API. */
+function FeeSummaryCard({ groupSize, subtotal, committeeCount, total }: { groupSize: number; subtotal: number | null; committeeCount: number; total: number | null }) {
+	return (
+		<div className="border-primary/20 bg-primary/5 rounded-xl border p-4">
+			<p className="mb-2 text-sm font-bold">สรุปค่าธรรมเนียม</p>
+			<div className="space-y-1.5 text-sm">
+				<div className="text-muted-foreground flex justify-between">
+					<span>ค่าธรรมเนียมต่ออายุ ({groupSize} คน)</span>
+					<span className="text-foreground font-semibold">{subtotal === null ? "—" : subtotal.toLocaleString()}</span>
+				</div>
+				<div className="text-success flex justify-between">
+					<span>
+						ส่วนลดคณะทำงาน ({committeeCount} คน × {WORKING_TEAM_DISCOUNT_PER_MEMBER.toLocaleString()})
+					</span>
+					<span className="font-semibold">−{(WORKING_TEAM_DISCOUNT_PER_MEMBER * committeeCount).toLocaleString()}</span>
+				</div>
+				<div className="border-primary/20 flex items-baseline justify-between border-t pt-2">
+					<span className="font-bold">รวม</span>
+					<span className="text-primary text-xl font-bold">{total === null ? "—" : `${total.toLocaleString()} ฿`}</span>
+				</div>
+			</div>
+		</div>
+	)
+}
+
+/** Bank-transfer card (right rail) — owns the คัดลอกแล้ว flash entirely. */
+function BankAccountCard() {
+	const [copiedAccount, setCopiedAccount] = useState(false)
+
+	const handleCopyAccount = () => {
+		void navigator.clipboard?.writeText(BANK_ACCOUNT_DISPLAY.replace(/-/g, ""))
+		setCopiedAccount(true)
+		setTimeout(() => setCopiedAccount(false), 2000)
+	}
+
+	return (
+		<div className="border-success/30 bg-success/5 flex items-center gap-3 rounded-xl border p-4">
+			<span className="bg-background text-success flex size-10 shrink-0 items-center justify-center rounded-full shadow-sm">
+				<HugeiconsIcon icon={Building01Icon} className="size-5" />
+			</span>
+			<div className="min-w-0">
+				<p className="text-muted-foreground text-xs">ธนาคารกสิกรไทย (KBANK)</p>
+				<p className="text-sm font-bold">YEC LAMPHUN</p>
+				<div className="flex items-center gap-1.5">
+					<p className="text-success font-mono text-base tracking-wider">{BANK_ACCOUNT_DISPLAY}</p>
+					<button
+						type="button"
+						onClick={handleCopyAccount}
+						aria-label="คัดลอกเลขบัญชี"
+						title="คัดลอกเลขบัญชี"
+						data-slot="renewal-copy-account"
+						className={cn(copiedAccount ? "text-success" : "text-muted-foreground hover:text-foreground")}
+					>
+						<HugeiconsIcon icon={copiedAccount ? CheckmarkCircleIcon : Copy01Icon} className="size-4" />
+					</button>
+					{copiedAccount && (
+						<span className="text-success text-xs font-medium" role="status">
+							คัดลอกแล้ว
+						</span>
+					)}
+				</div>
+			</div>
+		</div>
+	)
+}
+
+/** ④ PDPA consent — owns the อ่านรายละเอียด detail-toggle UI state; only the consent boolean travels up. */
+function PdpaConsentSection({ consent, onConsentChange }: { consent: boolean; onConsentChange: (checked: boolean) => void }) {
+	const [showPdpaDetail, setShowPdpaDetail] = useState(false)
+
+	return (
+		<div>
+			<div className="mb-2 flex items-center justify-between">
+				<span className="text-sm font-bold">④ หนังสือให้ความยินยอม (PDPA)</span>
+				<button
+					type="button"
+					onClick={() => setShowPdpaDetail((previous) => !previous)}
+					className="text-primary text-xs font-medium hover:underline"
+					data-slot="renewal-pdpa-toggle"
+				>
+					{showPdpaDetail ? "ซ่อนรายละเอียด ▴" : "อ่านรายละเอียด ▾"}
+				</button>
+			</div>
+			{showPdpaDetail && (
+				<div className="bg-muted/50 border-border mb-3 h-48 overflow-y-auto rounded-lg border p-4 text-justify text-xs leading-relaxed">
+					{PDPA_DETAIL_TEXT.map((paragraph) => (
+						<p key={paragraph.slice(0, 20)} className="mb-2">
+							{paragraph}
+						</p>
+					))}
+				</div>
+			)}
+			<label className="flex cursor-pointer items-start gap-3">
+				<Checkbox
+					checked={consent}
+					onCheckedChange={(checked) => onConsentChange(checked === true)}
+					className="mt-0.5"
+					aria-label={MISSING_FIELD_LABELS.consent}
+					data-slot="renewal-pdpa-checkbox"
+				/>
+				<span className="text-sm">ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขการเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลข้างต้น</span>
+			</label>
+		</div>
 	)
 }
