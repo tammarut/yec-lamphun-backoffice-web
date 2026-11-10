@@ -88,12 +88,12 @@ function describeSubmitFailure(action: string, error: unknown): string {
 type RenewalFormDialogProps = {
 	/** member = the public submission (แจ้งต่ออายุสมาชิก); manual = the admin renewal (ต่ออายุสมาชิก (ผู้ดูแลระบบ)). */
 	mode: "member" | "manual"
-	/** Manual mode opens with the clicked worklist member locked in; member mode starts empty. */
-	preselectedMember?: RenewalFormMember | null
+	/** Manual mode opens with the clicked worklist member locked in; member mode passes null. All props are explicit — no hidden defaults. */
+	preselectedMember: RenewalFormMember | null
 	/** Session-probe verdict (ADR-0015 fork): staff skip the human gate server-side, so they get no widget. */
-	isAdmin?: boolean
-	/** Server-injected Turnstile site key (SEC-6); empty = no widget (the API gate stays fail-closed). */
-	turnstileSiteKey?: string
+	isAdmin: boolean
+	/** Server-injected Turnstile site key (SEC-6); empty string = no widget (the API gate stays fail-closed). */
+	turnstileSiteKey: string
 	open: boolean
 	onClose: () => void
 }
@@ -114,7 +114,7 @@ export function RenewalFormDialog(props: RenewalFormDialogProps) {
 	return <RenewalFormDialogBody {...props} />
 }
 
-function RenewalFormDialogBody({ mode, preselectedMember = null, isAdmin = false, turnstileSiteKey = "", open, onClose }: RenewalFormDialogProps) {
+function RenewalFormDialogBody({ mode, preselectedMember, isAdmin, turnstileSiteKey, open, onClose }: RenewalFormDialogProps) {
 	const isManual = mode === "manual"
 	// Guests only (SEC-6): manual mode is staff-only, and a staff cookie skips the gate on both POSTs.
 	const needsHumanCheck = !isManual && !isAdmin && turnstileSiteKey !== ""

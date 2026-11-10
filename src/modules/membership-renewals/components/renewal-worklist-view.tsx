@@ -37,7 +37,7 @@ const EXPIRED_SHOWN_STEP = 10
  * the expired table's ต่ออายุ (Manual) + ลาออก kebab (#114) — the review,
  * manual-form, and resign-confirm dialogs live here.
  */
-export function RenewalWorklistView() {
+export function RenewalWorklistView({ turnstileSiteKey }: { turnstileSiteKey: string }) {
 	const { isAdmin } = useSession()
 
 	const [searchTerm, setSearchTerm] = useState("")
@@ -222,7 +222,14 @@ export function RenewalWorklistView() {
 				</>
 			)}
 
-			<RenewalFormDialog mode="manual" preselectedMember={manualMember} open={manualMember !== null} onClose={() => setManualMember(null)} />
+			<RenewalFormDialog
+				mode="manual"
+				preselectedMember={manualMember}
+				isAdmin={isAdmin}
+				turnstileSiteKey={turnstileSiteKey}
+				open={manualMember !== null}
+				onClose={() => setManualMember(null)}
+			/>
 			<ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
 			<ResignMemberDialog
 				member={resignTarget}

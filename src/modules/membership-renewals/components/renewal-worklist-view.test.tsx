@@ -71,7 +71,7 @@ function renderView(options: { sessionOk: boolean; expiredResponse: (url: string
 	const view = render(
 		<QueryClientProvider client={queryClient}>
 			<SessionProvider>
-				<RenewalWorklistView />
+				<RenewalWorklistView turnstileSiteKey="" />
 			</SessionProvider>
 		</QueryClientProvider>
 	)

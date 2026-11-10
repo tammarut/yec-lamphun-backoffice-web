@@ -104,7 +104,7 @@ function RenewalPageBody({ isAdmin, isOpen, turnstileSiteKey }: RenewalPageBodyP
 			<RenewalFeeBanner />
 			<RenewalStats filter={filter} onSelect={setFilter} />
 
-			{filter === "NOT_RENEWED" ? <RenewalWorklistView /> : <RenewalTable status={filter} />}
+			{filter === "NOT_RENEWED" ? <RenewalWorklistView turnstileSiteKey={turnstileSiteKey} /> : <RenewalTable status={filter} />}
 
 			{/* Mobile FAB (mockup v3 has no mobile layout — the primary action stays reachable while scrolling). */}
 			<Button
@@ -117,7 +117,7 @@ function RenewalPageBody({ isAdmin, isOpen, turnstileSiteKey }: RenewalPageBodyP
 				ต่ออายุ
 			</Button>
 
-			<RenewalFormDialog mode="member" isAdmin={isAdmin} turnstileSiteKey={turnstileSiteKey} open={formOpen} onClose={() => setFormOpen(false)} />
+			<RenewalFormDialog mode="member" preselectedMember={null} isAdmin={isAdmin} turnstileSiteKey={turnstileSiteKey} open={formOpen} onClose={() => setFormOpen(false)} />
 		</div>
 	)
 }

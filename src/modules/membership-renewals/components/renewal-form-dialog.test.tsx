@@ -345,7 +345,7 @@ describe("RenewalFormDialog", () => {
 			const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 			const ui = (open: boolean) => (
 				<QueryClientProvider client={queryClient}>
-					<RenewalFormDialog mode="manual" preselectedMember={preselected} open={open} onClose={vi.fn()} />
+					<RenewalFormDialog mode="manual" preselectedMember={preselected} isAdmin={true} turnstileSiteKey="" open={open} onClose={vi.fn()} />
 				</QueryClientProvider>
 			)
 			const view = render(ui(true))
