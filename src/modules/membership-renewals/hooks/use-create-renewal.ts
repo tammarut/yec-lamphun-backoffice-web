@@ -12,8 +12,8 @@ export type CreateRenewalInput = {
 	readonly payment_slip: string
 	/** true → POST /renewals/manual (admin: instant APPROVED + clock advance, ADR-0016). */
 	readonly manual: boolean
-	/** Guest human-verification token (SEC-6) — sent as the Yec-Turnstile-Token header (ADR-0028), never in the body. */
-	readonly turnstileToken?: string
+	/** Guest human-verification token (SEC-6) — sent as the Yec-Turnstile-Token header (ADR-0028), never in the body. undefined = staff path (the server skips the gate). Pass it explicitly; no hidden omission. */
+	readonly turnstileToken: string | undefined
 }
 
 type CreatedRenewalRow = {
