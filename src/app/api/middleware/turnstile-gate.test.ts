@@ -24,24 +24,25 @@ import { enforceTurnstileToken } from "./turnstile-gate"
 
 const BYPASS_TOKEN = "test-bypass-secret"
 
+// The ENV_CONFIG the beforeEach container mock hands out — a mutable holder so
+// individual tests override just the env without re-inlining the whole
+// mockImplementation (the closure reads it at resolve time).
+let envMock: Record<string, string>
+
 function makeEnv(overrides: Record<string, string> = {}) {
 	return { NODE_ENV: "test", ORIGIN_ALLOW_LIST: "", CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: "", ...overrides }
 }
 
-function makeRequest(turnstileToken: string | null, sessionCookie?: string): NextRequest {
+function makeRequest(turnstileToken: string | null): NextRequest {
 	const headers: Record<string, string> = {}
 	if (turnstileToken !== null) {
 		headers[TURNSTILE_TOKEN_HEADER] = turnstileToken
 	}
-	const request = new NextRequest("http://localhost/api/v1/membership/renewals", {
+	return new NextRequest("http://localhost/api/v1/membership/renewals", {
 		method: "POST",
 		body: JSON.stringify({ member_ids: [1], payment_slip: "p.jpg" }),
 		headers: headers,
 	})
-	if (sessionCookie !== undefined) {
-		request.cookies.set("session_id", sessionCookie)
-	}
-	return request
 }
 
 describe("enforceTurnstileToken — env-gated test bypass (#138)", () => {
@@ -58,9 +59,10 @@ describe("enforceTurnstileToken — env-gated test bypass (#138)", () => {
 		mockTurnstileService = mock<TurnstileService>()
 		mockAuthService.validateSession.mockReturnValue(err(new Error("invalid session")))
 		mockTurnstileService.verify.mockResolvedValue(err(new TurnstileVerificationError()))
+		envMock = makeEnv({ CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: BYPASS_TOKEN })
 		vi.mocked(container.resolve).mockImplementation((token) => {
 			if (token === REGISTER_KEY.ENV_CONFIG) {
-				return makeEnv({ CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: BYPASS_TOKEN })
+				return envMock
 			}
 			if (token === REGISTER_KEY.AUTH_SERVICE) {
 				return mockAuthService
@@ -105,18 +107,7 @@ describe("enforceTurnstileToken — env-gated test bypass (#138)", () => {
 		})
 
 		it("bypass env UNSET: the candidate value is treated as an ordinary token (real siteverify path)", async () => {
-			vi.mocked(container.resolve).mockImplementation((token) => {
-				if (token === REGISTER_KEY.ENV_CONFIG) {
-					return makeEnv()
-				}
-				if (token === REGISTER_KEY.AUTH_SERVICE) {
-					return mockAuthService
-				}
-				if (token === REGISTER_KEY.TURNSTILE_SERVICE) {
-					return mockTurnstileService
-				}
-				return {}
-			})
+			envMock = makeEnv()
 
 			const rejection = await enforceTurnstileToken(makeRequest(BYPASS_TOKEN), false)
 

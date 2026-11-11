@@ -51,9 +51,9 @@ export type EnvConfig = {
 	// Regression-testing bypass (#138, ADR-0029): when NON-EMPTY, a guest whose
 	// `Yec-Turnstile-Token` header exactly equals this value passes the gate
 	// without a siteverify call — the Apidog suite's stand-in for a widget-minted
-	// token. Dev-only by convention (never set on prod; prod+set logs a loud
-	// boot-time warn). Empty (default) = the bypass cannot trigger at all and
-	// the gate behaves exactly as SEC-5 shipped it.
+	// token. Dev-only by convention (never set on prod; prod+set logs one loud
+	// warn on the first gate invocation). Empty (default) = the bypass cannot
+	// trigger at all and the gate behaves exactly as SEC-5 shipped it.
 	CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: string
 }
 
