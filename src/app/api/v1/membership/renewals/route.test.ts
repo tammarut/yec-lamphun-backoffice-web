@@ -117,6 +117,9 @@ describe("POST /api/v1/membership/renewals", () => {
 		limiter = new RateLimiterService(() => new Date())
 
 		vi.mocked(container.resolve).mockImplementation((token) => {
+			if (token === REGISTER_KEY.ENV_CONFIG) {
+				return { NODE_ENV: "test", ORIGIN_ALLOW_LIST: "", CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: "" }
+			}
 			if (token === REGISTER_KEY.AUTH_SERVICE) {
 				return mockAuthService
 			}

@@ -97,7 +97,7 @@ describe("POST /api/v1/members/file/upload", () => {
 				return mockService
 			}
 			if (token === REGISTER_KEY.ENV_CONFIG) {
-				return { NODE_ENV: "test", ORIGIN_ALLOW_LIST: "" }
+				return { NODE_ENV: "test", ORIGIN_ALLOW_LIST: "", CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: "" }
 			}
 			if (token === REGISTER_KEY.RATE_LIMITER_SERVICE) {
 				return limiter

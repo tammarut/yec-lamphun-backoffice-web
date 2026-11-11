@@ -4,9 +4,11 @@ import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { timingSafeStringEqual } from "src/modules/shared/crypto"
 import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TURNSTILE_TOKEN_HEADER, TURNSTILE_VERIFICATION_FAILED_MESSAGE } from "src/modules/shared/turnstile/constants"
 import { TurnstileServiceError } from "src/modules/shared/turnstile/errors"
 import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
+import type { EnvConfig } from "src/shared/config/env"
 import { createLogger } from "src/shared/lib/logger/logger"
 
 const logger = createLogger(["api", "middleware", "turnstile-gate"])
@@ -43,6 +45,13 @@ export function resolveIsAdmin(request: NextRequest): boolean {
  * Reads the token from the request itself so both guarded routes stay
  * transport-agnostic and this file stays the ONE place the header is known.
  *
+ * Regression-test bypass (#138, ADR-0029): when `CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN`
+ * is set, a guest whose header EXACTLY equals that value passes without a
+ * siteverify call — the Apidog suite's stand-in for a widget-minted token.
+ * Missing/whitespace headers still fast-fail, any other value falls through
+ * to the real verify flow, an admin session still skips entirely, and an
+ * unset env leaves the gate byte-for-byte as SEC-5 shipped it (fail-closed).
+ *
  * Returns null when the request may proceed, or a ready-to-send rejection.
  */
 export async function enforceTurnstileToken(request: NextRequest, isAdmin: boolean): Promise<NextResponse<ResponseBodyError> | null> {
@@ -53,7 +62,15 @@ export async function enforceTurnstileToken(request: NextRequest, isAdmin: boole
 	if (token === null || token.trim().length === 0) {
 		// Missing/empty/whitespace-only all count as absent (scrutiny MINOR-1):
 		// the cheap local check must not burn a siteverify round-trip on junk.
+		// This stays AHEAD of the bypass compare — a whitespace token never
+		// bypasses, even with the env set.
 		return NextResponse.json({ error_message: TURNSTILE_VERIFICATION_FAILED_MESSAGE } satisfies ResponseBodyError, { status: 403 })
+	}
+	// Regression-test bypass (#138, ADR-0029). Its boot-time warn lives in
+	// instrumentation.ts (server start, once per process) — not here.
+	const envConfig = container.resolve<EnvConfig>(REGISTER_KEY.ENV_CONFIG)
+	if (envConfig.CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN.length > 0 && timingSafeStringEqual(token, envConfig.CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN)) {
+		return null
 	}
 	const turnstileService = container.resolve<TurnstileService>(REGISTER_KEY.TURNSTILE_SERVICE)
 	const verifyResult = await turnstileService.verify(token, request.headers)

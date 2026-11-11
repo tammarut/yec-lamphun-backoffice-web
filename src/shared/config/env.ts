@@ -48,6 +48,14 @@ export type EnvConfig = {
 	// empty (no NEXT_PUBLIC_* precedent). Empty (default) = no widget rendered;
 	// the API gate stays fail-closed for guests either way.
 	CLOUDFLARE_TURNSTILE_SITE_KEY: string
+	// Regression-testing bypass (#138, ADR-0029): when NON-EMPTY, a guest whose
+	// `Yec-Turnstile-Token` header exactly equals this value passes the gate
+	// without a siteverify call — the Apidog suite's stand-in for a widget-minted
+	// token. Dev-only by convention (never set on prod); ANY server booting with
+	// it set logs one loud warn at start (instrumentation.ts). Empty (default) =
+	// the bypass cannot trigger at all and the gate behaves exactly as SEC-5
+	// shipped it.
+	CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: string
 }
 
 export const envConfig = createEnv({
@@ -94,6 +102,9 @@ export const envConfig = createEnv({
 		// no site key → no widget; guests' submissions stay 403-blocked by the
 		// gate (fail-closed), matching the missing-secret steady state.
 		CLOUDFLARE_TURNSTILE_SITE_KEY: v.optional(v.string(), ""),
+		// Regression-testing bypass (#138, ADR-0029). Empty default = dead: the
+		// gate is byte-for-byte the SEC-5 fail-closed behavior. Never set on prod.
+		CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: v.optional(v.string(), ""),
 	},
 	client: {},
 	runtimeEnv: {
@@ -118,5 +129,6 @@ export const envConfig = createEnv({
 		ORIGIN_ALLOW_LIST: process.env["ORIGIN_ALLOW_LIST"],
 		CLOUDFLARE_TURNSTILE_SECRET_KEY: process.env["CLOUDFLARE_TURNSTILE_SECRET_KEY"],
 		CLOUDFLARE_TURNSTILE_SITE_KEY: process.env["CLOUDFLARE_TURNSTILE_SITE_KEY"],
+		CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: process.env["CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN"],
 	},
 })

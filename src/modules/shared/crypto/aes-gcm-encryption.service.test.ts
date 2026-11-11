@@ -28,6 +28,7 @@ function makeConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 		ORIGIN_ALLOW_LIST: "",
 		CLOUDFLARE_TURNSTILE_SECRET_KEY: "",
 		CLOUDFLARE_TURNSTILE_SITE_KEY: "",
+		CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: "",
 		...overrides,
 	}
 }

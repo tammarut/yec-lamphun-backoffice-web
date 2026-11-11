@@ -88,6 +88,10 @@ _Avoid_: captcha check, bot check, human verification challenge
 The soft check of the optional `session_id` cookie (ADR-0015) that splits a public route's behavior in two: absent/invalid ≡ guest (Human Gate and renewal-window apply), valid ≡ staff (both skipped). It never produces a 401 — the fork only selects which gates run. The same fork governs the renewal submission kind (see **Public Submission** / **Admin Submission**).
 _Avoid_: admin bypass, cookie check, role detection
 
+**Test Bypass Token**:
+The operator-generated secret (`CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN`) whose exact appearance in the `Yec-Turnstile-Token` header passes a guest through the Human Gate without siteverify — the API regression suite's stand-in for a widget-minted Turnstile Token (ADR-0029). Dev-only by convention; empty (the default) leaves the gate byte-for-byte fail-closed. Distinct from the Session Fork, which skips the gate by identity rather than by secret.
+_Avoid_: backdoor, magic token, test mode flag
+
 ## Membership Renewal
 
 **Membership Renewal**:
