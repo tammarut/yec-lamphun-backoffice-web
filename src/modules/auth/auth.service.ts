@@ -1,7 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto"
 import * as neverthrow from "neverthrow"
 import * as tsyringe from "tsyringe"
 
+import { timingSafeStringEqual } from "src/modules/shared/crypto"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { EnvConfig } from "src/shared/config/env"
 import { AuthError, InvalidCredentialsError } from "./errors"
@@ -11,20 +11,6 @@ import type { LoginParams, SessionData } from "./types"
 
 const SESSION_TTL_PERSISTENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 const SESSION_TTL_DEFAULT_SECONDS = 24 * 60 * 60 // 24 hours
-
-/**
- * Length-normalized constant-time string compare (SEC-3, #127): both sides are
- * digested to fixed-length SHA-256 first, so `timingSafeEqual`'s equal-length
- * requirement is met without leaking the plaintext lengths through an
- * exception path, and the comparison cost no longer scales with where the
- * first differing byte sits. Exported for the turnstile gate's test-bypass
- * compare (#138) — same secret-comparison semantics, one implementation.
- */
-export function timingSafeStringEqual(a: string, b: string): boolean {
-	const digestA = createHash("sha256").update(a, "utf8").digest()
-	const digestB = createHash("sha256").update(b, "utf8").digest()
-	return timingSafeEqual(digestA, digestB)
-}
 
 @tsyringe.injectable()
 export class AuthService {

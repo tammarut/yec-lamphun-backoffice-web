@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { ResponseBodyError } from "src/app/api/shared/types"
-import { AuthService, timingSafeStringEqual } from "src/modules/auth"
+import { AuthService } from "src/modules/auth"
 import { container } from "src/modules/container"
 import { REGISTER_KEY } from "src/modules/di-tokens"
+import { timingSafeStringEqual } from "src/modules/shared/crypto"
 import { TURNSTILE_SERVICE_UNAVAILABLE_MESSAGE, TURNSTILE_TOKEN_HEADER, TURNSTILE_VERIFICATION_FAILED_MESSAGE } from "src/modules/shared/turnstile/constants"
 import { TurnstileServiceError } from "src/modules/shared/turnstile/errors"
 import { TurnstileService } from "src/modules/shared/turnstile/turnstile.service"
