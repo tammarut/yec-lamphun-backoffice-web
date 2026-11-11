@@ -12,23 +12,6 @@ import { createLogger } from "src/shared/lib/logger/logger"
 
 const logger = createLogger(["api", "middleware", "turnstile-gate"])
 
-// Boot-time guardrail for the regression-test bypass (#138, ADR-0029): the
-// bypass env is dev-only BY CONVENTION, so a prod deployment with it set is
-// exactly the state ops must never miss. Next lazy-loads route modules, so
-// this file's closest equivalent to "boot" is the first gate invocation —
-// the warn fires once, on that call, when NODE_ENV=production and the env is
-// non-empty. Deliberately NOT a crash (blast-radius ruling on env knobs: a
-// misconfigured var must never take down the whole container).
-let hasWarnedTestBypassActive = false
-
-function warnTestBypassActiveOnce(env: EnvConfig): void {
-	if (hasWarnedTestBypassActive || env.NODE_ENV !== "production" || env.CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN.length === 0) {
-		return
-	}
-	hasWarnedTestBypassActive = true
-	logger.warn("Turnstile TEST BYPASS is active: CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN is set on a PRODUCTION deployment — guests holding the value skip human verification")
-}
-
 /**
  * The ADR-0015 soft session fork, shared by the public renewal flow's two
  * POST routes (SEC-5, spec #124). The `session_id` cookie is OPTIONAL: absent
@@ -71,8 +54,6 @@ export function resolveIsAdmin(request: NextRequest): boolean {
  * Returns null when the request may proceed, or a ready-to-send rejection.
  */
 export async function enforceTurnstileToken(request: NextRequest, isAdmin: boolean): Promise<NextResponse<ResponseBodyError> | null> {
-	const envConfig = container.resolve<EnvConfig>(REGISTER_KEY.ENV_CONFIG)
-	warnTestBypassActiveOnce(envConfig)
 	if (isAdmin) {
 		return null
 	}
@@ -84,6 +65,9 @@ export async function enforceTurnstileToken(request: NextRequest, isAdmin: boole
 		// bypasses, even with the env set.
 		return NextResponse.json({ error_message: TURNSTILE_VERIFICATION_FAILED_MESSAGE } satisfies ResponseBodyError, { status: 403 })
 	}
+	// Regression-test bypass (#138, ADR-0029). Its boot-time warn lives in
+	// instrumentation.ts (server start, once per process) — not here.
+	const envConfig = container.resolve<EnvConfig>(REGISTER_KEY.ENV_CONFIG)
 	if (envConfig.CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN.length > 0 && timingSafeStringEqual(token, envConfig.CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN)) {
 		return null
 	}
