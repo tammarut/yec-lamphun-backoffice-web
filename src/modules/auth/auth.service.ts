@@ -17,9 +17,10 @@ const SESSION_TTL_DEFAULT_SECONDS = 24 * 60 * 60 // 24 hours
  * digested to fixed-length SHA-256 first, so `timingSafeEqual`'s equal-length
  * requirement is met without leaking the plaintext lengths through an
  * exception path, and the comparison cost no longer scales with where the
- * first differing byte sits.
+ * first differing byte sits. Exported for the turnstile gate's test-bypass
+ * compare (#138) — same secret-comparison semantics, one implementation.
  */
-function timingSafeStringEqual(a: string, b: string): boolean {
+export function timingSafeStringEqual(a: string, b: string): boolean {
 	const digestA = createHash("sha256").update(a, "utf8").digest()
 	const digestB = createHash("sha256").update(b, "utf8").digest()
 	return timingSafeEqual(digestA, digestB)

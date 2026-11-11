@@ -21,6 +21,7 @@ function makeConfig(hmacKey: string = randomBytes(32).toString("hex")): EnvConfi
 		ORIGIN_ALLOW_LIST: "",
 		CLOUDFLARE_TURNSTILE_SECRET_KEY: "",
 		CLOUDFLARE_TURNSTILE_SITE_KEY: "",
+		CLOUDFLARE_TURNSTILE_TEST_BYPASS_TOKEN: "",
 		R2_PUBLIC_BUCKET: "public",
 		R2_PRIVATE_BUCKET: "private",
 		R2_PUBLIC_BASE_URL: "https://test.r2.cloudflarestorage.com/public",
