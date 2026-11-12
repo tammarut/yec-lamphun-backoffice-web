@@ -385,7 +385,7 @@ describe("POST /api/v1/members/file/upload", () => {
 			expect(mockService.uploadFiles).not.toHaveBeenCalled()
 		})
 
-		it("returns 429 with Retry-After once the UPLOAD_WRITE budget (10/10 min) exhausts", async () => {
+		it("returns 429 with Retry-After once the UPLOAD_WRITE budget exhausts", async () => {
 			mockService.uploadFiles.mockReturnValue(
 				Promise.resolve(
 					ok({

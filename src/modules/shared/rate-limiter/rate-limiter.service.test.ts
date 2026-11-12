@@ -5,12 +5,13 @@ import { RateLimitExceededError, RATE_LIMIT_BUDGETS, RateLimiterService, MAX_TRA
 const BASE_MS = 1_700_000_000_000
 
 describe("RATE_LIMIT_BUDGETS", () => {
-	// The write budgets are ticket-AC numbers (SEC-2, #126): upload 10/10 min,
-	// renewal submission 20/hour. Locked here so a tune-after-renewal-season
-	// edit is a deliberate, reviewable diff against the ticket.
+	// The write budgets started as ticket-AC numbers (SEC-2, #126) and were
+	// raised for regression-suite headroom (ADR-0030): upload 30/10 min,
+	// renewal submission 60/hour. Locked here so a tune edit is a deliberate,
+	// reviewable diff against the ADR.
 	test("carries the SEC-2 write budgets verbatim", () => {
-		expect(RATE_LIMIT_BUDGETS["UPLOAD_WRITE"]).toEqual({ limit: 10, windowMs: 600_000 })
-		expect(RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"]).toEqual({ limit: 20, windowMs: 3_600_000 })
+		expect(RATE_LIMIT_BUDGETS["UPLOAD_WRITE"]).toEqual({ limit: 30, windowMs: 600_000 })
+		expect(RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"]).toEqual({ limit: 60, windowMs: 3_600_000 })
 	})
 })
 
@@ -163,7 +164,7 @@ describe("RateLimiterService", () => {
 		// already-expired short-window key. Per-entry windows must free the
 		// expired read key and keep the mid-window renewal budget intact.
 		test("frees an expired short-window key at cap pressure and keeps a live long-window budget intact", () => {
-			// Arrange: a renewal client spends its full 20/hour budget; a read key
+			// Arrange: a renewal client spends its full hourly budget; a read key
 			// goes stale right after.
 			for (let i = 0; i < RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"].limit; i += 1) {
 				expect(take("RENEWAL_SUBMIT", "10.8.8.8").isOk()).toBe(true)
