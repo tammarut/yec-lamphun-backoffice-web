@@ -18,8 +18,8 @@ import {
 } from "src/shared/components/ui/alert-dialog"
 
 type DeleteMemberDialogProps = {
-	/** The member pending deletion; dialog renders only when non-null. */
-	member: MemberListItem | null
+	/** The member pending deletion; dialog renders only when non-null. Only the Thai display name is shown, so any record carrying it satisfies this (list row or full detail). */
+	member: Pick<MemberListItem, "title_name_th" | "first_name_th" | "last_name_th"> | null
 	isDeleting: boolean
 	onOpenChange: (open: boolean) => void
 	onConfirm: () => void

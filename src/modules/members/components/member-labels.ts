@@ -30,9 +30,14 @@ export const POSITION_LABELS: Readonly<Record<string, string>> = {
 	COMM_DATA_REGISTRATION: "กรรมการฝ่ายข้อมูลและทะเบียนสมาชิก",
 }
 
+/** Code-map lookup with raw-code fallback — shared by every label map below. */
+export function codeLabel(labels: Readonly<Record<string, string>>, code: string): string {
+	return labels[code] ?? code
+}
+
 /** Thai label for a position code; unknown codes fall back to the raw code. */
 export function positionLabel(code: string): string {
-	return POSITION_LABELS[code] ?? code
+	return codeLabel(POSITION_LABELS, code)
 }
 
 /** Badge tone per Member Status — drives semantic token classes in views. */
