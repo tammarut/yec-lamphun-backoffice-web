@@ -499,8 +499,8 @@ describe("POST /api/v1/membership/renewals", () => {
 			expect(mockService.execute).not.toHaveBeenCalled()
 		})
 
-		it("returns 429 with Retry-After once the RENEWAL_SUBMIT budget (20/hour) exhausts", async () => {
-			// Arrange — the beforeEach limiter is fresh, so exactly 20 pass.
+		it("returns 429 with Retry-After once the RENEWAL_SUBMIT budget exhausts", async () => {
+			// Arrange — the beforeEach limiter is fresh, so exactly budget.limit pass.
 			const budget = RATE_LIMIT_BUDGETS["RENEWAL_SUBMIT"]
 			for (let i = 0; i < budget.limit; i += 1) {
 				const underBudget = await POST(makeRequest(validBody))
