@@ -1,13 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
-import { ApiError } from "src/shared/lib/api/fetch-json"
+import { makeMemberDetail } from "src/modules/members/components/make-member-detail.fixture"
+import { SessionProvider } from "src/shared/lib/api/session"
 import { MemberDetailView } from "src/modules/members/components/member-detail-view"
-
-/** Type-only reference — the render tree has no SessionProvider, so only the shape is needed. */
-type SessionContextValue = ReturnType<typeof import("src/shared/lib/api/session").useSession>
 
 const mockBack = vi.hoisted(() => vi.fn())
 const mockPush = vi.hoisted(() => vi.fn())
@@ -15,150 +12,65 @@ vi.mock("next/navigation", () => ({
 	useRouter: () => ({ back: mockBack, push: mockPush }),
 }))
 
-// ONE pre-agreed seam: the view renders through the real query/hook contract,
-// so the detail hook and the session context are mocked (spec #141 testing
-// decisions) — assertions stay on what the view shows per state.
-const mockedUseMemberDetail = vi.hoisted(() => vi.fn())
-vi.mock("src/modules/members/hooks/use-member-detail", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("src/modules/members/hooks/use-member-detail")>()
-	return { ...actual, useMemberDetail: mockedUseMemberDetail }
-})
-
-const mockIsAdmin = vi.hoisted(() => vi.fn())
-vi.mock("src/shared/lib/api/session", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("src/shared/lib/api/session")>()
-	return {
-		...actual,
-		// Partial double, cast — the render tree has no SessionProvider; every
-		// consumer under test only reads isAdmin.
-		useSession: () =>
-			({
-				isAdmin: mockIsAdmin(),
-				isCheckingSession: false,
-				loginMutation: null,
-				logoutMutation: null,
-			}) as unknown as SessionContextValue,
-	}
-})
-
-const mockedUseBusinessCategories = vi.hoisted(() => vi.fn())
-vi.mock("src/modules/members/hooks/use-business-categories", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("src/modules/members/hooks/use-business-categories")>()
-	return { ...actual, useBusinessCategories: mockedUseBusinessCategories }
-})
-
-const mockedDeleteMutate = vi.hoisted(() => vi.fn())
-vi.mock("src/modules/members/hooks/use-members", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("src/modules/members/hooks/use-members")>()
-	return {
-		...actual,
-		// The delete flow's toasts + navigation are the VIEW's contract; the
-		// mutation itself is hook-tested elsewhere.
-		useDeleteMember: () => ({
-			mutate: mockedDeleteMutate,
-			isPending: false,
-		}),
-	}
-})
-
 const mockToastSuccess = vi.hoisted(() => vi.fn())
 const mockToastError = vi.hoisted(() => vi.fn())
 vi.mock("sonner", () => ({
 	toast: { success: mockToastSuccess, error: mockToastError },
 }))
 
+function jsonResponse(status: number, body?: unknown): Response {
+	return new Response(body === undefined ? null : JSON.stringify(body), {
+		status,
+		headers: { "Content-Type": "application/json" },
+	})
+}
+
 const CATEGORIES = [
 	{ id: 1, category_name: "ผลิต" },
 	{ id: 4, category_name: "ค้าปลีก" },
 ]
 
-function makeMemberDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetailResponse {
-	return {
-		id: 7,
-		registration_type: "INDIVIDUAL",
-		company_certificate: "https://private.r2.cloudflarestorage.com/cert.jpg?X-Amz-Signature=abc",
-		id_card_image: "https://private.r2.cloudflarestorage.com/idcard.jpg?X-Amz-Signature=def",
-		profile_avatar: "https://public.r2.example.com/avatar.jpg",
-		title_name_th: "นาย",
-		first_name_th: "สมชาย",
-		last_name_th: "ใจดี",
-		title_name_en: "Mr.",
-		first_name_en: "Somchai",
-		last_name_en: "Jaidee",
-		nickname: "ไอ้ติ่ง",
-		gender: "MALE",
-		date_of_birth: "1990-05-12",
-		nationality: "ไทย",
-		id_card_no: "632XXXXXX1483",
-		id_card_expiry_date: "2029-08-31",
-		member_since: "2024-01-15T00:00:00.000Z",
-		expires_at: "2026-12-31T00:00:00.000Z",
-		phone_no: "089-111-2222",
-		email: "somchai@example.com",
-		line_id: "somchai_line",
-		shirt_size: "L",
-		position: "GENERAL_MEMBER",
-		status: "ACTIVE",
-		created_at: "2024-01-15T00:00:00.000Z",
-		updated_at: "2025-06-01T00:00:00.000Z",
-		business: {
-			id: 3,
-			member_count: 3,
-			name: "ร้านกาแฟสมชาย",
-			description: "กาแฟคั่วบด รับทำคาเตอร์ริ่ง",
-			juristic_registration_no: "5012555000123",
-			category_id: 4,
-			address: "55/2 ถ.ซุปหารณี ต.เวียงยอง อ.เมืองลำพูน",
-			location: [99.0094, 18.5753],
-			core_business: "ค้าปลีกเครื่องดื่ม",
-			website: "https://somchai.cafe",
-			logo: "https://public.r2.example.com/logo.png",
-			product: "https://public.r2.example.com/product.jpg",
-			created_at: "2024-01-15T00:00:00.000Z",
-			updated_at: "2025-06-01T00:00:00.000Z",
-		},
-		...overrides,
-	}
+// The mock boundary is the NETWORK: the view runs with real hooks (detail
+// query, session probe, categories, delete mutation) over a stubbed fetch.
+// Only the router (no App Router context in jsdom) and the toast lib are
+// module-mocked. Mutable per-test state below drives each scenario.
+let sessionStatus = 204
+let detailResponse: () => Response | Promise<Response>
+let deleteResponse: () => Response
+const detailCalls: string[] = []
+
+function stubFetch() {
+	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input)
+		const method = init?.method ?? "GET"
+		if (url === "/api/v1/auth/session") {
+			return new Response(null, { status: sessionStatus })
+		}
+		if (url === "/api/v1/business/categories") {
+			return jsonResponse(200, { business_categories: CATEGORIES })
+		}
+		if (url === "/api/v1/members/7") {
+			detailCalls.push(`${method} ${url}`)
+			if (method === "DELETE") {
+				return deleteResponse()
+			}
+			return detailResponse()
+		}
+		return jsonResponse(404, { error_message: `unexpected ${method} ${url}` })
+	})
+	vi.stubGlobal("fetch", fetchMock)
 }
 
-type DetailState = { phase: "idle" } | { phase: "pending" } | { phase: "success"; data: MemberDetailResponse } | { phase: "error"; status: number; message: string }
-
-let detailState: DetailState = { phase: "idle" }
-
-mockedUseMemberDetail.mockImplementation((id: number | null) => {
-	if (id === null || detailState.phase === "idle") {
-		return { isPending: false, isError: false, data: undefined, error: null }
-	}
-	if (detailState.phase === "pending") {
-		return { isPending: true, isError: false, data: undefined, error: null }
-	}
-	if (detailState.phase === "success") {
-		return { isPending: false, isError: false, data: detailState.data, error: null }
-	}
-	return {
-		isPending: false,
-		isError: true,
-		data: undefined,
-		error: new ApiError(detailState.message, detailState.status),
-	}
-})
-
-mockedUseBusinessCategories.mockImplementation(() => ({ data: CATEGORIES }))
-
-mockedDeleteMutate.mockImplementation((_id: number, options: { onSuccess?: () => void }) => {
-	if (options?.onSuccess) {
-		options.onSuccess()
-	}
-})
-
 function renderDetail(memberId: number | null) {
-	const queryClient = new QueryClient()
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 	const view = render(
 		<QueryClientProvider client={queryClient}>
-			<MemberDetailView memberId={memberId} />
+			<SessionProvider>
+				<MemberDetailView memberId={memberId} />
+			</SessionProvider>
 		</QueryClientProvider>
 	)
-	return { queryClient, ...view }
+	return view
 }
 
 /** The field row containing a given Thai label, for value assertions. */
@@ -166,10 +78,19 @@ function fieldRow(label: string): string | null {
 	return screen.getByText(label).closest('[data-slot="member-detail-field"]')?.textContent ?? null
 }
 
+/** Admin content can land before the session probe resolves — wait for the gated buttons first. */
+async function renderAsAdminWithContent(memberId = 7) {
+	renderDetail(memberId)
+	expect(await screen.findByRole("heading", { name: "นายสมชาย ใจดี" })).toBeTruthy()
+	expect(await screen.findByRole("button", { name: /แก้ไขข้อมูล/ })).toBeTruthy()
+}
+
 describe("MemberDetailView", () => {
 	beforeEach(() => {
-		detailState = { phase: "idle" }
-		mockIsAdmin.mockReturnValue(true)
+		sessionStatus = 204
+		detailResponse = () => jsonResponse(200, makeMemberDetail())
+		deleteResponse = () => new Response(null, { status: 204 })
+		detailCalls.length = 0
 		// Radix Dialog content measures itself via ResizeObserver — absent in jsdom.
 		vi.stubGlobal(
 			"ResizeObserver",
@@ -179,6 +100,7 @@ describe("MemberDetailView", () => {
 				disconnect() {}
 			}
 		)
+		stubFetch()
 	})
 
 	afterEach(() => {
@@ -188,17 +110,14 @@ describe("MemberDetailView", () => {
 	})
 
 	describe("Happy cases", () => {
-		it("renders the header identity, admin actions, and all four Thai sections with real field values", () => {
-			detailState = { phase: "success", data: makeMemberDetail() }
-			renderDetail(7)
+		it("renders the header identity, admin actions, and all four Thai sections with real field values", async () => {
+			await renderAsAdminWithContent()
 
-			expect(screen.getByRole("heading", { name: "นายสมชาย ใจดี" })).toBeTruthy()
 			expect(screen.getByText("สมาชิกทั่วไป")).toBeTruthy()
 			// The status badge vocabulary renders in BOTH the header and the
 			// สถานะ row of ข้อมูลส่วนตัว.
 			expect(screen.getAllByText("ปกติ")).toHaveLength(2)
 			expect(screen.getByRole("button", { name: /ย้อนกลับ/ })).toBeTruthy()
-			expect(screen.getByRole("button", { name: /แก้ไขข้อมูล/ })).toBeTruthy()
 			expect(screen.getByRole("button", { name: /ลบสมาชิก/ })).toBeTruthy()
 
 			expect(screen.getByText("ข้อมูลส่วนตัว")).toBeTruthy()
@@ -223,39 +142,40 @@ describe("MemberDetailView", () => {
 			expect(fieldRow("จำนวนสมาชิกในธุรกิจ")).toContain("3")
 		})
 
-		it("shows every null field as an em dash in its labelled row", () => {
-			detailState = {
-				phase: "success",
-				data: makeMemberDetail({
-					title_name_en: null,
-					first_name_en: null,
-					last_name_en: null,
-					id_card_no: null,
-					expires_at: null,
-					email: null,
-					line_id: null,
-					shirt_size: null,
-					id_card_image: null,
-					company_certificate: null,
-					business: {
-						id: 3,
-						member_count: 1,
-						name: "ร้านกาแฟสมชาย",
-						description: "กาแฟคั่วบด",
-						juristic_registration_no: "5012555000123",
-						category_id: 4,
-						address: null,
-						location: null,
-						core_business: null,
-						website: null,
-						logo: null,
-						product: null,
-						created_at: "2024-01-15T00:00:00.000Z",
-						updated_at: "2025-06-01T00:00:00.000Z",
-					},
-				}),
-			}
-			renderDetail(7)
+		it("shows every null field as an em dash in its labelled row", async () => {
+			detailResponse = () =>
+				jsonResponse(
+					200,
+					makeMemberDetail({
+						title_name_en: null,
+						first_name_en: null,
+						last_name_en: null,
+						id_card_no: null,
+						expires_at: null,
+						email: null,
+						line_id: null,
+						shirt_size: null,
+						id_card_image: null,
+						company_certificate: null,
+						business: {
+							id: 3,
+							member_count: 1,
+							name: "ร้านกาแฟสมชาย",
+							description: "กาแฟคั่วบด",
+							juristic_registration_no: "5012555000123",
+							category_id: 4,
+							address: null,
+							location: null,
+							core_business: null,
+							website: null,
+							logo: null,
+							product: null,
+							created_at: "2024-01-15T00:00:00.000Z",
+							updated_at: "2025-06-01T00:00:00.000Z",
+						},
+					})
+				)
+			await renderAsAdminWithContent()
 
 			const nullLabels = [
 				"คำนำหน้าชื่อ (อังกฤษ)",
@@ -276,54 +196,50 @@ describe("MemberDetailView", () => {
 			}
 		})
 
-		it("opens documents and public files as new-tab links", () => {
-			detailState = { phase: "success", data: makeMemberDetail() }
-			renderDetail(7)
+		it("opens documents and public files as new-tab links", async () => {
+			await renderAsAdminWithContent()
 
-			const documentLinks = screen.getAllByRole("link", { name: "เปิดดู" })
+			const documentLinks = await screen.findAllByRole("link", { name: "เปิดดู" })
 			expect(documentLinks).toHaveLength(5)
 			for (const link of documentLinks) {
 				expect(link.getAttribute("target")).toBe("_blank")
 				expect(link.getAttribute("rel")).toContain("noopener")
 			}
-			const website = screen.getByRole("link", { name: "https://somchai.cafe" })
+			const website = await screen.findByRole("link", { name: "https://somchai.cafe" })
 			expect(website.getAttribute("target")).toBe("_blank")
 			expect(website.getAttribute("href")).toBe("https://somchai.cafe")
 		})
 
-		it("navigates back through browser history from the back button", () => {
-			detailState = { phase: "success", data: makeMemberDetail() }
-			renderDetail(7)
+		it("navigates back through browser history from the back button", async () => {
+			await renderAsAdminWithContent()
 
 			fireEvent.click(screen.getByRole("button", { name: /ย้อนกลับ/ }))
 			expect(mockBack).toHaveBeenCalledTimes(1)
 		})
 
-		it("opens the existing edit wizard for this member", () => {
-			detailState = { phase: "success", data: makeMemberDetail() }
-			renderDetail(7)
+		it("opens the existing edit wizard for this member", async () => {
+			await renderAsAdminWithContent()
 
 			fireEvent.click(screen.getByRole("button", { name: /แก้ไขข้อมูล/ }))
 			expect(screen.getByRole("dialog")).toBeTruthy()
 		})
 
-		it("confirms delete with a success toast and returns to the members list", () => {
-			detailState = { phase: "success", data: makeMemberDetail() }
-			renderDetail(7)
+		it("confirms delete with a success toast and returns to the members list", async () => {
+			await renderAsAdminWithContent()
 
 			fireEvent.click(screen.getByRole("button", { name: /ลบสมาชิก/ }))
 			expect(screen.getByText("ยืนยันการลบสมาชิก")).toBeTruthy()
 
 			fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบ" }))
-			expect(mockedDeleteMutate).toHaveBeenCalledWith(7, expect.objectContaining({ onSuccess: expect.any(Function) }))
+			await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/members"))
 			expect(mockToastSuccess).toHaveBeenCalledWith("ลบสมาชิกเรียบร้อย")
-			expect(mockPush).toHaveBeenCalledWith("/members")
+			expect(detailCalls).toContain("DELETE /api/v1/members/7")
 		})
 	})
 
 	describe("Unhappy cases", () => {
 		it("renders the skeleton while loading, with no content sections", () => {
-			detailState = { phase: "pending" }
+			detailResponse = () => new Promise<Response>(() => {})
 			renderDetail(7)
 
 			expect(screen.getByLabelText("กำลังโหลดข้อมูลสมาชิก")).toBeTruthy()
@@ -331,41 +247,44 @@ describe("MemberDetailView", () => {
 			expect(screen.queryByText("ไม่พบสมาชิก")).not.toBeTruthy()
 		})
 
-		it("shows the dedicated ไม่พบสมาชิก state with a way back on 404", () => {
-			detailState = { phase: "error", status: 404, message: "Member not found" }
+		it("shows the dedicated ไม่พบสมาชิก state with a way back on 404", async () => {
+			detailResponse = () => jsonResponse(404, { error_message: "Member not found" })
 			renderDetail(7)
 
-			expect(screen.getByText("ไม่พบสมาชิก")).toBeTruthy()
+			expect(await screen.findByText("ไม่พบสมาชิก")).toBeTruthy()
 			expect(screen.queryByText("โหลดข้อมูลสมาชิกไม่สำเร็จ")).not.toBeTruthy()
 
 			fireEvent.click(screen.getByRole("button", { name: /ย้อนกลับ/ }))
 			expect(mockBack).toHaveBeenCalledTimes(1)
 		})
 
-		it("shows the destructive alert with a retry that resets the detail query on other failures", () => {
-			detailState = { phase: "error", status: 401, message: "Unauthorized" }
-			const { queryClient } = renderDetail(7)
-			const resetSpy = vi.spyOn(queryClient, "resetQueries")
+		it("shows the destructive alert with a retry that refetches on other failures", async () => {
+			detailResponse = () => jsonResponse(500, { error_message: "Database exploded" })
+			renderDetail(7)
 
-			expect(screen.getByText("โหลดข้อมูลสมาชิกไม่สำเร็จ")).toBeTruthy()
-			expect(screen.getByText("Unauthorized")).toBeTruthy()
+			expect(await screen.findByText("โหลดข้อมูลสมาชิกไม่สำเร็จ")).toBeTruthy()
+			expect(screen.getByText("Database exploded")).toBeTruthy()
 
+			// The real resetQueries → refetch path: heal the route, retry, see content.
+			detailResponse = () => jsonResponse(200, makeMemberDetail())
 			fireEvent.click(screen.getByRole("button", { name: /ลองใหม่/ }))
-			expect(resetSpy).toHaveBeenCalledWith({ queryKey: ["members", "detail", 7] })
+			expect(await screen.findByRole("heading", { name: "นายสมชาย ใจดี" })).toBeTruthy()
 		})
 
 		it("renders the not-found state without fetching when the URL id is not a number", () => {
-			detailState = { phase: "idle" }
 			renderDetail(null)
 
-			expect(mockedUseMemberDetail).toHaveBeenCalledWith(null)
 			expect(screen.getByText("ไม่พบสมาชิก")).toBeTruthy()
+			expect(detailCalls).toHaveLength(0)
 		})
 
-		it("hides admin edit and delete actions from non-admins", () => {
-			detailState = { phase: "success", data: makeMemberDetail() }
-			mockIsAdmin.mockReturnValue(false)
+		it("hides admin edit and delete actions from non-admins", async () => {
+			sessionStatus = 401
 			renderDetail(7)
+
+			// Content still loads (the API serves it only to admins in practice,
+			// but the view contract under test here is the isAdmin gating).
+			expect(await screen.findByRole("heading", { name: "นายสมชาย ใจดี" })).toBeTruthy()
 
 			expect(screen.queryByRole("button", { name: /แก้ไขข้อมูล/ })).not.toBeTruthy()
 			expect(screen.queryByRole("button", { name: /ลบสมาชิก/ })).not.toBeTruthy()
