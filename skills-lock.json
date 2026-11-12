@@ -1,11 +1,17 @@
 {
-	"version": 1,
+	"version": 2,
 	"skills": {
+		"nextjs-shadcn": {
+			"source": "laguagu/claude-code-nextjs-skills",
+			"sourceType": "github",
+			"skillPath": "skills/nextjs-shadcn/SKILL.md",
+			"computedHash": "239d73ab307e32ea10ada79db2d78f1b34bc5965ad1fdb551503a254fde999fc"
+		},
 		"shadcn": {
 			"source": "shadcn/ui",
 			"sourceType": "github",
 			"skillPath": "skills/shadcn/SKILL.md",
-			"computedHash": "a86630dd9b32722a4ea6846abc6756d5da8f06bdc2343dbc625923cc5c7a758b"
+			"computedHash": ""
 		}
 	}
 }
