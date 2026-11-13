@@ -50,6 +50,8 @@ describe("useMemberDetail", () => {
 		test("nests every id under the shared ['members','detail'] prefix", () => {
 			// Arrange / Act / Assert — pure key contract
 			expect(memberDetailQueryKey(7)).toEqual(["members", "detail", 7])
+			// The hook's idle (id = null) key comes from the same builder.
+			expect(memberDetailQueryKey(null)).toEqual(["members", "detail", null])
 		})
 	})
 

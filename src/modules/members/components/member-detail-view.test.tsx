@@ -78,6 +78,13 @@ function fieldRow(label: string): string | null {
 	return screen.getByText(label).closest('[data-slot="member-detail-field"]')?.textContent ?? null
 }
 
+/** The th-TH label of a YYYY-MM-DD calendar day, built from local-time parts (no string parsing). */
+function localDayLabel(isoDate: string): string {
+	const parts = isoDate.split("-")
+	const localMidnight = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+	return localMidnight.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })
+}
+
 /** Admin content can land before the session probe resolves — wait for the gated buttons first. */
 async function renderAsAdminWithContent(memberId = 7) {
 	renderDetail(memberId)
@@ -127,9 +134,12 @@ describe("MemberDetailView", () => {
 
 			expect(fieldRow("ชื่อเล่น")).toContain("ไอ้ติ่ง")
 			expect(fieldRow("เพศ")).toContain("ชาย")
-			expect(fieldRow("วันเดือนปีเกิด")).toContain("12 พ.ค. 2533")
+			// Date-only fields: the expectation is built from LOCAL midnight, so
+			// it holds in any timezone and fails if the view parses them as UTC
+			// (which shows the previous day west of Greenwich).
+			expect(fieldRow("วันเดือนปีเกิด")).toContain(localDayLabel("1990-05-12"))
 			expect(fieldRow("เลขบัตรประชาชน")).toContain("632XXXXXX1483")
-			expect(fieldRow("วันหมดอายุบัตร")).toContain("31 ส.ค. 2572")
+			expect(fieldRow("วันหมดอายุบัตร")).toContain(localDayLabel("2029-08-31"))
 			expect(fieldRow("ประเภทสมาชิก")).toContain("บุคคลธรรมดา")
 			expect(fieldRow("เป็นสมาชิกตั้งแต่")).toContain("15 ม.ค. 2567")
 			expect(fieldRow("วันหมดอายุสมาชิก")).toContain("31 ธ.ค. 2569")
