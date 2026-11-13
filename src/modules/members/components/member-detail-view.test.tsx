@@ -54,6 +54,9 @@ function stubFetch() {
 			if (method === "DELETE") {
 				return deleteResponse()
 			}
+			if (method === "PATCH") {
+				return new Response(null, { status: 204 })
+			}
 			return detailResponse()
 		}
 		return jsonResponse(404, { error_message: `unexpected ${method} ${url}` })
@@ -234,6 +237,25 @@ describe("MemberDetailView", () => {
 			expect(screen.getByRole("dialog")).toBeTruthy()
 		})
 
+		it("keeps the edit wizard mounted through its own close so the post-save success dialog paints", async () => {
+			await renderAsAdminWithContent()
+
+			fireEvent.click(screen.getByRole("button", { name: /แก้ไขข้อมูล/ }))
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+			// Edit mode unlocks the rail — jump straight to the review step and save.
+			fireEvent.click(screen.getByText("ตรวจสอบข้อมูล").closest("button") as Element)
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			const submitButton = await screen.findByRole("button", { name: "ยืนยันบันทึกข้อมูล" })
+			await waitFor(() => expect((submitButton as HTMLButtonElement).disabled).toBe(false))
+			fireEvent.click(submitButton)
+
+			// The wizard calls onOpenChange(false) and opens its success dialog in
+			// the same tick — a parent that unmounts it on close drops the dialog.
+			expect(await screen.findByText("บันทึกการแก้ไขเรียบร้อย")).toBeTruthy()
+			expect(screen.getByText("ข้อมูลของ นายสมชาย ใจดี ถูกบันทึกลงระบบแล้ว")).toBeTruthy()
+			expect(detailCalls).toContain("PATCH /api/v1/members/7")
+		})
+
 		it("confirms delete with a success toast and returns to the members list", async () => {
 			await renderAsAdminWithContent()
 
@@ -286,6 +308,23 @@ describe("MemberDetailView", () => {
 
 			expect(screen.getByText("ไม่พบสมาชิก")).toBeTruthy()
 			expect(detailCalls).toHaveLength(0)
+		})
+
+		it("renders website values without an http(s) scheme as inert text, never as links", async () => {
+			// The website is free-text user input: `javascript:` would run on click.
+			detailResponse = () => jsonResponse(200, makeMemberDetail({ business: { ...makeMemberDetail().business, website: "javascript:alert(1)" } }))
+			await renderAsAdminWithContent()
+
+			expect(fieldRow("เว็บไซต์")).toContain("javascript:alert(1)")
+			expect(screen.queryByRole("link", { name: "javascript:alert(1)" })).not.toBeTruthy()
+
+			// Scheme-less text would resolve as a relative path on this origin.
+			cleanup()
+			detailResponse = () => jsonResponse(200, makeMemberDetail({ business: { ...makeMemberDetail().business, website: "somchai.cafe" } }))
+			await renderAsAdminWithContent()
+
+			expect(fieldRow("เว็บไซต์")).toContain("somchai.cafe")
+			expect(screen.queryByRole("link", { name: "somchai.cafe" })).not.toBeTruthy()
 		})
 
 		it("hides admin edit and delete actions from non-admins", async () => {

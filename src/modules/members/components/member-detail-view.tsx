@@ -53,6 +53,24 @@ function nullableText(value: string | null): ReactNode {
 	return value
 }
 
+/** Free-text user URLs may only anchor on an explicit http(s) scheme (scheme-less = relative 404; javascript: = script on click). */
+const HTTP_URL_PATTERN = /^https?:\/\//i
+
+/** Optional website cell: null → em dash; http(s) → new-tab link; any other text renders inert. */
+function nullableWebsiteLink(value: string | null): ReactNode {
+	if (value === null) {
+		return nullableText(null)
+	}
+	if (!HTTP_URL_PATTERN.test(value)) {
+		return value
+	}
+	return (
+		<a href={value} target="_blank" rel="noopener noreferrer" className="text-primary [overflow-wrap:anywhere] underline-offset-4 hover:underline">
+			{value}
+		</a>
+	)
+}
+
 /** Optional file/document URL cell: null renders the em dash, otherwise a new-tab link. */
 function nullableFileLink(value: string | null): ReactNode {
 	if (value === null) {
@@ -125,15 +143,7 @@ function MemberBusinessSection({ business }: { business: MemberBusinessResponse 
 				<DetailField label="หมวดธุรกิจหลัก">{businessCategoryLabel(categoriesQuery.data, business.category_id)}</DetailField>
 				<DetailField label="ที่อยู่กิจการ">{nullableText(business.address)}</DetailField>
 				<DetailField label="ธุรกิจหลัก">{nullableText(business.core_business)}</DetailField>
-				<DetailField label="เว็บไซต์">
-					{business.website === null ? (
-						nullableText(null)
-					) : (
-						<a href={business.website} target="_blank" rel="noopener noreferrer" className="text-primary [overflow-wrap:anywhere] underline-offset-4 hover:underline">
-							{business.website}
-						</a>
-					)}
-				</DetailField>
+				<DetailField label="เว็บไซต์">{nullableWebsiteLink(business.website)}</DetailField>
 				<DetailField label="โลโก้">{nullableFileLink(business.logo)}</DetailField>
 				<DetailField label="ผลิตภัณฑ์">{nullableFileLink(business.product)}</DetailField>
 				<DetailField label="จำนวนสมาชิกในธุรกิจ">{String(business.member_count)}</DetailField>
@@ -187,6 +197,7 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 	const detailQuery = useMemberDetail(memberId)
 	const deleteMutation = useDeleteMember()
 	const [editOpen, setEditOpen] = useState(false)
+	const [wizardMounted, setWizardMounted] = useState(false)
 	const [deleteArmed, setDeleteArmed] = useState(false)
 
 	if (memberId === null) {
@@ -218,6 +229,14 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 	}
 
 	const member = detailQuery.data
+
+	// Mount-latch (members-view.tsx rule): once opened, the wizard instance
+	// stays mounted through onOpenChange(false) so its post-save success
+	// dialog can paint; only `open` toggles. The route unmount releases it.
+	const openEditWizard = () => {
+		setWizardMounted(true)
+		setEditOpen(true)
+	}
 
 	// The list cache reset is owned by useDeleteMember (keyset anchors,
 	// ADR-0011); this view adds the toast and the return to /members.
@@ -258,7 +277,7 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 				</div>
 				{isAdmin ? (
 					<div className="flex shrink-0 gap-2">
-						<Button variant="outline" onClick={() => setEditOpen(true)} data-slot="member-detail-edit">
+						<Button variant="outline" onClick={openEditWizard} data-slot="member-detail-edit">
 							<HugeiconsIcon icon={Edit01Icon} className="size-4" />
 							แก้ไขข้อมูล
 						</Button>
@@ -322,9 +341,9 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 
 			{/* Edit wizard (reused): fetches GET /:id itself and pre-fills; the
 			    update hook invalidates this detail query on save, so the view
-			    refreshes without any wiring here. Kept mounted only while open —
-			    the route remount supplies a fresh instance per member. */}
-			{editOpen ? <MemberWizardDialog key={`edit-${memberId}`} open={editOpen} onOpenChange={setEditOpen} editMember={{ id: memberId }} /> : null}
+			    refreshes without any wiring here. The key remounts the instance
+			    if the route param ever changes while the page stays mounted. */}
+			{wizardMounted ? <MemberWizardDialog key={`edit-${memberId}`} open={editOpen} onOpenChange={setEditOpen} editMember={{ id: memberId }} /> : null}
 		</div>
 	)
 }
