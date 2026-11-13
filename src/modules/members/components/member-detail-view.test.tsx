@@ -66,14 +66,14 @@ function stubFetch() {
 
 function renderDetail(memberId: number | null) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-	const view = render(
+	render(
 		<QueryClientProvider client={queryClient}>
 			<SessionProvider>
 				<MemberDetailView memberId={memberId} />
 			</SessionProvider>
 		</QueryClientProvider>
 	)
-	return view
+	return { queryClient: queryClient }
 }
 
 /** The field row containing a given Thai label, for value assertions. */
@@ -90,9 +90,10 @@ function localDayLabel(isoDate: string): string {
 
 /** Admin content can land before the session probe resolves — wait for the gated buttons first. */
 async function renderAsAdminWithContent(memberId = 7) {
-	renderDetail(memberId)
+	const rendered = renderDetail(memberId)
 	expect(await screen.findByRole("heading", { name: "นายสมชาย ใจดี" })).toBeTruthy()
 	expect(await screen.findByRole("button", { name: /แก้ไขข้อมูล/ })).toBeTruthy()
+	return rendered
 }
 
 describe("MemberDetailView", () => {
@@ -166,7 +167,9 @@ describe("MemberDetailView", () => {
 						id_card_no: null,
 						expires_at: null,
 						email: null,
-						line_id: null,
+						// The API's nullable strings let "" through on direct writes
+						// (the wizard normalizes to null) — it must read as empty too.
+						line_id: "",
 						shirt_size: null,
 						id_card_image: null,
 						company_certificate: null,
@@ -257,7 +260,8 @@ describe("MemberDetailView", () => {
 		})
 
 		it("confirms delete with a success toast and returns to the members list", async () => {
-			await renderAsAdminWithContent()
+			const { queryClient } = await renderAsAdminWithContent()
+			const removeSpy = vi.spyOn(queryClient, "removeQueries")
 
 			fireEvent.click(screen.getByRole("button", { name: /ลบสมาชิก/ }))
 			expect(screen.getByText("ยืนยันการลบสมาชิก")).toBeTruthy()
@@ -266,6 +270,9 @@ describe("MemberDetailView", () => {
 			await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/members"))
 			expect(mockToastSuccess).toHaveBeenCalledWith("ลบสมาชิกเรียบร้อย")
 			expect(detailCalls).toContain("DELETE /api/v1/members/7")
+			// The deleted member's cached detail is purged, so browser-Back to
+			// this page cannot repaint the record while the refetch 404s.
+			expect(removeSpy).toHaveBeenCalledWith({ queryKey: ["members", "detail", 7] })
 		})
 	})
 
@@ -301,6 +308,25 @@ describe("MemberDetailView", () => {
 			detailResponse = () => jsonResponse(200, makeMemberDetail())
 			fireEvent.click(screen.getByRole("button", { name: /ลองใหม่/ }))
 			expect(await screen.findByRole("heading", { name: "นายสมชาย ใจดี" })).toBeTruthy()
+		})
+
+		it("shows the same destructive alert when the API rejects a direct visit with 401", async () => {
+			detailResponse = () => jsonResponse(401, { error_message: "Unauthorized" })
+			renderDetail(7)
+
+			expect(await screen.findByText("โหลดข้อมูลสมาชิกไม่สำเร็จ")).toBeTruthy()
+			expect(screen.getByText("Unauthorized")).toBeTruthy()
+			expect(screen.queryByText("ไม่พบสมาชิก")).not.toBeTruthy()
+		})
+
+		it("renders a file field without an http(s) scheme as inert text, never as a link", async () => {
+			// File fields are free strings at the API too — a direct write could
+			// store a javascript: value there just like the website.
+			detailResponse = () => jsonResponse(200, makeMemberDetail({ profile_avatar: "javascript:alert(1)" }))
+			await renderAsAdminWithContent()
+
+			expect(fieldRow("รูปโปรไฟล์")).toContain("javascript:alert(1)")
+			expect(screen.getAllByRole("link", { name: "เปิดดู" })).toHaveLength(4)
 		})
 
 		it("renders the not-found state without fetching when the URL id is not a number", () => {

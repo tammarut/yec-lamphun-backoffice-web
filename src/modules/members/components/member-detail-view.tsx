@@ -14,6 +14,7 @@ import { StatusBadge } from "src/modules/members/components/status-badge"
 import { useBusinessCategories, type BusinessCategoryOption } from "src/modules/members/hooks/use-business-categories"
 import { memberDetailQueryKey, useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useDeleteMember } from "src/modules/members/hooks/use-members"
+import { formatThaiDate } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberBusinessResponse, MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
@@ -30,35 +31,30 @@ type MemberDetailViewProps = {
 	memberId: number | null
 }
 
-/**
- * Thai short-date display for an ISO date/datetime (th-TH → Buddhist Era, e.g.
- * "12 ส.ค. 2569"). Date-only inputs (YYYY-MM-DD) are spec-parsed as UTC
- * midnight, which renders the PREVIOUS day in negative-offset locales — pin
- * them to local midnight so the calendar day is locale-independent.
- */
-function formatThaiDate(isoDateTime: string): string {
-	const normalized = /^\d{4}-\d{2}-\d{2}$/.test(isoDateTime) ? `${isoDateTime}T00:00:00` : isoDateTime
-	const date = new Date(normalized)
-	if (Number.isNaN(date.getTime())) {
-		return "-"
-	}
-	return date.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })
+/** Optional API strings arrive as null — or "" on direct API writes (the wizard normalizes to null). Both read as empty. */
+function isEmptyText(value: string | null): value is null | "" {
+	return value === null || value === ""
 }
 
-/** The value cell for an optional field: null renders the stable em dash. */
+/** The value cell for an optional field: an empty value renders the stable em dash. */
 function nullableText(value: string | null): ReactNode {
-	if (value === null) {
+	if (isEmptyText(value)) {
 		return <span className="text-muted-foreground">—</span>
 	}
 	return value
 }
 
-/** Free-text user URLs may only anchor on an explicit http(s) scheme (scheme-less = relative 404; javascript: = script on click). */
+/**
+ * Every URL the API hands back is a free string (website is user-typed; file
+ * fields accept any string on a direct write), so only an explicit http(s)
+ * scheme may become an anchor: scheme-less text would resolve as a relative
+ * path on this origin, and `javascript:` would run on click.
+ */
 const HTTP_URL_PATTERN = /^https?:\/\//i
 
-/** Optional website cell: null → em dash; http(s) → new-tab link; any other text renders inert. */
+/** Optional website cell: empty → em dash; http(s) → new-tab link; any other text renders inert. */
 function nullableWebsiteLink(value: string | null): ReactNode {
-	if (value === null) {
+	if (isEmptyText(value)) {
 		return nullableText(null)
 	}
 	if (!HTTP_URL_PATTERN.test(value)) {
@@ -71,9 +67,9 @@ function nullableWebsiteLink(value: string | null): ReactNode {
 	)
 }
 
-/** Optional file/document URL cell: null renders the em dash, otherwise a new-tab link. */
+/** Optional file/document URL cell: empty → em dash, otherwise a guarded new-tab link. */
 function nullableFileLink(value: string | null): ReactNode {
-	if (value === null) {
+	if (isEmptyText(value)) {
 		return nullableText(null)
 	}
 	return <DetailFileLink href={value} />
@@ -89,8 +85,11 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
 	)
 }
 
-/** New-tab link for a document/file URL (presigned or public). */
+/** New-tab link for a document/file URL (presigned or public); a non-http(s) value renders as inert text instead. */
 function DetailFileLink({ href }: { href: string }) {
+	if (!HTTP_URL_PATTERN.test(href)) {
+		return href
+	}
 	return (
 		<a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
 			เปิดดู
@@ -238,8 +237,9 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 		setEditOpen(true)
 	}
 
-	// The list cache reset is owned by useDeleteMember (keyset anchors,
-	// ADR-0011); this view adds the toast and the return to /members.
+	// Cache cleanup (list reset for the keyset anchors, ADR-0011, plus this
+	// member's detail purge) is owned by useDeleteMember; this view adds the
+	// toast and the return to /members.
 	const confirmDelete = () => {
 		deleteMutation.mutate(memberId, {
 			onSuccess: () => {
