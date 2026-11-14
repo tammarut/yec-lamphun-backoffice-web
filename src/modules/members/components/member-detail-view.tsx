@@ -173,9 +173,10 @@ function MemberBusinessSection({ business }: { business: MemberBusinessResponse 
 				<DetailField label="ที่อยู่กิจการ">{nullableText(business.address)}</DetailField>
 				<DetailField label="ธุรกิจหลัก">{nullableText(business.core_business)}</DetailField>
 				<DetailField label="เว็บไซต์">{nullableWebsiteLink(business.website)}</DetailField>
+				<DetailField label="จำนวนสมาชิกในธุรกิจ">{String(business.member_count)}</DetailField>
+				{/* The two image cells share one grid row so the previews line up. */}
 				<DetailImageField label="โลโก้" value={business.logo} />
 				<DetailImageField label="ผลิตภัณฑ์" value={business.product} />
-				<DetailField label="จำนวนสมาชิกในธุรกิจ">{String(business.member_count)}</DetailField>
 			</CardContent>
 		</Card>
 	)
