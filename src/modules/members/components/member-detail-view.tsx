@@ -12,7 +12,7 @@ import { codeLabel, fullNameTh, GENDER_LABELS, positionLabel, REGISTRATION_TYPE_
 import { MemberWizardDialog } from "src/modules/members/components/member-wizard-dialog"
 import { StatusBadge } from "src/modules/members/components/status-badge"
 import { useBusinessCategories, type BusinessCategoryOption } from "src/modules/members/hooks/use-business-categories"
-import memberDetailQueryKey, { useMemberDetail } from "src/modules/members/hooks/use-member-detail"
+import { memberDetailQueryKey, useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useDeleteMember } from "src/modules/members/hooks/use-members"
 import { formatThaiDate } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberBusinessResponse, MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
