@@ -7,6 +7,7 @@ import type { MemberDetailResponse } from "src/modules/members/use-case/get-memb
 
 /** Full detail query key — invalidation matches on the ["members", "detail"] prefix. Accepts null so the hook's idle (create-mode) key is built by the same builder. */
 export const memberDetailQueryKey = (id: number | null) => ["members", "detail", id] as const
+export default memberDetailQueryKey
 
 /**
  * GET /api/v1/members/:id for the edit wizard (3b-edit). Disabled while `id`

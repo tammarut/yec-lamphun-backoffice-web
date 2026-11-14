@@ -1,18 +1,18 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
-import { useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { ArrowLeft01Icon, Delete02Icon, Edit01Icon, Refresh01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { useQueryClient } from "@tanstack/react-query"
+import { useRouter } from "next/navigation"
+import { useState, type ReactNode } from "react"
+import { toast } from "sonner"
 
 import { DeleteMemberDialog } from "src/modules/members/components/delete-member-dialog"
-import { codeLabel, fullNameTh, GENDER_LABELS, positionLabel, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS, statusBadgeLabel } from "src/modules/members/components/member-labels"
+import { codeLabel, fullNameTh, GENDER_LABELS, positionLabel, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
 import { MemberWizardDialog } from "src/modules/members/components/member-wizard-dialog"
 import { StatusBadge } from "src/modules/members/components/status-badge"
 import { useBusinessCategories, type BusinessCategoryOption } from "src/modules/members/hooks/use-business-categories"
-import { memberDetailQueryKey, useMemberDetail } from "src/modules/members/hooks/use-member-detail"
+import memberDetailQueryKey, { useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useDeleteMember } from "src/modules/members/hooks/use-members"
 import { formatThaiDate } from "src/modules/members/schemas/member-wizard-mapping"
 import type { MemberBusinessResponse, MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
@@ -67,14 +67,6 @@ function nullableWebsiteLink(value: string | null): ReactNode {
 	)
 }
 
-/** Optional file/document URL cell: empty → em dash, otherwise a guarded new-tab link. */
-function nullableFileLink(value: string | null): ReactNode {
-	if (isEmptyText(value)) {
-		return nullableText(null)
-	}
-	return <DetailFileLink href={value} />
-}
-
 /** One labelled field row: label column on desktop, stacked on mobile. */
 function DetailField({ label, children }: { label: string; children: ReactNode }) {
 	return (
@@ -97,18 +89,56 @@ function DetailFileLink({ href }: { href: string }) {
 	)
 }
 
-/** The document/image section rows — avatar, id-card image, certificate, shirt size. */
+/**
+ * Inline image preview: renders the image itself, and the whole preview is a
+ * new-tab link to the full-size file. An expired presign or a non-image value
+ * falls back to the plain เปิดดู link; a non-http(s) value renders inert, the
+ * same rule as every other URL on this page.
+ */
+function DetailImagePreview({ url, label }: { url: string; label: string }) {
+	const [isBroken, setIsBroken] = useState(false)
+	if (isBroken || !HTTP_URL_PATTERN.test(url)) {
+		return (
+			<span className="text-sm">
+				<DetailFileLink href={url} />
+			</span>
+		)
+	}
+	return (
+		<a
+			href={url}
+			target="_blank"
+			rel="noopener noreferrer"
+			aria-label={`เปิด${label}ขนาดเต็ม`}
+			title="เปิดดูขนาดเต็ม"
+			className="focus-visible:ring-ring/50 hover:ring-ring/30 w-fit rounded-lg transition-shadow outline-none hover:ring-[3px] focus-visible:ring-[3px]"
+		>
+			{/* eslint-disable-next-line @next/next/no-img-element -- remote presigned/public R2 URL; next/image adds nothing */}
+			<img src={url} alt={label} loading="lazy" onError={() => setIsBroken(true)} className="bg-muted h-40 w-64 max-w-full rounded-lg border object-contain" />
+		</a>
+	)
+}
+
+/** Image field row: the label sits above the inline preview (empty → em dash). */
+function DetailImageField({ label, value }: { label: string; value: string | null }) {
+	return (
+		<div data-slot="member-detail-field" className="flex min-w-0 flex-col gap-1.5">
+			<span className="text-muted-foreground text-sm">{label}</span>
+			{isEmptyText(value) ? <span className="text-sm">{nullableText(null)}</span> : <DetailImagePreview url={value} label={label} />}
+		</div>
+	)
+}
+
+/** The เอกสาร section — the id-card copy and the company certificate as clickable inline previews. */
 function MemberDocumentsSection({ member }: { member: MemberDetailResponse }) {
 	return (
 		<Card data-slot="member-detail-section-documents">
 			<CardHeader>
-				<CardTitle>เอกสารและรูปภาพ</CardTitle>
+				<CardTitle>เอกสาร</CardTitle>
 			</CardHeader>
 			<CardContent className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-				<DetailField label="รูปโปรไฟล์">{nullableFileLink(member.profile_avatar)}</DetailField>
-				<DetailField label="สำเนาบัตรประชาชน">{nullableFileLink(member.id_card_image)}</DetailField>
-				<DetailField label="หนังสือรับรองบริษัท/ทะเบียนพาณิชย์">{nullableFileLink(member.company_certificate)}</DetailField>
-				<DetailField label="ขนาดเสื้อ">{member.shirt_size === null ? nullableText(null) : codeLabel(SHIRT_SIZE_LABELS, member.shirt_size)}</DetailField>
+				<DetailImageField label="สำเนาบัตรประชาชน" value={member.id_card_image} />
+				<DetailImageField label="หนังสือรับรองบริษัท/ทะเบียนพาณิชย์" value={member.company_certificate} />
 			</CardContent>
 		</Card>
 	)
@@ -143,8 +173,8 @@ function MemberBusinessSection({ business }: { business: MemberBusinessResponse 
 				<DetailField label="ที่อยู่กิจการ">{nullableText(business.address)}</DetailField>
 				<DetailField label="ธุรกิจหลัก">{nullableText(business.core_business)}</DetailField>
 				<DetailField label="เว็บไซต์">{nullableWebsiteLink(business.website)}</DetailField>
-				<DetailField label="โลโก้">{nullableFileLink(business.logo)}</DetailField>
-				<DetailField label="ผลิตภัณฑ์">{nullableFileLink(business.product)}</DetailField>
+				<DetailImageField label="โลโก้" value={business.logo} />
+				<DetailImageField label="ผลิตภัณฑ์" value={business.product} />
 				<DetailField label="จำนวนสมาชิกในธุรกิจ">{String(business.member_count)}</DetailField>
 			</CardContent>
 		</Card>
@@ -294,12 +324,19 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 					<CardTitle>ข้อมูลส่วนตัว</CardTitle>
 				</CardHeader>
 				<CardContent className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-					<DetailField label="คำนำหน้าชื่อ (ไทย)">{member.title_name_th}</DetailField>
-					<DetailField label="ชื่อ (ไทย)">{member.first_name_th}</DetailField>
-					<DetailField label="นามสกุล (ไทย)">{member.last_name_th}</DetailField>
-					<DetailField label="คำนำหน้าชื่อ (อังกฤษ)">{nullableText(member.title_name_en)}</DetailField>
-					<DetailField label="ชื่อ (อังกฤษ)">{nullableText(member.first_name_en)}</DetailField>
-					<DetailField label="นามสกุล (อังกฤษ)">{nullableText(member.last_name_en)}</DetailField>
+					{/* Thai names in the left column, English names in the right — each
+					    column reads top-to-bottom on desktop, stacks TH-then-EN on
+					    mobile. Status stays in the header only; shirt size lives here. */}
+					<div data-slot="member-detail-name-th" className="flex min-w-0 flex-col gap-3">
+						<DetailField label="คำนำหน้าชื่อ (ไทย)">{member.title_name_th}</DetailField>
+						<DetailField label="ชื่อ (ไทย)">{member.first_name_th}</DetailField>
+						<DetailField label="นามสกุล (ไทย)">{member.last_name_th}</DetailField>
+					</div>
+					<div data-slot="member-detail-name-en" className="flex min-w-0 flex-col gap-3">
+						<DetailField label="คำนำหน้าชื่อ (อังกฤษ)">{nullableText(member.title_name_en)}</DetailField>
+						<DetailField label="ชื่อ (อังกฤษ)">{nullableText(member.first_name_en)}</DetailField>
+						<DetailField label="นามสกุล (อังกฤษ)">{nullableText(member.last_name_en)}</DetailField>
+					</div>
 					<DetailField label="ชื่อเล่น">{member.nickname}</DetailField>
 					<DetailField label="เพศ">{codeLabel(GENDER_LABELS, member.gender)}</DetailField>
 					<DetailField label="วันเดือนปีเกิด">{formatThaiDate(member.date_of_birth)}</DetailField>
@@ -309,7 +346,7 @@ export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 					<DetailField label="ประเภทสมาชิก">{codeLabel(REGISTRATION_TYPE_LABELS, member.registration_type)}</DetailField>
 					<DetailField label="เป็นสมาชิกตั้งแต่">{formatThaiDate(member.member_since)}</DetailField>
 					<DetailField label="วันหมดอายุสมาชิก">{member.expires_at === null ? nullableText(null) : formatThaiDate(member.expires_at)}</DetailField>
-					<DetailField label="สถานะ">{isAdmin ? <StatusBadge status={member.status} /> : <span>{statusBadgeLabel(member.status)}</span>}</DetailField>
+					<DetailField label="ขนาดเสื้อ">{member.shirt_size === null ? nullableText(null) : codeLabel(SHIRT_SIZE_LABELS, member.shirt_size)}</DetailField>
 				</CardContent>
 			</Card>
 

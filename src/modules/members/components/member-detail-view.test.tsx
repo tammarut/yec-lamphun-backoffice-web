@@ -125,16 +125,35 @@ describe("MemberDetailView", () => {
 			await renderAsAdminWithContent()
 
 			expect(screen.getByText("สมาชิกทั่วไป")).toBeTruthy()
-			// The status badge vocabulary renders in BOTH the header and the
-			// สถานะ row of ข้อมูลส่วนตัว.
-			expect(screen.getAllByText("ปกติ")).toHaveLength(2)
+			// The status badge renders in the header only — the สถานะ row was
+			// removed because the header already identifies the member's status.
+			expect(screen.getAllByText("ปกติ")).toHaveLength(1)
+			expect(screen.queryByText("สถานะ")).not.toBeTruthy()
+			expect(screen.queryByText("รูปโปรไฟล์")).not.toBeTruthy()
 			expect(screen.getByRole("button", { name: /ย้อนกลับ/ })).toBeTruthy()
 			expect(screen.getByRole("button", { name: /ลบสมาชิก/ })).toBeTruthy()
 
 			expect(screen.getByText("ข้อมูลส่วนตัว")).toBeTruthy()
 			expect(screen.getByText("ข้อมูลติดต่อ")).toBeTruthy()
-			expect(screen.getByText("เอกสารและรูปภาพ")).toBeTruthy()
+			expect(screen.getByText("เอกสาร")).toBeTruthy()
 			expect(screen.getByText("ธุรกิจ")).toBeTruthy()
+
+			// Thai names group in the left column, English names in the right.
+			const nameTh = document.querySelector('[data-slot="member-detail-name-th"]')?.textContent ?? ""
+			const nameEn = document.querySelector('[data-slot="member-detail-name-en"]')?.textContent ?? ""
+			expect(nameTh).toContain("นาย")
+			expect(nameTh).toContain("สมชาย")
+			expect(nameTh).toContain("ใจดี")
+			expect(nameTh).not.toContain("Somchai")
+			expect(nameEn).toContain("Mr.")
+			expect(nameEn).toContain("Somchai")
+			expect(nameEn).toContain("Jaidee")
+			expect(nameEn).not.toContain("สมชาย")
+			// Shirt size lives in ข้อมูลส่วนตัว now, not in เอกสาร.
+			const personalCard = document.querySelector('[data-slot="member-detail-section-personal"]')?.textContent ?? ""
+			const documentsCard = document.querySelector('[data-slot="member-detail-section-documents"]')?.textContent ?? ""
+			expect(personalCard).toContain("ขนาดเสื้อ")
+			expect(documentsCard).not.toContain("ขนาดเสื้อ")
 
 			expect(fieldRow("ชื่อเล่น")).toContain("ไอ้ติ่ง")
 			expect(fieldRow("เพศ")).toContain("ชาย")
@@ -212,18 +231,40 @@ describe("MemberDetailView", () => {
 			}
 		})
 
-		it("opens documents and public files as new-tab links", async () => {
+		it("renders document and business images as inline previews that open the full-size file", async () => {
 			await renderAsAdminWithContent()
 
-			const documentLinks = await screen.findAllByRole("link", { name: "เปิดดู" })
-			expect(documentLinks).toHaveLength(5)
-			for (const link of documentLinks) {
+			const fixture = makeMemberDetail()
+			const previews = [
+				{ name: "เปิดสำเนาบัตรประชาชนขนาดเต็ม", alt: "สำเนาบัตรประชาชน", href: fixture.id_card_image },
+				{ name: "เปิดหนังสือรับรองบริษัท/ทะเบียนพาณิชย์ขนาดเต็ม", alt: "หนังสือรับรองบริษัท/ทะเบียนพาณิชย์", href: fixture.company_certificate },
+				{ name: "เปิดโลโก้ขนาดเต็ม", alt: "โลโก้", href: fixture.business.logo },
+				{ name: "เปิดผลิตภัณฑ์ขนาดเต็ม", alt: "ผลิตภัณฑ์", href: fixture.business.product },
+			]
+			for (const preview of previews) {
+				const link = screen.getByRole("link", { name: preview.name })
 				expect(link.getAttribute("target")).toBe("_blank")
 				expect(link.getAttribute("rel")).toContain("noopener")
+				expect(link.getAttribute("href")).toBe(preview.href)
+				const image = link.querySelector("img")
+				expect(image?.getAttribute("src")).toBe(preview.href)
+				expect(image?.getAttribute("alt")).toBe(preview.alt)
 			}
-			const website = await screen.findByRole("link", { name: "https://somchai.cafe" })
+			// Every image is an inline preview — no plain เปิดดู text links remain.
+			expect(screen.queryAllByRole("link", { name: "เปิดดู" })).toHaveLength(0)
+			expect(screen.getAllByRole("img")).toHaveLength(4)
+			const website = screen.getByRole("link", { name: "https://somchai.cafe" })
 			expect(website.getAttribute("target")).toBe("_blank")
 			expect(website.getAttribute("href")).toBe("https://somchai.cafe")
+		})
+
+		it("falls back to the plain link when a preview image fails to load (expired presign)", async () => {
+			await renderAsAdminWithContent()
+
+			fireEvent.error(screen.getByAltText("สำเนาบัตรประชาชน"))
+
+			expect(await screen.findByRole("link", { name: "เปิดดู" })).toBeTruthy()
+			expect(screen.getAllByRole("img")).toHaveLength(3)
 		})
 
 		it("navigates back through browser history from the back button", async () => {
@@ -319,14 +360,16 @@ describe("MemberDetailView", () => {
 			expect(screen.queryByText("ไม่พบสมาชิก")).not.toBeTruthy()
 		})
 
-		it("renders a file field without an http(s) scheme as inert text, never as a link", async () => {
+		it("renders a file field without an http(s) scheme as inert text, never as a preview or link", async () => {
 			// File fields are free strings at the API too — a direct write could
 			// store a javascript: value there just like the website.
-			detailResponse = () => jsonResponse(200, makeMemberDetail({ profile_avatar: "javascript:alert(1)" }))
+			detailResponse = () => jsonResponse(200, makeMemberDetail({ id_card_image: "javascript:alert(1)" }))
 			await renderAsAdminWithContent()
 
-			expect(fieldRow("รูปโปรไฟล์")).toContain("javascript:alert(1)")
-			expect(screen.getAllByRole("link", { name: "เปิดดู" })).toHaveLength(4)
+			expect(fieldRow("สำเนาบัตรประชาชน")).toContain("javascript:alert(1)")
+			expect(screen.queryByAltText("สำเนาบัตรประชาชน")).not.toBeTruthy()
+			expect(screen.getAllByRole("img")).toHaveLength(3)
+			expect(screen.queryByRole("link", { name: /javascript/ })).not.toBeTruthy()
 		})
 
 		it("renders the not-found state without fetching when the URL id is not a number", () => {
