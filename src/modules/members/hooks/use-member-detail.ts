@@ -5,8 +5,8 @@ import { useQuery } from "@tanstack/react-query"
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 
-/** Full detail query key — invalidation matches on the ["members", "detail"] prefix. */
-export const memberDetailQueryKey = (id: number) => ["members", "detail", id] as const
+/** Full detail query key — invalidation matches on the ["members", "detail"] prefix. Accepts null so the hook's idle (create-mode) key is built by the same builder. */
+export const memberDetailQueryKey = (id: number | null) => ["members", "detail", id] as const
 
 /**
  * GET /api/v1/members/:id for the edit wizard (3b-edit). Disabled while `id`
@@ -17,7 +17,7 @@ export const memberDetailQueryKey = (id: number) => ["members", "detail", id] as
  */
 export function useMemberDetail(id: number | null) {
 	return useQuery<MemberDetailResponse, ApiError, MemberDetailResponse, readonly ["members", "detail", number | null]>({
-		queryKey: ["members", "detail", id],
+		queryKey: memberDetailQueryKey(id),
 		queryFn: async () => {
 			const result = await fetchJson<MemberDetailResponse>(`/api/v1/members/${id}`)
 			if (result.isErr()) {

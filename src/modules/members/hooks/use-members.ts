@@ -3,6 +3,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query"
 
 import { ApiError, fetchJson } from "src/shared/lib/api/fetch-json"
+import { memberDetailQueryKey } from "src/modules/members/hooks/use-member-detail"
 import type { ListMembersPage } from "src/modules/members/components/members-types"
 
 /** Page size for the directory list — API allows 1..50, default 10. */
@@ -55,19 +56,22 @@ async function deleteMember(id: number): Promise<void> {
 /**
  * Soft-delete (ADR-0013); toasts are owned by the caller.
  *
- * The cache action is a RESET, not an invalidation: keyset cursors are
+ * The list cache action is a RESET, not an invalidation: keyset cursors are
  * member-id anchors (ADR-0011), so after a delete a cached page param can
  * reference a soft-deleted anchor — refetching it would 400 with "Invalid
  * cursor" and strand the list in an unrecoverable error loop. Resetting
  * drops the accumulated pages and refetches every search variant from
- * page 1, the documented client contract for an invalid anchor.
+ * page 1, the documented client contract for an invalid anchor. The deleted
+ * member's cached detail entry is REMOVED outright: browser-Back to its
+ * detail page must not repaint the record while the refetch 404s.
  */
 export function useDeleteMember() {
 	const queryClient = useQueryClient()
 	return useMutation<void, ApiError, number>({
 		mutationFn: deleteMember,
-		onSuccess: () => {
+		onSuccess: (_data, memberId) => {
 			queryClient.resetQueries({ queryKey: MEMBERS_LIST_QUERY_KEY })
+			queryClient.removeQueries({ queryKey: memberDetailQueryKey(memberId) })
 		},
 	})
 }
