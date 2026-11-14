@@ -4,6 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Delete02Icon, Edit01Icon } from "@hugeicons/core-free-icons"
 
 import { fullNameTh, positionLabel } from "src/modules/members/components/member-labels"
+import { MemberNameLink } from "src/modules/members/components/member-name-link"
 import { MemberContacts } from "src/modules/members/components/member-contacts"
 import type { MemberListItem } from "src/modules/members/components/members-types"
 import { StatusBadge } from "src/modules/members/components/status-badge"
@@ -79,7 +80,8 @@ export function MembersTable({ members, isAdmin, selectedIds, onToggleOne, onTog
 										</div>
 										<div className="min-w-0">
 											<div className="text-base font-semibold">
-												{fullNameTh(member)} {member.nickname !== "" && <span className="text-muted-foreground font-normal">({member.nickname})</span>}
+												{isAdmin ? <MemberNameLink member={member} /> : fullNameTh(member)}{" "}
+												{member.nickname !== "" && <span className="text-muted-foreground font-normal">({member.nickname})</span>}
 											</div>
 											<div className="text-primary mt-0.5 text-sm font-medium">{positionLabel(member.position)}</div>
 										</div>
