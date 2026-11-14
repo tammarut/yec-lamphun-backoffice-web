@@ -72,6 +72,18 @@ describe("MembersTable", () => {
 			expect(props.onDeleteClick).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
 		})
 
+		test("admin: the member name is a keyboard-focusable link to the detail page", () => {
+			renderTable()
+
+			const link = screen.getByRole("link", { name: "นายสมชาย ใจดี" })
+			expect(link.getAttribute("href")).toBe("/members/1")
+			// The nickname sits outside the link so the accessible name stays the name alone.
+			expect(link.textContent).toBe("นายสมชาย ใจดี")
+			// Native <a href> — prove keyboard reachability, not just name it.
+			link.focus()
+			expect(document.activeElement).toBe(link)
+		})
+
 		test("select-all shows indeterminate when only some rows are selected", () => {
 			renderTable({
 				members: [makeMember({ id: 1 }), makeMember({ id: 2, first_name_th: "บ" })],
@@ -91,6 +103,13 @@ describe("MembersTable", () => {
 			expect(screen.queryByRole("columnheader", { name: "จัดการ" })).not.toBeTruthy()
 			expect(screen.queryByText("ปกติ")).not.toBeTruthy()
 			expect(screen.queryByRole("button", { name: /ลบสมาชิก/ })).not.toBeTruthy()
+		})
+
+		test("non-admin: the member name is plain text with no link affordance", () => {
+			renderTable({ isAdmin: false })
+
+			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
+			expect(screen.queryByRole("link")).not.toBeTruthy()
 		})
 
 		test("empty member list renders headers only, no rows", () => {
