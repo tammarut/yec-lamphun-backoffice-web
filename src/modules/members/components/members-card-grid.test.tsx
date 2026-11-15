@@ -41,6 +41,10 @@ describe("MembersCardGrid", () => {
 			// Native <a href> — prove keyboard reachability, not just name it.
 			link.focus()
 			expect(document.activeElement).toBe(link)
+			// Clickable affordance at rest (scrutiny F-01): the subtle underline is
+			// always on, not only on hover.
+			expect(link.className).toContain("underline")
+			expect(link.className).toContain("decoration-muted-foreground/40")
 		})
 
 		it("admin: edit and delete buttons report the member and never navigate", () => {

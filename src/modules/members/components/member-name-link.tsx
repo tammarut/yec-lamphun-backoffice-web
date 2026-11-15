@@ -14,7 +14,7 @@ export function MemberNameLink({ member }: { member: MemberListItem }) {
 		<Link
 			href={`/members/${member.id}`}
 			data-slot="member-name-link"
-			className="focus-visible:ring-ring/50 rounded-xs underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-2"
+			className="focus-visible:ring-ring/50 decoration-muted-foreground/40 hover:decoration-foreground focus-visible:decoration-foreground rounded-xs underline underline-offset-4 outline-none focus-visible:ring-2"
 		>
 			{fullNameTh(member)}
 		</Link>
