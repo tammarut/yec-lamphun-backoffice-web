@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { startTransition, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Download02Icon, Grid02Icon, Menu01Icon, PlusSignIcon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
@@ -27,12 +28,30 @@ const SEARCH_DEBOUNCE_MS = 300
 
 type ViewMode = "list" | "card"
 
+/** Type predicate for the `?view=` URL param — unknown values fall back to the breakpoint default. */
+function isViewMode(value: string | null): value is ViewMode {
+	return value === "list" || value === "card"
+}
+
 /** Member directory page content: toolbar, bulk bar, list/card views, load-more. */
 export function MembersView() {
 	const { isAdmin } = useSession()
 	const isMobile = useIsMobile()
+	const router = useRouter()
+	const searchParams = useSearchParams()
 
-	const [searchTerm, setSearchTerm] = useState("")
+	// Search and the explicit view pick are MIRRORED into the URL (`?q=`,
+	// `?view=`) so browser-Back from a member's detail page restores them
+	// (scrutiny F-02, PR #147). The URL is the persistence layer, not the live
+	// source: typing stays instant through local state and the debounced term
+	// still drives the query — the write below only trails it. Bulk selection
+	// deliberately stays transient: restoring a stale selection over a changed
+	// result set invites accidental bulk actions.
+	const urlSearch = searchParams.get("q") ?? ""
+	const rawView = searchParams.get("view")
+	const urlView = isViewMode(rawView) ? rawView : null
+
+	const [searchTerm, setSearchTerm] = useState(urlSearch)
 	const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS)
 	const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(new Set())
 	const [deleteTarget, setDeleteTarget] = useState<MemberListItem | null>(null)
@@ -52,12 +71,35 @@ export function MembersView() {
 	// The view is DERIVED: the user's explicit pick wins; otherwise follow the
 	// breakpoint (card under 768px, table above). Deriving — rather than copying
 	// isMobile into state — means useIsMobile()'s post-mount resolution flips
-	// the default without an effect, and never fights the user's choice.
-	const [userView, setUserView] = useState<ViewMode | null>(null)
+	// the default without an effect, and never fights the user's choice. No
+	// `?view=` param means the breakpoint default still rules after Back.
+	const [userView, setUserView] = useState<ViewMode | null>(urlView)
 	const viewMode: ViewMode = userView ?? (isMobile ? "card" : "list")
 	const changeViewMode = (mode: ViewMode) => {
 		setUserView(mode)
+		const params = new URLSearchParams(searchParams)
+		params.set("view", mode)
+		startTransition(() => router.replace(`/members?${params.toString()}`, { scroll: false }))
 	}
+
+	// Mirror the settled search term into `?q=` (dropping the param when empty
+	// keeps the URL clean, like the fetch does for `search=`). `lastWritten`
+	// starts at the seeded value so a Back-remount does not rewrite the URL it
+	// just restored.
+	const lastWritten = useRef(urlSearch)
+	useEffect(() => {
+		if (lastWritten.current === debouncedSearch) {
+			return
+		}
+		lastWritten.current = debouncedSearch
+		const params = new URLSearchParams(searchParams)
+		if (debouncedSearch === "") {
+			params.delete("q")
+		} else {
+			params.set("q", debouncedSearch)
+		}
+		startTransition(() => router.replace(`/members?${params.toString()}`, { scroll: false }))
+	}, [debouncedSearch, router, searchParams])
 
 	const queryClient = useQueryClient()
 	const membersQuery = useMembers(debouncedSearch)
