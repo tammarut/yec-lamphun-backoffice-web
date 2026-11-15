@@ -4,18 +4,16 @@ import { ArrowLeft01Icon, Delete02Icon, Edit01Icon, Refresh01Icon } from "@hugei
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 import { toast } from "sonner"
 
 import { DeleteMemberDialog } from "src/modules/members/components/delete-member-dialog"
 import { codeLabel, fullNameTh, GENDER_LABELS, positionLabel, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
 import { MemberWizardDialog } from "src/modules/members/components/member-wizard-dialog"
 import { StatusBadge } from "src/modules/members/components/status-badge"
-import { useBusinessCategories, type BusinessCategoryOption } from "src/modules/members/hooks/use-business-categories"
 import { memberDetailQueryKey, useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useDeleteMember } from "src/modules/members/hooks/use-members"
-import { formatThaiDate } from "src/modules/members/schemas/member-wizard-mapping"
-import type { MemberBusinessResponse, MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
+import { formatThaiDate } from "src/shared/lib/dates/format-thai-date"
 import { Alert, AlertDescription, AlertTitle } from "src/shared/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"
 import { Button } from "src/shared/components/ui/button"
@@ -23,163 +21,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "src/shared/components/
 import { Skeleton } from "src/shared/components/ui/skeleton"
 import { useSession } from "src/shared/lib/api/session"
 
+import { DetailField, nullableText } from "./parts"
+import { MemberBusinessSection, MemberDocumentsSection } from "./sections"
+
 type MemberDetailViewProps = {
 	/**
 	 * The member id parsed from the URL segment; null when the segment is not
 	 * a number, which renders the ไม่พบสมาชิก state without any fetch.
 	 */
 	memberId: number | null
-}
-
-/** Optional API strings arrive as null — or "" on direct API writes (the wizard normalizes to null). Both read as empty. */
-function isEmptyText(value: string | null): value is null | "" {
-	return value === null || value === ""
-}
-
-/** The value cell for an optional field: an empty value renders the stable em dash. */
-function nullableText(value: string | null): ReactNode {
-	if (isEmptyText(value)) {
-		return <span className="text-muted-foreground">—</span>
-	}
-	return value
-}
-
-/**
- * Every URL the API hands back is a free string (website is user-typed; file
- * fields accept any string on a direct write), so only an explicit http(s)
- * scheme may become an anchor: scheme-less text would resolve as a relative
- * path on this origin, and `javascript:` would run on click.
- */
-const HTTP_URL_PATTERN = /^https?:\/\//i
-
-/** Optional website cell: empty → em dash; http(s) → new-tab link; any other text renders inert. */
-function nullableWebsiteLink(value: string | null): ReactNode {
-	if (isEmptyText(value)) {
-		return nullableText(null)
-	}
-	if (!HTTP_URL_PATTERN.test(value)) {
-		return value
-	}
-	return (
-		<a href={value} target="_blank" rel="noopener noreferrer" className="text-primary [overflow-wrap:anywhere] underline-offset-4 hover:underline">
-			{value}
-		</a>
-	)
-}
-
-/** One labelled field row: label column on desktop, stacked on mobile. */
-function DetailField({ label, children }: { label: string; children: ReactNode }) {
-	return (
-		<div data-slot="member-detail-field" className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
-			<span className="text-muted-foreground w-44 shrink-0 text-sm">{label}</span>
-			<span className="min-w-0 text-sm [overflow-wrap:anywhere]">{children}</span>
-		</div>
-	)
-}
-
-/** New-tab link for a document/file URL (presigned or public); a non-http(s) value renders as inert text instead. */
-function DetailFileLink({ href }: { href: string }) {
-	if (!HTTP_URL_PATTERN.test(href)) {
-		return href
-	}
-	return (
-		<a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
-			เปิดดู
-		</a>
-	)
-}
-
-/**
- * Inline image preview: renders the image itself, and the whole preview is a
- * new-tab link to the full-size file. An expired presign or a non-image value
- * falls back to the plain เปิดดู link; a non-http(s) value renders inert, the
- * same rule as every other URL on this page.
- */
-function DetailImagePreview({ url, label }: { url: string; label: string }) {
-	const [isBroken, setIsBroken] = useState(false)
-	if (isBroken || !HTTP_URL_PATTERN.test(url)) {
-		return (
-			<span className="text-sm">
-				<DetailFileLink href={url} />
-			</span>
-		)
-	}
-	return (
-		<a
-			href={url}
-			target="_blank"
-			rel="noopener noreferrer"
-			aria-label={`เปิด${label}ขนาดเต็ม`}
-			title="เปิดดูขนาดเต็ม"
-			className="focus-visible:ring-ring/50 hover:ring-ring/30 w-fit rounded-lg transition-shadow outline-none hover:ring-[3px] focus-visible:ring-[3px]"
-		>
-			{/* eslint-disable-next-line @next/next/no-img-element -- remote presigned/public R2 URL; next/image adds nothing */}
-			<img src={url} alt={label} loading="lazy" onError={() => setIsBroken(true)} className="bg-muted h-40 w-64 max-w-full rounded-lg border object-contain" />
-		</a>
-	)
-}
-
-/** Image field row: the label sits above the inline preview (empty → em dash). */
-function DetailImageField({ label, value }: { label: string; value: string | null }) {
-	return (
-		<div data-slot="member-detail-field" className="flex min-w-0 flex-col gap-1.5">
-			<span className="text-muted-foreground text-sm">{label}</span>
-			{isEmptyText(value) ? <span className="text-sm">{nullableText(null)}</span> : <DetailImagePreview url={value} label={label} />}
-		</div>
-	)
-}
-
-/** The เอกสาร section — the id-card copy and the company certificate as clickable inline previews. */
-function MemberDocumentsSection({ member }: { member: MemberDetailResponse }) {
-	return (
-		<Card data-slot="member-detail-section-documents">
-			<CardHeader>
-				<CardTitle>เอกสาร</CardTitle>
-			</CardHeader>
-			<CardContent className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-				<DetailImageField label="สำเนาบัตรประชาชน" value={member.id_card_image} />
-				<DetailImageField label="หนังสือรับรองบริษัท/ทะเบียนพาณิชย์" value={member.company_certificate} />
-			</CardContent>
-		</Card>
-	)
-}
-
-/** Category label from the live-fed options; the raw id stands in until they load. */
-function businessCategoryLabel(options: BusinessCategoryOption[] | undefined, categoryId: number): string {
-	if (options === undefined) {
-		return String(categoryId)
-	}
-	for (const option of options) {
-		if (option.id === categoryId) {
-			return option.category_name
-		}
-	}
-	return String(categoryId)
-}
-
-/** The ธุรกิจ section. Owns the categories query so it only fetches when detail data is on screen. */
-function MemberBusinessSection({ business }: { business: MemberBusinessResponse }) {
-	const categoriesQuery = useBusinessCategories()
-	return (
-		<Card data-slot="member-detail-section-business">
-			<CardHeader>
-				<CardTitle>ธุรกิจ</CardTitle>
-			</CardHeader>
-			<CardContent className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-				<DetailField label="ชื่อกิจการ">{business.name}</DetailField>
-				<DetailField label="รายละเอียดกิจการ">{business.description}</DetailField>
-				<DetailField label="เลขทะเบียนนิติบุคคล">{business.juristic_registration_no}</DetailField>
-				<DetailField label="หมวดธุรกิจหลัก">{businessCategoryLabel(categoriesQuery.data, business.category_id)}</DetailField>
-				<DetailField label="ที่อยู่กิจการ">{nullableText(business.address)}</DetailField>
-				<DetailField label="ธุรกิจหลัก">{nullableText(business.core_business)}</DetailField>
-				<DetailField label="เว็บไซต์">{nullableWebsiteLink(business.website)}</DetailField>
-				<DetailField label="จำนวนสมาชิกในธุรกิจ">{String(business.member_count)}</DetailField>
-				{/* The two image cells share one grid row so the previews line up. */}
-				<DetailImageField label="โลโก้" value={business.logo} />
-				<DetailImageField label="ผลิตภัณฑ์" value={business.product} />
-			</CardContent>
-		</Card>
-	)
 }
 
 function MemberDetailSkeleton() {
@@ -217,8 +67,8 @@ function MemberDetailNotFound() {
 /**
  * Member detail page content (tracer #143): identity header with the reused
  * edit wizard + delete confirmation, then four Thai-labelled sections over
- * exactly the `MemberDetailResponse` fields (null → "—"). Entered by URL for
- * now — list name links are ticket #144.
+ * exactly the `MemberDetailResponse` fields (null → "—"). Reached by URL —
+ * admin name links in the list navigate here (#144).
  */
 export function MemberDetailView({ memberId }: MemberDetailViewProps) {
 	const { isAdmin } = useSession()

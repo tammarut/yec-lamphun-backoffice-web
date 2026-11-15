@@ -3,7 +3,7 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Calendar01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons"
 
-import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
+import { formatThaiDate } from "src/shared/lib/dates/format-thai-date"
 import { fullNameTh, positionLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"
 import { Avatar, AvatarFallback, AvatarImage } from "src/shared/components/ui/avatar"

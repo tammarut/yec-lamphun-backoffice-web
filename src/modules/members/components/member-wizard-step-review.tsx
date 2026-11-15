@@ -11,7 +11,8 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "src/shared
 import { GENDER_LABELS, POSITION_LABELS, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
 import { StatusBadge } from "src/modules/members/components/status-badge"
 import { useBusinessCategories } from "src/modules/members/hooks/use-business-categories"
-import { formatIdCardNo, formatThaiDate, memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import { formatIdCardNo, memberFileLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import { formatThaiDate } from "src/shared/lib/dates/format-thai-date"
 import type { MemberWizardFileFieldName, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import { cn } from "src/shared/lib/utils/utils"
 

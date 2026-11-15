@@ -12,7 +12,8 @@ import { GENDER_LABELS, POSITION_LABELS, SHIRT_SIZE_LABELS, SINGLE_CARDINALITY_P
 import { StatusBadge } from "src/modules/members/components/status-badge"
 import { useMemberWizardEdit } from "src/modules/members/components/member-wizard-edit-context"
 import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
-import { computeAgeLabel, formatIdCardNo, formatPhoneNumber, formatThaiDate, membershipDurationLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import { computeAgeLabel, formatIdCardNo, formatPhoneNumber, membershipDurationLabel } from "src/modules/members/schemas/member-wizard-mapping"
+import { formatThaiDate } from "src/shared/lib/dates/format-thai-date"
 import { DB_MAX_LENGTHS, GENDERS, POSITIONS, SHIRT_SIZES, TITLES_EN, TITLES_TH, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 function TextField({
