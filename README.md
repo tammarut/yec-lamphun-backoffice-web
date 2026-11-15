@@ -1,4 +1,8 @@
-# This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app)
+# YEC Lamphun Backoffice
+
+Admin backoffice web app for YEC Lamphun — member directory, membership renewals, organization, and system administration — built with Next.js App Router, TypeScript, and Tailwind CSS v4.
+
+Engineering standards (architecture, DI, error handling, UI rules, testing strategy) live in [AGENTS.md](AGENTS.md); architecture decisions are recorded in [docs/adr/](docs/adr/).
 
 ## Tech Stack
 
@@ -104,69 +108,42 @@ Follow these steps to run the project locally for the first time:
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `src/app/page.tsx`. The page auto-updates as you edit the file.
+## Engineering Standards
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+[AGENTS.md](AGENTS.md) is the binding guideline for every change in this repo — module boundaries, tsyringe DI, neverthrow error handling, Valibot validation, Tailwind v4 semantic tokens, and the Vitest house style. Notable architecture decisions:
+
+| ADR | Decision |
+| --- | --- |
+| [ADR-0022](docs/adr/0022-modules-own-their-frontend.md) | Feature modules own their frontend (`components/`, `hooks/`, `schemas/` live in the module, not `shared/`) |
+| [ADR-0032](docs/adr/0032-feature-subfolders-inside-module-components.md) | Inside a module's `components/`, files group by feature subfolder once the folder mixes features; the root keeps module-wide vocabulary only |
 
 ## Folder Structure
 
 ```md
-my-app/
-├── src/
-│   ├── app/                    # Next.js App Router
-│   │   ├── (public)/          # Public routes
-│   │   │   ├── layout.tsx
-│   │   │   ├── page.tsx
-│   │   │   └── login/
-│   │   │       └── page.tsx
-│   │   ├── (private)/         # Auth-protected routes
-│   │   │   ├── layout.tsx
-│   │   │   └── dashboard/
-│   │   │       ├── page.tsx
-│   │   │       └── settings/
-│   │   │           └── page.tsx
-│   │   ├── api/               # API routes
-│   │   │   ├── v1/
-│   │   │   │   ├── auth/
-│   │   │   │   ├── users/
-│   │   │   │   └── products/
-│   │   ├── layout.tsx
-│   │   └── page.tsx
-│   ├── modules/              # Feature modules
-│   │   ├── auth/
-│   │   │   ├── components/    # Auth-specific components
-│   │   │   ├── services/      # Auth business logic & DB queries
-│   │   │   ├── actions/       # Next.js Server Actions
-│   │   │   ├── hooks/         # Auth React hooks
-│   │   │   ├── types/         # Auth TypeScript types
-│   │   │   └── schemas/       # Auth validation schemas
-│   │   ├── products/
-│   │   │   ├── components/
-│   │   │   ├── services/
-│   │   │   ├── actions/
-│   │   │   ├── hooks/
-│   │   │   ├── types/
-│   │   │   └── schemas/
-│   │   ├── tasks/
-│   │   │   └── ... (similar)
-│   │   └── users/
-│   │       └── ... (similar)
-│   ├── shared/                # Shared modules
-│   │   ├── components/        # Reusable UI components
-│   │   │   ├── ui/           # shadcn components
-│   │   │   ├── layout/       # Layout components
-│   │   │   └── forms/        # Form components
-│   │   ├── lib/              # Core utilities
-│   │   │   ├── db/           # Database client
-│   │   │   ├── api/          # API client
-│   │   │   └── utils/        # Shared utilities
-│   │   ├── hooks/            # Shared React hooks
-│   │   ├── types/            # Global TypeScript types
-│   │   ├── constants/        # Global constants
-│   │   └── validation/       # Shared validation schemas
-│   └── styles/
-│       └── globals.css
-├── scripts/
-├── tests/
-└── ...
+src/
+├── app/                        # Next.js App Router (routing layer only)
+│   ├── (public)/              # Public routes (login, members)
+│   ├── (private)/             # Auth-protected routes (dashboard, organization, system settings)
+│   └── api/                   # API route handlers (force-dynamic, DI resolve)
+├── modules/                    # Feature modules (domain, use-cases, frontend)
+│   ├── members/               # Reference implementation of the component layout (ADR-0032)
+│   │   ├── components/        #   grouped by feature once the folder mixes features:
+│   │   │   ├── member-directory/   # the list page (view / table / card grid + tests)
+│   │   │   ├── member-detail/      # the detail page (parts / sections / view shell + test)
+│   │   │   ├── member-wizard/      # the create/edit wizard (dialog / steps + tests)
+│   │   │   ├── member-labels.ts    # module-wide vocabulary stays at the folder root
+│   │   │   └── ...                 # (status-badge, delete-member-dialog, fixtures)
+│   │   ├── hooks/             #   client data-fetching hooks
+│   │   ├── schemas/           #   client-side Valibot schemas (wizard steps, route params)
+│   │   └── members-types.ts   #   module-wide types shared with hooks/ and schemas/
+│   ├── membership-renewals/   # Renewal review workflow (same module shape)
+│   ├── business-categories/
+│   ├── system-settings/
+│   ├── auth/
+│   └── shared/                # Cross-cutting infra (id-generator, session-store, storage)
+└── shared/                     # Globally reusable resources
+    ├── components/            # shadcn/ui primitives, layout, forms
+    ├── core/                  # Shared errors and models
+    ├── config/                # Strict env loading (t3-env)
+    └── lib/                   # dates/ (format-thai-date), api/ (session), db/, ulid-generator/, utils/
 ```
