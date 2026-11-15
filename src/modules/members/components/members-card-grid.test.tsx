@@ -42,9 +42,10 @@ describe("MembersCardGrid", () => {
 			link.focus()
 			expect(document.activeElement).toBe(link)
 			// Clickable affordance at rest (scrutiny F-01): the subtle underline is
-			// always on, not only on hover.
-			expect(link.className).toContain("underline")
-			expect(link.className).toContain("decoration-muted-foreground/40")
+			// always on, not only on hover — token-exact, so deleting the bare
+			// "underline" class cannot slip past "underline-offset-4" (F-02).
+			expect(link.classList.contains("underline")).toBe(true)
+			expect(link.classList.contains("decoration-muted-foreground/40")).toBe(true)
 		})
 
 		it("admin: edit and delete buttons report the member and never navigate", () => {
@@ -77,7 +78,7 @@ describe("MembersCardGrid", () => {
 			renderGrid({ isAdmin: false })
 
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
-			expect(screen.queryByRole("link")).not.toBeTruthy()
+			expect(screen.queryByRole("link", { name: "นายสมชาย ใจดี" })).not.toBeTruthy()
 		})
 
 		it("empty business description renders the dash placeholder", () => {

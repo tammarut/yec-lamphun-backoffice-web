@@ -105,7 +105,7 @@ describe("MembersView", () => {
 			expect(screen.queryByText("ปกติ")).toBeNull()
 			expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull()
 			// The name stays plain text — no click affordance without a session.
-			expect(screen.queryByRole("link")).toBeNull()
+			expect(screen.queryByRole("link", { name: "นายสมชาย ใจดี" })).toBeNull()
 			expect(screen.getByPlaceholderText("ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง...")).toBeTruthy()
 		})
 

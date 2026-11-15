@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, test, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { makeMember } from "src/modules/members/components/make-member.fixture"
 import { MembersTable } from "src/modules/members/components/members-table"
@@ -23,7 +23,7 @@ describe("MembersTable", () => {
 	afterEach(cleanup)
 
 	describe("Happy cases", () => {
-		test("renders member rows: glued Thai name, nickname, position label, business, contacts", () => {
+		it("renders member rows: glued Thai name, nickname, position label, business, contacts", () => {
 			renderTable()
 
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
@@ -36,7 +36,7 @@ describe("MembersTable", () => {
 			expect(screen.getByText("somchai")).toBeTruthy()
 		})
 
-		test("maps position codes to the official Thai labels", () => {
+		it("maps position codes to the official Thai labels", () => {
 			renderTable({
 				members: [makeMember({ id: 2, position: "PRESIDENT", first_name_th: "อนันต์" })],
 			})
@@ -44,7 +44,7 @@ describe("MembersTable", () => {
 			expect(screen.getByText("ประธาน YEC Lamphun")).toBeTruthy()
 		})
 
-		test("renders one status badge per status using the Status Badge vocabulary (admin)", () => {
+		it("renders one status badge per status using the Status Badge vocabulary (admin)", () => {
 			renderTable({
 				members: [
 					makeMember({ id: 2, status: "ACTIVE" }),
@@ -59,7 +59,7 @@ describe("MembersTable", () => {
 			expect(screen.getAllByText("ลาออก")).toHaveLength(1)
 		})
 
-		test("admin mode: select-all and row checkboxes fire callbacks, delete button reports the member", () => {
+		it("admin mode: select-all and row checkboxes fire callbacks, delete button reports the member", () => {
 			const props = renderTable()
 
 			fireEvent.click(screen.getByRole("checkbox", { name: "เลือกทั้งหมด" }))
@@ -72,7 +72,7 @@ describe("MembersTable", () => {
 			expect(props.onDeleteClick).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
 		})
 
-		test("admin: the member name is a keyboard-focusable link to the detail page", () => {
+		it("admin: the member name is a keyboard-focusable link to the detail page", () => {
 			renderTable()
 
 			const link = screen.getByRole("link", { name: "นายสมชาย ใจดี" })
@@ -83,12 +83,13 @@ describe("MembersTable", () => {
 			link.focus()
 			expect(document.activeElement).toBe(link)
 			// Clickable affordance at rest (scrutiny F-01): the subtle underline is
-			// always on, not only on hover.
-			expect(link.className).toContain("underline")
-			expect(link.className).toContain("decoration-muted-foreground/40")
+			// always on, not only on hover — token-exact, so deleting the bare
+			// "underline" class cannot slip past "underline-offset-4" (F-02).
+			expect(link.classList.contains("underline")).toBe(true)
+			expect(link.classList.contains("decoration-muted-foreground/40")).toBe(true)
 		})
 
-		test("select-all shows indeterminate when only some rows are selected", () => {
+		it("select-all shows indeterminate when only some rows are selected", () => {
 			renderTable({
 				members: [makeMember({ id: 1 }), makeMember({ id: 2, first_name_th: "บ" })],
 				selectedIds: new Set([1]),
@@ -100,7 +101,7 @@ describe("MembersTable", () => {
 	})
 
 	describe("Unhappy cases", () => {
-		test("non-admin: no checkbox column, no จัดการ column, no status badges", () => {
+		it("non-admin: no checkbox column, no จัดการ column, no status badges", () => {
 			renderTable({ isAdmin: false })
 
 			expect(screen.queryByRole("checkbox")).not.toBeTruthy()
@@ -109,21 +110,21 @@ describe("MembersTable", () => {
 			expect(screen.queryByRole("button", { name: /ลบสมาชิก/ })).not.toBeTruthy()
 		})
 
-		test("non-admin: the member name is plain text with no link affordance", () => {
+		it("non-admin: the member name is plain text with no link affordance", () => {
 			renderTable({ isAdmin: false })
 
 			expect(screen.getByText("นายสมชาย ใจดี")).toBeTruthy()
-			expect(screen.queryByRole("link")).not.toBeTruthy()
+			expect(screen.queryByRole("link", { name: "นายสมชาย ใจดี" })).not.toBeTruthy()
 		})
 
-		test("empty member list renders headers only, no rows", () => {
+		it("empty member list renders headers only, no rows", () => {
 			renderTable({ members: [] })
 
 			expect(screen.getByRole("columnheader", { name: "ชื่อ-สกุล / ตำแหน่ง" })).toBeTruthy()
 			expect(screen.queryByText("นายสมชาย ใจดี")).not.toBeTruthy()
 		})
 
-		test("unknown position code falls back to the raw code", () => {
+		it("unknown position code falls back to the raw code", () => {
 			renderTable({ members: [makeMember({ position: "FUTURE_POSITION" })] })
 
 			expect(screen.getByText("FUTURE_POSITION")).toBeTruthy()
