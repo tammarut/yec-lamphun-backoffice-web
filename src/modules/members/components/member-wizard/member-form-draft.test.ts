@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test, vi } from "vitest"
 
-import { clearMemberFormDraft, readMemberFormDraft, restoreMemberFormDraft, saveMemberFormDraft } from "src/modules/members/components/member-form-draft"
+import { clearMemberFormDraft, readMemberFormDraft, restoreMemberFormDraft, saveMemberFormDraft } from "src/modules/members/components/member-wizard/member-form-draft"
 import { MEMBER_WIZARD_DEFAULT_VALUES } from "src/modules/members/schemas/member-wizard-schema"
 
 /** Minimal in-memory localStorage stand-in for the node environment. */

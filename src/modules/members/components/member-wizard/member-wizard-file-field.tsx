@@ -7,7 +7,7 @@ import { useFormContext, useWatch } from "react-hook-form"
 
 import { Button } from "src/shared/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "src/shared/components/ui/field"
-import { useMemberWizardEdit } from "src/modules/members/components/member-wizard-edit-context"
+import { useMemberWizardEdit } from "src/modules/members/components/member-wizard/member-wizard-edit-context"
 import { fileLabelFromUrl } from "src/modules/members/schemas/member-wizard-mapping"
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES } from "src/modules/members/member-file.constants"
 import type { MemberWizardFileFieldName, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"

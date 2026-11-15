@@ -9,7 +9,7 @@ import { toast } from "sonner"
 
 import { DeleteMemberDialog } from "src/modules/members/components/delete-member-dialog"
 import { codeLabel, fullNameTh, GENDER_LABELS, positionLabel, REGISTRATION_TYPE_LABELS, SHIRT_SIZE_LABELS } from "src/modules/members/components/member-labels"
-import { MemberWizardDialog } from "src/modules/members/components/member-wizard-dialog"
+import { MemberWizardDialog } from "src/modules/members/components/member-wizard/member-wizard-dialog"
 import { StatusBadge } from "src/modules/members/components/status-badge"
 import { memberDetailQueryKey, useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useDeleteMember } from "src/modules/members/hooks/use-members"
