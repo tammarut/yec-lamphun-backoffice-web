@@ -9,6 +9,7 @@ import { useState, type ReactNode } from "react"
 import { AdminLoginDialog } from "src/shared/components/layout/admin-login-dialog"
 import { AdminLogoutConfirmDialog } from "src/shared/components/layout/admin-logout-confirm-dialog"
 import { AdminMenuButton, type AdminDialogMode } from "src/shared/components/layout/admin-menu-button"
+import { isNavItemActive } from "src/shared/components/layout/is-nav-item-active"
 import {
 	Sidebar,
 	SidebarContent,
@@ -58,7 +59,7 @@ function AppSidebar({ onAdminClick }: AppSidebarProps) {
 								<SidebarMenuItem key={item.url}>
 									<SidebarMenuButton
 										asChild
-										isActive={pathname === item.url}
+										isActive={isNavItemActive(pathname, item.url)}
 										tooltip={item.title}
 										size="lg"
 										className="px-3 text-base group-data-[collapsible=icon]:justify-center [&_svg]:size-5 group-data-[collapsible=icon]:[&>span:last-child]:hidden"

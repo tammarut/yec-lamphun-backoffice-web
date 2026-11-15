@@ -16,6 +16,19 @@ vi.mock("src/modules/members/components/export-members-csv", async (importOrigin
 	}
 })
 
+// MembersView mirrors `?q=` / `?view=` into the URL (back-nav restore). The
+// router mock is framework glue (§5 sanctions it); `params` is mutable state
+// each renderView re-seeds.
+const navigation = vi.hoisted(() => ({
+	replace: vi.fn(),
+	params: new URLSearchParams(),
+}))
+
+vi.mock("next/navigation", () => ({
+	useRouter: () => ({ replace: navigation.replace, push: vi.fn(), back: vi.fn() }),
+	useSearchParams: () => navigation.params,
+}))
+
 function jsonResponse(status: number, body?: unknown) {
 	return new Response(body === undefined ? null : JSON.stringify(body), {
 		status,
@@ -32,14 +45,18 @@ function listPage(members: MemberListItem[]) {
  * probe (204 = staff, 401 = public); `listResponse` produces the list GET;
  * `extraResponse` (optional) routes anything else first (detail GET/PATCH,
  * categories) — return undefined to fall through; `mobile` seeds matchMedia
- * for the responsive default-view effect.
+ * for the responsive default-view effect; `url` seeds the query params the
+ * URL-sync reads (e.g. "q=สมชาย&view=card").
  */
 function renderView(options: {
 	sessionOk: boolean
 	listResponse: (url: string) => Response
 	extraResponse?: (url: string, init?: RequestInit) => Response | undefined
 	mobile?: boolean
+	url?: string
 }) {
+	navigation.params = new URLSearchParams(options.url ?? "")
+	navigation.replace.mockClear()
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input)
 		const extra = options.extraResponse?.(url, init)
@@ -93,6 +110,8 @@ describe("MembersView", () => {
 	afterEach(() => {
 		cleanup()
 		vi.unstubAllGlobals()
+		navigation.replace.mockClear()
+		navigation.params = new URLSearchParams()
 	})
 
 	describe("Happy cases", () => {
@@ -342,6 +361,58 @@ describe("MembersView", () => {
 			await screen.findByText("นายสมชาย ใจดี")
 			expect(screen.getByRole("button", { name: "มุมมองการ์ด" }).getAttribute("aria-pressed")).toBe("true")
 			expect((await screen.findByText("นายสมชาย ใจดี")).closest("[data-slot=members-table]")).toBeNull()
+		})
+
+		// Back-nav restore (scrutiny F-02, PR #147): a name click unmounts the
+		// list; ย้อนกลับ must bring the search and the view pick back with it.
+		it("a ?q= seed restores the search: the input shows it and the first fetch filters by it", async () => {
+			const { fetchMock } = renderView({
+				sessionOk: false,
+				url: "q=สมชาย",
+				listResponse: () => jsonResponse(200, listPage([makeMember()])),
+			})
+
+			expect((screen.getByPlaceholderText("ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง...") as HTMLInputElement).value).toBe("สมชาย")
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("search="), undefined)
+			})
+			const calledUrl = String(fetchMock.mock.calls[0]?.[0])
+			expect(new URLSearchParams(calledUrl.split("?")[1] ?? "").get("search")).toBe("สมชาย")
+		})
+
+		it("typing a search settles into the URL as ?q=", async () => {
+			renderView({ sessionOk: false, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			fireEvent.change(screen.getByPlaceholderText("ค้นหาชื่อจริง, เบอร์โทร หรือรหัสตำแหน่ง..."), {
+				target: { value: "สมชาย" },
+			})
+
+			await waitFor(() => {
+				expect(navigation.replace).toHaveBeenCalled()
+			})
+			const writtenUrl = String(navigation.replace.mock.calls.at(-1)?.[0])
+			expect(new URLSearchParams(writtenUrl.split("?")[1] ?? "").get("q")).toBe("สมชาย")
+		})
+
+		it("a ?view=card seed forces the card view even on desktop", async () => {
+			renderView({ sessionOk: false, url: "view=card", listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			expect(screen.getByRole("button", { name: "มุมมองการ์ด" }).getAttribute("aria-pressed")).toBe("true")
+			expect((await screen.findByText("นายสมชาย ใจดี")).closest("[data-slot=members-table]")).toBeNull()
+		})
+
+		it("switching the view writes ?view=", async () => {
+			renderView({ sessionOk: false, listResponse: () => jsonResponse(200, listPage([makeMember()])) })
+
+			await screen.findByText("นายสมชาย ใจดี")
+			fireEvent.click(screen.getByRole("button", { name: "มุมมองการ์ด" }))
+
+			await waitFor(() => {
+				expect(navigation.replace).toHaveBeenCalled()
+			})
+			const writtenUrl = String(navigation.replace.mock.calls.at(-1)?.[0])
+			expect(new URLSearchParams(writtenUrl.split("?")[1] ?? "").get("view")).toBe("card")
 		})
 
 		it("admin: Export CSV is disabled while the list is empty", async () => {
