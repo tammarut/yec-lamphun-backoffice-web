@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { fullNameTh } from "src/modules/members/components/member-labels"
-import type { MemberListItem } from "src/modules/members/components/members-types"
+import type { MemberListItem } from "src/modules/members/members-types"
 
 type MemberNameProps = {
 	member: MemberListItem

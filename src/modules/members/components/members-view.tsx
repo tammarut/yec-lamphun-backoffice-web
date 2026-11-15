@@ -12,7 +12,7 @@ import { MemberWizardDialog } from "src/modules/members/components/member-wizard
 import { MembersCardGrid } from "src/modules/members/components/members-card-grid"
 import { MembersTable } from "src/modules/members/components/members-table"
 import { downloadMembersCsv } from "src/modules/members/components/export-members-csv"
-import type { MemberListItem } from "src/modules/members/components/members-types"
+import type { MemberListItem } from "src/modules/members/members-types"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { MEMBERS_LIST_QUERY_KEY, useDeleteMember, useMembers } from "src/modules/members/hooks/use-members"

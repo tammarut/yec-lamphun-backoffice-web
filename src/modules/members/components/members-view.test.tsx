@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { downloadMembersCsv } from "src/modules/members/components/export-members-csv"
 import { makeMember } from "src/modules/members/components/make-member.fixture"
-import type { MemberListItem } from "src/modules/members/components/members-types"
+import type { MemberListItem } from "src/modules/members/members-types"
 import { MembersView } from "src/modules/members/components/members-view"
 import { SessionProvider } from "src/shared/lib/api/session"
 

@@ -1,4 +1,4 @@
-import type { MemberStatus } from "src/modules/members/components/members-types"
+import type { MemberStatus } from "src/modules/members/members-types"
 import type { MemberFileValue, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 

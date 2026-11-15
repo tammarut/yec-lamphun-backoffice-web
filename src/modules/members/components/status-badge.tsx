@@ -1,6 +1,6 @@
 import { Badge } from "src/shared/components/ui/badge"
 import { STATUS_BADGES, type StatusBadgeTone } from "src/modules/members/components/member-labels"
-import type { MemberStatus } from "src/modules/members/components/members-types"
+import type { MemberStatus } from "src/modules/members/members-types"
 import { cn } from "src/shared/lib/utils/utils"
 
 /**
