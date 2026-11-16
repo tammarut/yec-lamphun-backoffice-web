@@ -18,9 +18,9 @@ src/
 │   ├── auth/              # Auth-specific services, components, actions, types
 │   ├── business-categories/ # Business categories module
 │   ├── members/           # Members module (domain, use-cases, R2 file orchestration, frontend)
-│   │   ├── components/    # Feature-owned UI components (views, tables, dialogs)
+│   │   ├── components/    # Feature-owned UI components; feature subfolders once it mixes features (ADR-0032)
 │   │   ├── hooks/         # Feature-owned React hooks (client data fetching)
-│   │   └── schemas/       # (future) Client-side Valibot schemas for wizard steps
+│   │   └── schemas/       # Client-side Valibot schemas for wizard steps
 │   ├── shared/            # Cross-cutting infra shared by all modules
 │   │   ├── id-generator/  # IIdGenerator interface (generic ULID contract)
 │   │   ├── session-store/ # In-memory session store
@@ -32,10 +32,17 @@ src/
 │   ├── components/        # Reusable components (ui/shadcn, layout, forms)
 │   ├── core/              # Shared errors (AppError, DatabaseError) and models
 │   ├── config/            # Strict env loading (t3-env)
-│   └── lib/               # Shared libraries (db/database-client, ulid-generator, utils/cn)
+│   └── lib/               # Shared libraries (db/database-client, dates/format-thai-date, ulid-generator, utils/cn)
 ```
 
 **Feature modules own their frontend.** A feature module's `components/`, `hooks/`, and `schemas/` folders hold its UI layer; feature UI does NOT live in `src/shared/components/`. `components/` and `hooks/` MUST NOT import from their own module's `repository/`, `use-case/`, or `domain/` server layers — type-only imports are excepted. This boundary is a written convention (see `docs/adr/0022-modules-own-their-frontend.md`), deliberately not enforced by a lint rule.
+
+**Inside `components/`, files group by feature once the folder mixes features** (see `docs/adr/0032-feature-subfolders-inside-module-components.md`):
+
+* Feature subfolders named after the feature (`member-detail/`, `member-directory/`, `member-wizard/`); the folder root keeps only module-wide vocabulary — files consumed by two or more features (labels, badges, shared dialogs, fixtures).
+* Filenames never change (folders are namespaces) and there are **no barrel `index.ts` files** — absolute `src/...` imports make them redundant.
+* A view that outgrows one file splits into `parts.tsx` (small render primitives) + `sections.tsx` (full card/section components owning their queries) + the view shell (state, early returns, interaction latches), with the test colocated in the same folder.
+* A module-wide type that a non-UI layer (`hooks/`, `schemas/`) needs lives at the module root (e.g. `src/modules/members/members-types.ts`), **never under `components/`**; a helper two modules need is promoted to `src/shared/lib/<domain>/` with its test colocated.
 
 ---
 

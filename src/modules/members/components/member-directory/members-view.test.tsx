@@ -2,14 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { downloadMembersCsv } from "src/modules/members/components/export-members-csv"
+import { downloadMembersCsv } from "src/modules/members/components/member-directory/export-members-csv"
 import { makeMember } from "src/modules/members/components/make-member.fixture"
-import type { MemberListItem } from "src/modules/members/components/members-types"
-import { MembersView } from "src/modules/members/components/members-view"
+import type { MemberListItem } from "src/modules/members/members-types"
+import { MembersView } from "src/modules/members/components/member-directory/members-view"
 import { SessionProvider } from "src/shared/lib/api/session"
 
-vi.mock("src/modules/members/components/export-members-csv", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("src/modules/members/components/export-members-csv")>()
+vi.mock("src/modules/members/components/member-directory/export-members-csv", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("src/modules/members/components/member-directory/export-members-csv")>()
 	return {
 		...actual,
 		downloadMembersCsv: vi.fn(),

@@ -5,7 +5,7 @@ import { useFormContext } from "react-hook-form"
 import { FieldDescription, FieldError, FieldLegend, FieldSet } from "src/shared/components/ui/field"
 import { RadioGroup, RadioGroupItem } from "src/shared/components/ui/radio-group"
 import { REGISTRATION_TYPE_LABELS } from "src/modules/members/components/member-labels"
-import { MemberWizardFileField } from "src/modules/members/components/member-wizard-file-field"
+import { MemberWizardFileField } from "src/modules/members/components/member-wizard/member-wizard-file-field"
 import type { MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import { cn } from "src/shared/lib/utils/utils"
 

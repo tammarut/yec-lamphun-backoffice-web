@@ -3,7 +3,7 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, Calendar01Icon, CheckmarkCircle01Icon, Refresh01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 
-import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
+import { formatThaiDate } from "src/shared/lib/dates/format-thai-date"
 import { fullNameTh } from "src/modules/membership-renewals/components/renewal-labels"
 import { RenewalStatusBadge } from "src/modules/membership-renewals/components/renewal-status-badge"
 import type { ExpiredMembershipResponse } from "src/modules/membership-renewals/use-case/get-list-expired-membership/get-list-expired-membership.types"

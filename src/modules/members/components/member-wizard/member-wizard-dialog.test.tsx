@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { useState } from "react"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { MemberWizardDialog } from "src/modules/members/components/member-wizard-dialog"
+import { MemberWizardDialog } from "src/modules/members/components/member-wizard/member-wizard-dialog"
 
 // jsdom lacks the pointer-capture + scrollIntoView APIs Radix Select relies on.
 beforeAll(() => {

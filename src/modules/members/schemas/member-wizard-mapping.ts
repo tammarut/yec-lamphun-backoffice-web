@@ -1,4 +1,4 @@
-import type { MemberStatus } from "src/modules/members/components/members-types"
+import type { MemberStatus } from "src/modules/members/members-types"
 import type { MemberFileValue, MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 
@@ -208,21 +208,6 @@ export function memberFileLabel(value: MemberFileValue): string {
 		return value.file.name
 	}
 	return value.existingUrl !== null ? fileLabelFromUrl(value.existingUrl) : "ไม่ได้แนบ"
-}
-
-/**
- * Thai short-date display for an ISO date/datetime (renewal block / review /
- * member detail). Date-only inputs (YYYY-MM-DD) are spec-parsed as UTC
- * midnight, which renders the PREVIOUS day in negative-offset locales — pin
- * them to local midnight so the calendar day is locale-independent.
- */
-export function formatThaiDate(isoDateTime: string): string {
-	const normalized = /^\d{4}-\d{2}-\d{2}$/.test(isoDateTime) ? `${isoDateTime}T00:00:00` : isoDateTime
-	const date = new Date(normalized)
-	if (Number.isNaN(date.getTime())) {
-		return "-"
-	}
-	return date.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })
 }
 
 /** ระยะเวลาการเป็นสมาชิก label, computed from member_since ("X ปี Y เดือน"; "-" when unparseable). */

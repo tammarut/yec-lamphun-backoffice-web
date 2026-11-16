@@ -1,5 +1,5 @@
 import { fullNameTh, positionLabel, statusBadgeLabel } from "src/modules/members/components/member-labels"
-import type { MemberListItem } from "src/modules/members/components/members-types"
+import type { MemberListItem } from "src/modules/members/members-types"
 
 const CSV_HEADERS = ["ชื่อ-นามสกุล", "ชื่อเล่น", "ตำแหน่ง", "กิจการ", "เบอร์โทร", "อีเมล", "สถานะ"] as const
 

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { makeMember } from "src/modules/members/components/make-member.fixture"
-import { MembersCardGrid } from "src/modules/members/components/members-card-grid"
+import { MembersCardGrid } from "src/modules/members/components/member-directory/members-card-grid"
 
 function renderGrid(overrides: Partial<Parameters<typeof MembersCardGrid>[0]> = {}) {
 	const props = {

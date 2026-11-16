@@ -5,7 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Refresh01Icon } from "@hugeicons/core-free-icons"
 import { useQueryClient } from "@tanstack/react-query"
 
-import { formatThaiDate } from "src/modules/membership-renewals/components/format-thai-date"
+import { formatThaiDate } from "src/shared/lib/dates/format-thai-date"
 import { fullNameTh, positionLabel } from "src/modules/membership-renewals/components/renewal-labels"
 import { LATEST_RENEWAL_QUERY_KEY, useLatestRenewal } from "src/modules/membership-renewals/hooks/use-latest-renewal"
 import { useReviewRenewal } from "src/modules/membership-renewals/hooks/use-review-renewal"

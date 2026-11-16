@@ -1,6 +1,6 @@
 import { Suspense } from "react"
 
-import { MembersView } from "src/modules/members/components/members-view"
+import { MembersView } from "src/modules/members/components/member-directory/members-view"
 
 export default function MembersPage() {
 	// MembersView reads `?q=` / `?view=` from the URL (back-nav restore, #147

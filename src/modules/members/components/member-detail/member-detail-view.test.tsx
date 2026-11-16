@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { makeMemberDetail } from "src/modules/members/components/make-member-detail.fixture"
 import { SessionProvider } from "src/shared/lib/api/session"
-import { MemberDetailView } from "src/modules/members/components/member-detail-view"
+import { MemberDetailView } from "./member-detail-view"
 
 const mockBack = vi.hoisted(() => vi.fn())
 const mockPush = vi.hoisted(() => vi.fn())

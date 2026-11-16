@@ -1,4 +1,4 @@
-import { MemberDetailView } from "src/modules/members/components/member-detail-view"
+import { MemberDetailView } from "src/modules/members/components/member-detail/member-detail-view"
 import { parseMemberIdParam } from "src/modules/members/schemas/member-id-param"
 
 type MemberDetailPageProps = {
