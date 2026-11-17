@@ -321,7 +321,10 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	 * number. Runs INSIDE the create transaction, after the member-row step.
 	 */
 	async insertRegistrationPayment(sql: Sql, memberId: number, paymentSlipFilePath: string): Promise<number> {
-		const result = await ResultAsync.fromPromise(insertRegistrationPayment(sql, { memberId: String(memberId), paymentSlipFilePath }), (error) => error as Error)
+		const result = await ResultAsync.fromPromise(
+			insertRegistrationPayment(sql, { memberId: String(memberId), paymentSlipFilePath: paymentSlipFilePath }),
+			(error) => error as Error
+		)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
@@ -340,7 +343,10 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	 * replace re-stamps payment_date_at). Runs INSIDE the update transaction.
 	 */
 	async upsertRegistrationPayment(sql: Sql, memberId: number, paymentSlipFilePath: string): Promise<number> {
-		const result = await ResultAsync.fromPromise(upsertRegistrationPayment(sql, { memberId: String(memberId), paymentSlipFilePath }), (error) => error as Error)
+		const result = await ResultAsync.fromPromise(
+			upsertRegistrationPayment(sql, { memberId: String(memberId), paymentSlipFilePath: paymentSlipFilePath }),
+			(error) => error as Error
+		)
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}

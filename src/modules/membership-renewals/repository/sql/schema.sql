@@ -12,7 +12,6 @@ CREATE TABLE membership_renewals (
     -- Payment Ledger discriminator (ADR-0033): 'RENEWAL' default keeps every
     -- existing row a renewal (no data migration); 'REGISTRATION' marks the
     -- member's initial payment filed by the create-member transaction.
-    -- Replaced ENUM with constrained VARCHAR
     type VARCHAR(50) NOT NULL DEFAULT 'RENEWAL',
     rejection_reason TEXT NULL,
     reviewed_at TIMESTAMPTZ NULL,
