@@ -6,7 +6,15 @@ import { toPgDate } from "src/shared/lib/db/pg-serializers"
 import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { inject, injectable } from "tsyringe"
 import type { Member, MemberStatus } from "../domain/member"
-import type { MemberBusinessReadModel, MemberDetailReadModel, MemberLatestRenewalReadModel, PositionCardinality, PositionReadModel } from "../domain/member-read-models"
+import type {
+	MemberBusinessReadModel,
+	MemberDetailReadModel,
+	MemberLatestRenewalReadModel,
+	MemberPaymentHistoryEntry,
+	MembershipPaymentType,
+	PositionCardinality,
+	PositionReadModel,
+} from "../domain/member-read-models"
 import type { IAnnualMembershipExpiryRepository, IMemberRepository, IMemberResignRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
@@ -21,15 +29,18 @@ import {
 	getExecutiveCommitteeMembers,
 	getLatestRenewalByMemberId,
 	getMemberDocumentsByMemberId,
+	getMemberPaymentHistoryByMemberId,
 	getMemberStatusById,
 	getMemberWithBusinessById,
 	getPositionByCode,
 	insertMember,
+	insertRegistrationPayment,
 	resignMemberById,
 	softDeleteMemberById,
 	softDeleteMembershipRenewalsByMemberId,
 	updateMemberBusinessLinkById,
 	updateMemberById,
+	upsertRegistrationPayment,
 } from "./sql/sqlc-generated/queries_sql"
 
 /**
@@ -298,6 +309,69 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 		if (result.isErr()) {
 			throw new DatabaseError(result.error.message, result.error.cause)
 		}
+	}
+
+	// --- Membership Payment Ledger steps (ADR-0033) ---------------------------
+	// insert/upsert are tx-scoped (create/update transactions, #155/#154); the
+	// history read is standalone. See IMemberRepository for the ledger semantics.
+
+	/**
+	 * File the member's Registration Payment (type REGISTRATION, born APPROVED,
+	 * server-stamped payment_date_at) and return the generated ledger id as a
+	 * number. Runs INSIDE the create transaction, after the member-row step.
+	 */
+	async insertRegistrationPayment(sql: Sql, memberId: number, paymentSlipFilePath: string): Promise<number> {
+		const result = await ResultAsync.fromPromise(insertRegistrationPayment(sql, { memberId: String(memberId), paymentSlipFilePath }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+		const row = result.value[0]
+		if (!row) {
+			throw new DatabaseError("insertRegistrationPayment returned no row")
+		}
+		// postgres.js returns BIGSERIAL as a string; convert at this boundary.
+		return Number(row.id)
+	}
+
+	/**
+	 * Attach-or-replace the member's Registration Payment: files a REGISTRATION
+	 * row when none exists, or re-files the existing one in place (upsert on
+	 * idx_one_registration_payment_per_member — one live row per member, a
+	 * replace re-stamps payment_date_at). Runs INSIDE the update transaction.
+	 */
+	async upsertRegistrationPayment(sql: Sql, memberId: number, paymentSlipFilePath: string): Promise<number> {
+		const result = await ResultAsync.fromPromise(upsertRegistrationPayment(sql, { memberId: String(memberId), paymentSlipFilePath }), (error) => error as Error)
+		if (result.isErr()) {
+			throw new DatabaseError(result.error.message, result.error.cause)
+		}
+		const row = result.value[0]
+		if (!row) {
+			throw new DatabaseError("upsertRegistrationPayment returned no row")
+		}
+		return Number(row.id)
+	}
+
+	/**
+	 * The member's whole payment timeline: every live ledger row, BOTH types,
+	 * oldest-first (id ASC) — the one read with NO renewal-semantics filter
+	 * (ADR-0033). Empty array when the member has no live payment rows.
+	 */
+	async getMemberPaymentHistoryByMemberId(id: number): Promise<Result<ReadonlyArray<MemberPaymentHistoryEntry>, DatabaseError>> {
+		const result = await ResultAsync.fromPromise(getMemberPaymentHistoryByMemberId(this.sql, { memberId: String(id) }), (error) => error as Error)
+		if (result.isErr()) {
+			return err(new DatabaseError(result.error.message, result.error.cause))
+		}
+		return ok(
+			result.value.map((row) => ({
+				// The generated query types the VARCHAR column as string; the DB CHECK
+				// constraint guarantees the value is in the domain union — narrow here
+				// at the repo boundary (the timestamptz-recast precedent).
+				type: row.type as MembershipPaymentType,
+				paymentSlipFilePath: row.paymentSlipFilePath,
+				paymentDateAt: row.paymentDateAt,
+				status: row.status,
+			}))
+		)
 	}
 
 	// --- Reads --------------------------------------------------------------

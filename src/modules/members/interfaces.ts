@@ -2,7 +2,7 @@ import type { Sql } from "postgres"
 import type { Result } from "neverthrow"
 import type { DatabaseError } from "src/shared/core/errors/app-error"
 import type { Member, MemberStatus } from "./domain/member"
-import type { MemberDetailReadModel, MemberLatestRenewalReadModel, PositionReadModel } from "./domain/member-read-models"
+import type { MemberDetailReadModel, MemberLatestRenewalReadModel, MemberPaymentHistoryEntry, PositionReadModel } from "./domain/member-read-models"
 import type { InvalidCursorError } from "./use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage } from "./use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "./use-case/get-executive-committee/get-executive-committee.types"
@@ -82,6 +82,38 @@ export interface IMemberRepository {
 	 * the one deliberate cross-table leftover after the ADR-0024 split.
 	 */
 	softDeleteMembershipRenewals(tx: Sql, memberId: number): Promise<void>
+
+	// --- Membership Payment Ledger steps (ADR-0033) ---------------------------
+	// The members module files the member's INITIAL payment into the shared
+	// ledger (membership_renewals, type = 'REGISTRATION', born APPROVED —
+	// evidence recorded by staff, never reviewed), mirroring the ADR-0013
+	// cross-module precedent. A REGISTRATION row never touches the Renewal
+	// Cache Columns, the membership clock, or the renewal count.
+
+	/**
+	 * File the member's Registration Payment (type REGISTRATION, born APPROVED,
+	 * server-stamped payment_date_at) and return the generated ledger id as a
+	 * number (BIGSERIAL → number). Runs INSIDE the create transaction, after
+	 * the member-row step (#155).
+	 */
+	insertRegistrationPayment(tx: Sql, memberId: number, paymentSlipFilePath: string): Promise<number>
+
+	/**
+	 * Attach-or-replace the member's Registration Payment: files a REGISTRATION
+	 * row when none exists, or re-files the existing one in place — the upsert
+	 * rides the partial unique index idx_one_registration_payment_per_member
+	 * (one live row per member; a replace re-stamps payment_date_at). Returns
+	 * the ledger id. Runs INSIDE the update transaction (#154).
+	 */
+	upsertRegistrationPayment(tx: Sql, memberId: number, paymentSlipFilePath: string): Promise<number>
+
+	/**
+	 * The member's whole payment timeline: every live ledger row, BOTH types,
+	 * oldest-first (id ASC) — the one read with NO renewal-semantics filter
+	 * (ADR-0033). Empty array when the member has no live payment rows (e.g.
+	 * pre-ledger members awaiting the staff backfill).
+	 */
+	getMemberPaymentHistoryByMemberId(id: number): Promise<Result<ReadonlyArray<MemberPaymentHistoryEntry>, DatabaseError>>
 
 	// --- Reads (member-centric projections; JOINed business columns stay here
 	//     per ADR-0024 — one round-trip per read) ------------------------------

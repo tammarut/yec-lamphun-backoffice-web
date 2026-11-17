@@ -713,7 +713,7 @@ LEFT JOIN LATERAL (
          CASE WHEN status = 'REJECTED' THEN rejection_reason END AS rejection_reason,
          CASE WHEN status = 'REJECTED' THEN reviewed_at END AS reviewed_at
   FROM membership_renewals
-  WHERE member_id = m.id AND deleted_at IS NULL
+  WHERE member_id = m.id AND deleted_at IS NULL AND type = 'RENEWAL'
   ORDER BY id DESC
   LIMIT 1
 ) mr ON true
@@ -1007,5 +1007,78 @@ export interface ResignMemberByIdRow {
 export async function resignMemberById(sql: Sql, args: ResignMemberByIdArgs): Promise<ResignMemberByIdRow[]> {
 	return (await sql.unsafe(resignMemberByIdQuery, [args.id]).values()).map((row) => ({
 		id: row[0],
+	}))
+}
+
+export const insertRegistrationPaymentQuery = `-- name: InsertRegistrationPayment :many
+
+INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, type)
+VALUES ($1, $2, NOW(), 'APPROVED', 'REGISTRATION')
+RETURNING id`
+
+export interface InsertRegistrationPaymentArgs {
+	memberId: string
+	paymentSlipFilePath: string
+}
+
+export interface InsertRegistrationPaymentRow {
+	id: string
+}
+
+export async function insertRegistrationPayment(sql: Sql, args: InsertRegistrationPaymentArgs): Promise<InsertRegistrationPaymentRow[]> {
+	return (await sql.unsafe(insertRegistrationPaymentQuery, [args.memberId, args.paymentSlipFilePath]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
+
+export const upsertRegistrationPaymentQuery = `-- name: UpsertRegistrationPayment :many
+INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, type)
+VALUES ($1, $2, NOW(), 'APPROVED', 'REGISTRATION')
+ON CONFLICT (member_id) WHERE type = 'REGISTRATION' AND deleted_at IS NULL
+DO UPDATE SET
+  payment_slip_file_path = EXCLUDED.payment_slip_file_path,
+  payment_date_at = NOW(),
+  updated_at = NOW()
+RETURNING id`
+
+export interface UpsertRegistrationPaymentArgs {
+	memberId: string
+	paymentSlipFilePath: string
+}
+
+export interface UpsertRegistrationPaymentRow {
+	id: string
+}
+
+export async function upsertRegistrationPayment(sql: Sql, args: UpsertRegistrationPaymentArgs): Promise<UpsertRegistrationPaymentRow[]> {
+	return (await sql.unsafe(upsertRegistrationPaymentQuery, [args.memberId, args.paymentSlipFilePath]).values()).map((row) => ({
+		id: row[0],
+	}))
+}
+
+export const getMemberPaymentHistoryByMemberIdQuery = `-- name: GetMemberPaymentHistoryByMemberId :many
+SELECT type, payment_slip_file_path, payment_date_at, status
+FROM membership_renewals
+WHERE member_id = $1
+  AND deleted_at IS NULL
+ORDER BY id ASC`
+
+export interface GetMemberPaymentHistoryByMemberIdArgs {
+	memberId: string
+}
+
+export interface GetMemberPaymentHistoryByMemberIdRow {
+	type: string
+	paymentSlipFilePath: string
+	paymentDateAt: Date
+	status: string
+}
+
+export async function getMemberPaymentHistoryByMemberId(sql: Sql, args: GetMemberPaymentHistoryByMemberIdArgs): Promise<GetMemberPaymentHistoryByMemberIdRow[]> {
+	return (await sql.unsafe(getMemberPaymentHistoryByMemberIdQuery, [args.memberId]).values()).map((row) => ({
+		type: row[0],
+		paymentSlipFilePath: row[1],
+		paymentDateAt: row[2],
+		status: row[3],
 	}))
 }
