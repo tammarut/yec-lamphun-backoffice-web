@@ -18,10 +18,14 @@ ALTER TABLE membership_renewals
   ADD COLUMN IF NOT EXISTS type VARCHAR(50) NOT NULL DEFAULT 'RENEWAL';
 
 -- 2. Named CHECK constraint (guard: ADD CONSTRAINT has no IF NOT EXISTS).
+--    The probe is table-scoped (conrelid) — a same-named constraint on any
+--    other table must not skip the real one.
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_membership_renewals_type'
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'chk_membership_renewals_type'
+      AND conrelid = 'membership_renewals'::regclass
   ) THEN
     ALTER TABLE membership_renewals
       ADD CONSTRAINT chk_membership_renewals_type

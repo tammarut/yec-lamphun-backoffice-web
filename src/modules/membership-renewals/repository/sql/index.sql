@@ -12,7 +12,7 @@ WHERE status = 'PENDING_REVIEW'
 -- At most one live Registration Payment per member (ADR-0033): the ledger's
 -- REGISTRATION population is 1:1 with the member; a replace re-files the same
 -- row (upsert on this index), it never adds a second one.
-CREATE UNIQUE INDEX idx_one_registration_payment_per_member
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_registration_payment_per_member
 ON membership_renewals (member_id)
 WHERE type = 'REGISTRATION'
     AND deleted_at IS NULL;
