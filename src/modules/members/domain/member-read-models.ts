@@ -157,14 +157,16 @@ export type MembershipPaymentType = "RENEWAL" | "REGISTRATION"
 
 /**
  * One entry of the per-member payment timeline (ADR-0033): a live ledger row of
- * either type, ordered oldest-first by the query. `paymentDateAt` is the
- * server-stamped write time; `paymentSlipFilePath` is the stored R2 object key
- * (resolved to a presigned URL at the service layer). `status` ships verbatim
- * (a REGISTRATION row is born APPROVED by construction).
+ * either type, in FILING ORDER by the query (id ASC — a backfilled
+ * Registration Payment files late and sorts last; its original payment date is
+ * not recorded). `paymentDateAt` is the server-stamped write time;
+ * `paymentSlipFilePath` is the stored R2 object key (resolved to a presigned
+ * URL at the service layer). `status` is the ledger table's CHECK-constrained
+ * domain — a REGISTRATION row is born APPROVED by construction.
  */
 export interface MemberPaymentHistoryEntry {
 	readonly type: MembershipPaymentType
 	readonly paymentSlipFilePath: string
 	readonly paymentDateAt: Date
-	readonly status: string
+	readonly status: "PENDING_REVIEW" | "APPROVED" | "REJECTED"
 }

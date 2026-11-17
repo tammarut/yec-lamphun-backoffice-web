@@ -15,7 +15,7 @@ import type {
 	PositionCardinality,
 	PositionReadModel,
 } from "../domain/member-read-models"
-import type { IAnnualMembershipExpiryRepository, IMemberRepository, IMemberResignRepository } from "../interfaces"
+import type { IAnnualMembershipExpiryRepository, IMemberPaymentLedgerRepository, IMemberRepository, IMemberResignRepository } from "../interfaces"
 import { InvalidCursorError } from "../use-case/get-list-members/get-list-members.errors"
 import type { ListMembersFilter, MemberListPage, MemberListRow, SortField, SortOrder } from "../use-case/get-list-members/get-list-members.types"
 import type { ExecutiveCommitteeMemberRow } from "../use-case/get-executive-committee/get-executive-committee.types"
@@ -44,6 +44,20 @@ import {
 } from "./sql/sqlc-generated/queries_sql"
 
 /**
+ * The generated queries type the ledger's VARCHAR columns as bare strings;
+ * the DB CHECK constraints guarantee the domains — narrow at this boundary
+ * with predicates (not casts) so a future migration widening either domain
+ * fails loudly instead of silently (PR #157 scrutiny F5/F6).
+ */
+function isMembershipPaymentType(value: string): value is MembershipPaymentType {
+	return value === "RENEWAL" || value === "REGISTRATION"
+}
+
+function isLedgerStatus(value: string): value is MemberPaymentHistoryEntry["status"] {
+	return value === "PENDING_REVIEW" || value === "APPROVED" || value === "REJECTED"
+}
+
+/**
  * sqlc-backed repository for the `members` + `positions` tables (ADR-0024):
  * member-row tx-scoped steps plus the member-centric reads. The shared
  * `businesses` write side + delete-cascade boundary lives in
@@ -59,7 +73,7 @@ import {
  * that to `err()`.
  */
 @injectable()
-export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository, IMemberResignRepository {
+export class MembersRepository implements IMemberRepository, IAnnualMembershipExpiryRepository, IMemberResignRepository, IMemberPaymentLedgerRepository {
 	constructor(@inject(DatabaseClient) private dbClient: DatabaseClient) {}
 
 	/** Internal: the generated functions expect postgres.js's `Sql` type. */
@@ -313,7 +327,8 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 
 	// --- Membership Payment Ledger steps (ADR-0033) ---------------------------
 	// insert/upsert are tx-scoped (create/update transactions, #155/#154); the
-	// history read is standalone. See IMemberRepository for the ledger semantics.
+	// history read is standalone. See IMemberPaymentLedgerRepository for the
+	// ledger semantics.
 
 	/**
 	 * File the member's Registration Payment (type REGISTRATION, born APPROVED,
@@ -359,7 +374,8 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 
 	/**
 	 * The member's whole payment timeline: every live ledger row, BOTH types,
-	 * oldest-first (id ASC) — the one read with NO renewal-semantics filter
+	 * in FILING ORDER (id ASC — a backfilled Registration Payment files late
+	 * and sorts last) — the one read with NO renewal-semantics filter
 	 * (ADR-0033). Empty array when the member has no live payment rows.
 	 */
 	async getMemberPaymentHistoryByMemberId(id: number): Promise<Result<ReadonlyArray<MemberPaymentHistoryEntry>, DatabaseError>> {
@@ -367,17 +383,22 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 		if (result.isErr()) {
 			return err(new DatabaseError(result.error.message, result.error.cause))
 		}
-		return ok(
-			result.value.map((row) => ({
-				// The generated query types the VARCHAR column as string; the DB CHECK
-				// constraint guarantees the value is in the domain union — narrow here
-				// at the repo boundary (the timestamptz-recast precedent).
-				type: row.type as MembershipPaymentType,
+		const entries: MemberPaymentHistoryEntry[] = []
+		for (const row of result.value) {
+			if (!isMembershipPaymentType(row.type) || !isLedgerStatus(row.status)) {
+				// Unreachable while the DB CHECK constraints stand; a future
+				// migration widening either domain must update these guards —
+				// the predicates (not casts) are what fail loudly here.
+				return err(new DatabaseError(`membership_renewals row outside its CHECK domains: type=${row.type}, status=${row.status}`))
+			}
+			entries.push({
+				type: row.type,
 				paymentSlipFilePath: row.paymentSlipFilePath,
 				paymentDateAt: row.paymentDateAt,
 				status: row.status,
-			}))
-		)
+			})
+		}
+		return ok(entries)
 	}
 
 	// --- Reads --------------------------------------------------------------
