@@ -593,7 +593,7 @@ RETURNING id;
 
 -- name: GetMemberPaymentHistoryByMemberId :many
 -- The detail-page payment timeline: every live ledger row for the member,
--- BOTH types composed into one chronological record (id ASC = filing order —
+-- BOTH types composed into one per-member record in FILING ORDER (id ASC —
 -- the table's only monotonic order). Deliberately NOT filtered by type: this
 -- is the ledger read, the one read without renewal semantics (ADR-0033).
 SELECT type, payment_slip_file_path, payment_date_at, status
