@@ -105,6 +105,12 @@ export const REGISTER_KEY = {
 	// UPDATE's own WHERE). Resolved by the withAuth route.
 	MEMBER_RESIGN_REPOSITORY: Symbol("IMemberResignRepository"),
 	MEMBER_RESIGN_SERVICE: Symbol("MEMBER_RESIGN_SERVICE"),
+	// Members module — Membership Payment Ledger write/read seam (ADR-0033,
+	// #151). The SAME MembersRepository class under its own token, port-
+	// segregated like the expiry/resign ports (PR #157 scrutiny F4): the
+	// create/update transactions (#154/#156) file the Registration Payment
+	// and the GET member-detail timeline (#152) reads it.
+	MEMBER_PAYMENT_LEDGER_REPOSITORY: Symbol("IMemberPaymentLedgerRepository"),
 	// The injectable wall clock (`() => Date`), registered as a useValue. The
 	// Annual Membership Expiry reads the run instant through it so boundary
 	// tests can pin the clock; anything else that needs `now` injectable may

@@ -175,8 +175,10 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		} catch (error) {
 			// bun:sql surfaces unique_violation as a PostgresError carrying `.code`.
 			// postgres.js does the same (its PostgresError also has `.code`). Either
-			// driver reaches this branch with code "23505"; the partial unique index
-			// idx_one_pending_renewal_per_member is the only such index on this table.
+			// driver reaches this branch with code "23505"; the only reachable
+			// partial unique index is idx_one_pending_renewal_per_member — the
+			// ADR-0033 registration index guards type = 'REGISTRATION' rows, which
+			// a renewal insert (default 'RENEWAL') can never collide with.
 			// The message names the offending member (ADR-0026) — under a bulk batch
 			// the client must be able to tell WHICH member raced.
 			if (isUniqueViolation(error)) {
@@ -333,7 +335,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 				LEFT JOIN LATERAL (
 					SELECT status, rejection_reason, reviewed_at
 					FROM membership_renewals
-					WHERE member_id = m.id AND deleted_at IS NULL
+					WHERE member_id = m.id AND deleted_at IS NULL AND type = 'RENEWAL'
 					ORDER BY id DESC
 					LIMIT 1
 				) mr ON true
@@ -366,7 +368,9 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 	 * dynamic read (ADR-0010). Unlike the expired read this joins
 	 * membership_renewals via LEFT JOIN LATERAL to surface the member's most
 	 * recent non-deleted renewal: its `id` (the response's renewal_id — the
-	 * review workflow's target) and its `payment_date_at` (the sort key). The
+	 * review workflow's target) and its `payment_date_at` (the sort key).
+	 * The lateral filters `type = 'RENEWAL'` (ADR-0033): the table is the
+	 * Membership Payment Ledger, and a REGISTRATION row is never a renewal. The
 	 * lateral orders by `created_at DESC, id DESC` — the id tiebreak the spec's
 	 * pseudocode omitted — so "most recent" is deterministic even when two
 	 * renewals share a created_at. `AND mr_latest.id IS NOT NULL` turns the
@@ -406,7 +410,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 					JOIN LATERAL (
 						SELECT payment_date_at
 						FROM membership_renewals
-						WHERE member_id = m.id AND deleted_at IS NULL
+						WHERE member_id = m.id AND deleted_at IS NULL AND type = 'RENEWAL'
 						ORDER BY created_at DESC, id DESC
 						LIMIT 1
 					) mr ON true
@@ -468,7 +472,7 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 				LEFT JOIN LATERAL (
 					SELECT id, payment_date_at, group_id
 					FROM membership_renewals
-					WHERE member_id = m.id AND deleted_at IS NULL
+					WHERE member_id = m.id AND deleted_at IS NULL AND type = 'RENEWAL'
 					ORDER BY created_at DESC, id DESC
 					LIMIT 1
 				) mr_latest ON true

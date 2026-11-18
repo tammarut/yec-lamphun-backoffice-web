@@ -9,6 +9,10 @@ CREATE TABLE membership_renewals (
     -- Renewal Group marker (ADR-0026): shared UUIDv7 across the rows of one
     -- bulk submission; NULL = solo submission (no backfill — history was solo).
     group_id UUID NULL,
+    -- Payment Ledger discriminator (ADR-0033): 'RENEWAL' default keeps every
+    -- existing row a renewal (no data migration); 'REGISTRATION' marks the
+    -- member's initial payment filed by the create-member transaction.
+    type VARCHAR(50) NOT NULL DEFAULT 'RENEWAL',
     rejection_reason TEXT NULL,
     reviewed_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -17,6 +21,9 @@ CREATE TABLE membership_renewals (
     -- Step 2: Named CHECK constraint for database-level enforcement
     CONSTRAINT chk_membership_renewals_status CHECK (
       status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')
+    ),
+    CONSTRAINT chk_membership_renewals_type CHECK (
+      type IN ('RENEWAL', 'REGISTRATION')
     ),
     -- Step 3: Foreign Key constraint
     CONSTRAINT fk_renewal_member FOREIGN KEY (member_id) REFERENCES members (id) ON DELETE CASCADE

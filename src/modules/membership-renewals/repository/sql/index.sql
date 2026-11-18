@@ -9,6 +9,14 @@ ON membership_renewals (member_id)
 WHERE status = 'PENDING_REVIEW'
     AND deleted_at IS NULL;
 
+-- At most one live Registration Payment per member (ADR-0033): the ledger's
+-- REGISTRATION population is 1:1 with the member; a replace re-files the same
+-- row (upsert on this index), it never adds a second one.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_registration_payment_per_member
+ON membership_renewals (member_id)
+WHERE type = 'REGISTRATION'
+    AND deleted_at IS NULL;
+
 -- Renewal Group sibling lookup (ADR-0026): cluster the rows of one bulk
 -- submission. Non-unique by design — a group IS N rows sharing the marker.
 CREATE INDEX IF NOT EXISTS idx_membership_renewals_group_id

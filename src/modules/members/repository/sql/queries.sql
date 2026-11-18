@@ -385,7 +385,7 @@ LEFT JOIN LATERAL (
          CASE WHEN status = 'REJECTED' THEN rejection_reason END AS rejection_reason,
          CASE WHEN status = 'REJECTED' THEN reviewed_at END AS reviewed_at
   FROM membership_renewals
-  WHERE member_id = m.id AND deleted_at IS NULL
+  WHERE member_id = m.id AND deleted_at IS NULL AND type = 'RENEWAL'
   ORDER BY id DESC
   LIMIT 1
 ) mr ON true
@@ -552,3 +552,52 @@ WHERE id = $1
   AND deleted_at IS NULL
   AND status = 'EXPIRED'
 RETURNING id;
+
+-- ============================================================================
+-- Registration Payment writes + per-member payment history (ADR-0033).
+-- membership_renewals doubles as the Membership Payment Ledger, and this
+-- module files the member's INITIAL payment there (type = 'REGISTRATION',
+-- born APPROVED — evidence recorded by the staff member who uploaded the slip
+-- at registration, never reviewed: reviewed_at stays NULL). The cross-module
+-- write mirrors the ADR-0013 cascade precedent — this block already reads and
+-- writes membership_renewals, whose schema is a parse-time DDL reference only
+-- (no TS cross-import). A REGISTRATION row never touches the Renewal Cache
+-- Columns, the membership clock, or the renewal count (ADR-0033).
+-- ============================================================================
+
+-- name: InsertRegistrationPayment :many
+-- The create-member transaction's fourth write (#154). payment_date_at is
+-- server-stamped NOW() — the column always means "server time of the write",
+-- matching renewal semantics. `:many` per ADR-0001; the PRIMARY KEY id
+-- guarantees at most one row.
+INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, type)
+VALUES ($1, $2, NOW(), 'APPROVED', 'REGISTRATION')
+RETURNING id;
+
+-- name: UpsertRegistrationPayment :many
+-- The edit flow's attach-or-replace step inside the update transaction: files
+-- the slip when none exists, or re-files the existing REGISTRATION row in
+-- place. The conflict target names the partial unique index
+-- idx_one_registration_payment_per_member (its WHERE must match the index
+-- predicate exactly), so a replace keeps ONE live row and re-stamps
+-- payment_date_at (the new slip's filing time). status stays APPROVED;
+-- reviewed_at is never set.
+INSERT INTO membership_renewals (member_id, payment_slip_file_path, payment_date_at, status, type)
+VALUES ($1, $2, NOW(), 'APPROVED', 'REGISTRATION')
+ON CONFLICT (member_id) WHERE type = 'REGISTRATION' AND deleted_at IS NULL
+DO UPDATE SET
+  payment_slip_file_path = EXCLUDED.payment_slip_file_path,
+  payment_date_at = NOW(),
+  updated_at = NOW()
+RETURNING id;
+
+-- name: GetMemberPaymentHistoryByMemberId :many
+-- The detail-page payment timeline: every live ledger row for the member,
+-- BOTH types composed into one per-member record in FILING ORDER (id ASC —
+-- the table's only monotonic order). Deliberately NOT filtered by type: this
+-- is the ledger read, the one read without renewal semantics (ADR-0033).
+SELECT type, payment_slip_file_path, payment_date_at, status
+FROM membership_renewals
+WHERE member_id = $1
+  AND deleted_at IS NULL
+ORDER BY id ASC;
