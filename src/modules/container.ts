@@ -380,7 +380,7 @@ container.register(REGISTER_KEY.MEMBER_RESIGN_SERVICE, { useClass: ResignMemberS
 
 // 15k. Register Members Module (payment-ledger write/read seam) — ADR-0033,
 // #151. The Registration Payment files into the shared ledger inside the
-// create/update transactions (#155/#154) and the GET member-detail timeline
+// create/update transactions (#154/#156) and the GET member-detail timeline
 // (#152) reads it. Same shape as the expiry/resign registrations above: the
 // repository is the SAME MembersRepository class under its own token
 // (IMemberPaymentLedgerRepository, port-segregated per PR #157 scrutiny F4;

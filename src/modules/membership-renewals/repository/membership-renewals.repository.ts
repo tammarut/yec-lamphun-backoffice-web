@@ -175,8 +175,10 @@ export class MembershipRenewalsRepository implements IMembershipRenewalRepositor
 		} catch (error) {
 			// bun:sql surfaces unique_violation as a PostgresError carrying `.code`.
 			// postgres.js does the same (its PostgresError also has `.code`). Either
-			// driver reaches this branch with code "23505"; the partial unique index
-			// idx_one_pending_renewal_per_member is the only such index on this table.
+			// driver reaches this branch with code "23505"; the only reachable
+			// partial unique index is idx_one_pending_renewal_per_member — the
+			// ADR-0033 registration index guards type = 'REGISTRATION' rows, which
+			// a renewal insert (default 'RENEWAL') can never collide with.
 			// The message names the offending member (ADR-0026) — under a bulk batch
 			// the client must be able to tell WHICH member raced.
 			if (isUniqueViolation(error)) {

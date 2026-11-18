@@ -179,7 +179,7 @@ export interface IMemberPaymentLedgerRepository {
 	 * File the member's Registration Payment (type REGISTRATION, born APPROVED,
 	 * server-stamped payment_date_at) and return the generated ledger id as a
 	 * number (BIGSERIAL → number). Runs INSIDE the create transaction, after
-	 * the member-row step (#155).
+	 * the member-row step (#154).
 	 */
 	insertRegistrationPayment(tx: Sql, memberId: number, paymentSlipFilePath: string): Promise<number>
 
@@ -188,7 +188,7 @@ export interface IMemberPaymentLedgerRepository {
 	 * row when none exists, or re-files the existing one in place — the upsert
 	 * rides the partial unique index idx_one_registration_payment_per_member
 	 * (one live row per member; a replace re-stamps payment_date_at). Returns
-	 * the ledger id. Runs INSIDE the update transaction (#154).
+	 * the ledger id. Runs INSIDE the update transaction (#156).
 	 */
 	upsertRegistrationPayment(tx: Sql, memberId: number, paymentSlipFilePath: string): Promise<number>
 

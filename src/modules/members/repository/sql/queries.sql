@@ -566,7 +566,7 @@ RETURNING id;
 -- ============================================================================
 
 -- name: InsertRegistrationPayment :many
--- The create-member transaction's fourth write (#155). payment_date_at is
+-- The create-member transaction's fourth write (#154). payment_date_at is
 -- server-stamped NOW() — the column always means "server time of the write",
 -- matching renewal semantics. `:many` per ADR-0001; the PRIMARY KEY id
 -- guarantees at most one row.

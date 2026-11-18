@@ -326,7 +326,7 @@ export class MembersRepository implements IMemberRepository, IAnnualMembershipEx
 	}
 
 	// --- Membership Payment Ledger steps (ADR-0033) ---------------------------
-	// insert/upsert are tx-scoped (create/update transactions, #155/#154); the
+	// insert/upsert are tx-scoped (create/update transactions, #154/#156); the
 	// history read is standalone. See IMemberPaymentLedgerRepository for the
 	// ledger semantics.
 

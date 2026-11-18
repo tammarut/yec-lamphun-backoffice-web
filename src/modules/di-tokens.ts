@@ -108,7 +108,7 @@ export const REGISTER_KEY = {
 	// Members module — Membership Payment Ledger write/read seam (ADR-0033,
 	// #151). The SAME MembersRepository class under its own token, port-
 	// segregated like the expiry/resign ports (PR #157 scrutiny F4): the
-	// create/update transactions (#155/#154) file the Registration Payment
+	// create/update transactions (#154/#156) file the Registration Payment
 	// and the GET member-detail timeline (#152) reads it.
 	MEMBER_PAYMENT_LEDGER_REPOSITORY: Symbol("IMemberPaymentLedgerRepository"),
 	// The injectable wall clock (`() => Date`), registered as a useValue. The
