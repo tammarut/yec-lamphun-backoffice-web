@@ -1,6 +1,7 @@
-import { err, ok, type Result } from "neverthrow"
+import { err, ok, ResultAsync, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IEncryptionService } from "src/modules/shared/crypto"
+import type { StorageError } from "src/modules/shared/storage"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { createLogger } from "src/shared/lib/logger/logger"
 import { inject, injectable } from "tsyringe"
@@ -82,17 +83,34 @@ export class GetMemberByIdService {
 			return err(urlsResult.error)
 		}
 
-		// Presign each ledger entry's slip — same infra-level policy as above.
-		// Null slip paths pass through as null (absence is not failure); the
-		// current DDL keeps the column NOT NULL, so null only arises if the
-		// schema ever widens.
-		const paymentHistory: MemberPaymentHistoryEntryResponse[] = []
+		// Presign all ledger entries' slips in parallel — the same policy as the
+		// member files above: combine short-circuits on the first err (a presign
+		// failure is systemic, so failing fast is correct) and preserves input
+		// order, so the repository's filing order survives untouched. Each
+		// Promise<Result> is flattened with fromSafePromise + andThen — the
+		// promise never rejects (resolvePaymentSlipUrl Result-wraps every
+		// failure internally), so there is no second error mapping (neverthrow
+		// double-wrap ruling). Null slip paths pass through as null (absence is
+		// not failure); the current DDL keeps the column NOT NULL, so null only
+		// arises if the schema ever widens.
+		const slipAsyncs: Array<ResultAsync<string | null, StorageError>> = []
 		for (const entry of historyResult.value) {
-			const slipResult = await this.urlService.resolvePaymentSlipUrl(entry.paymentSlipFilePath)
-			if (slipResult.isErr()) {
-				return err(slipResult.error)
-			}
-			paymentHistory.push(this.toPaymentHistoryEntry(entry, slipResult.value))
+			slipAsyncs.push(ResultAsync.fromSafePromise(this.urlService.resolvePaymentSlipUrl(entry.paymentSlipFilePath)).andThen((slipResult) => slipResult))
+		}
+		const slipResults = await ResultAsync.combine(slipAsyncs)
+		if (slipResults.isErr()) {
+			return err(slipResults.error)
+		}
+
+		// combine preserves input order and slipAsyncs was pushed one per ledger
+		// entry — index i pairs with entry i. The `!` assertions are the house
+		// boundary-narrowing style (see GetLatestRenewalByMemberIdService.toResponse);
+		// the arrays share one source length by construction.
+		const paymentHistory: MemberPaymentHistoryEntryResponse[] = []
+		for (let index = 0; index < historyResult.value.length; index += 1) {
+			const entry = historyResult.value[index]!
+			const slipUrl = slipResults.value[index]!
+			paymentHistory.push(this.toPaymentHistoryEntry(entry, slipUrl))
 		}
 
 		const memberDetailResponse = this.toResponse(member, member.business, idCardNo, urlsResult.value, paymentHistory)

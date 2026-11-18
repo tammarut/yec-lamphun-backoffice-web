@@ -84,7 +84,10 @@ export interface MemberDetailResponse {
  * write time of the filing — a replaced slip re-stamps it in place, so dates
  * can be non-monotonic across the filing order; label it as filed-at, not
  * paid-at (ADR-0033 corollary, #152). `payment_slip` is the presigned
- * private-bucket URL, or null when the row has no slip.
+ * private-bucket URL. The nullable branch is RESERVED: the current DDL keeps
+ * `payment_slip_file_path` NOT NULL, so it is never null today — absence of
+ * evidence is an absent REGISTRATION entry (empty timeline, #153's indicator),
+ * not a null slip.
  */
 export interface MemberPaymentHistoryEntryResponse {
 	readonly type: MembershipPaymentType

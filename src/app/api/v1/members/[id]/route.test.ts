@@ -14,6 +14,7 @@ import { MemberNotFoundError } from "src/modules/members/use-case/get-member-by-
 import { GetMemberByIdService } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.service"
 import type { MemberDetailResponse } from "src/modules/members/use-case/get-member-by-id/get-member-by-id.types"
 import { UpdateMemberService } from "src/modules/members/use-case/update-member/update-member.service"
+import { StorageError } from "src/modules/shared/storage"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 
 // Mock container module BEFORE importing the route.
@@ -212,6 +213,20 @@ describe("GET /api/v1/members/:id", () => {
 
 		it("returns 500 on a DatabaseError (incl. missing-business corruption)", async () => {
 			mockService.execute.mockResolvedValue(err(new DatabaseError("no business row")))
+			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+			const { req, ctx } = makeRequest("101")
+			const response = await GET(req, ctx)
+			expect(response.status).toBe(500)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("Internal Server Error")
+			consoleSpy.mockRestore()
+		})
+
+		it("returns 500 on a StorageError (presign failure — documents or payment slips)", async () => {
+			// The issue AC names this path explicitly: presign failure → 500 per
+			// the URL-policy failure policy. mapGetError collapses every
+			// non-MemberNotFoundError to 500, StorageError included.
+			mockService.execute.mockResolvedValue(err(new StorageError("R2 unreachable")))
 			const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 			const { req, ctx } = makeRequest("101")
 			const response = await GET(req, ctx)
