@@ -1,3 +1,5 @@
+import type { MembershipPaymentType } from "../../domain/member-read-models"
+
 /**
  * Wire-shape response DTOs for GET /api/v1/members/:id.
  *
@@ -5,7 +7,8 @@
  * (nullable on decrypt failure) and `position: string` holding the raw position
  * CODE (grilling Q8 — the frontend maps it to a Thai display name). Business
  * file fields are the suffixless `logo` / `product` (grilling Q10) and carry
- * URLs, not file paths.
+ * URLs, not file paths. `payment_history` is the per-member payment timeline
+ * (ADR-0033) in FILING ORDER (id ASC).
  */
 
 export interface MemberBusinessResponse {
@@ -70,4 +73,21 @@ export interface MemberDetailResponse {
 	readonly created_at: string
 	readonly updated_at: string
 	readonly business: MemberBusinessResponse
+	/** The per-member payment timeline (ADR-0033), oldest-first (filing order). */
+	readonly payment_history: ReadonlyArray<MemberPaymentHistoryEntryResponse>
+}
+
+/**
+ * One entry of the GET /members/:id payment timeline (ADR-0033): a live ledger
+ * row of either type, in FILING ORDER (id ASC — a backfilled Registration
+ * Payment files late and sorts last). `payment_date_at` is the server-stamped
+ * write time of the filing — a replaced slip re-stamps it in place, so dates
+ * can be non-monotonic across the filing order; label it as filed-at, not
+ * paid-at (ADR-0033 corollary, #152). `payment_slip` is the presigned
+ * private-bucket URL, or null when the row has no slip.
+ */
+export interface MemberPaymentHistoryEntryResponse {
+	readonly type: MembershipPaymentType
+	readonly payment_date_at: string
+	readonly payment_slip: string | null
 }

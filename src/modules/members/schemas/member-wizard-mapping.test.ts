@@ -302,6 +302,8 @@ function makeDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetail
 			created_at: "2024-01-18T16:00:00.000Z",
 			updated_at: "2024-01-18T16:00:00.000Z",
 		},
+		// The edit-form mapping under test never reads the payment timeline.
+		payment_history: [],
 		...overrides,
 	}
 }
