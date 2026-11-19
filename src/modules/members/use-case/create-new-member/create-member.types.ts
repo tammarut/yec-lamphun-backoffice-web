@@ -38,6 +38,13 @@ export type MemberBusinessIntent = { readonly kind: "link"; readonly businessId:
 
 export type CreateMemberRequest = {
 	readonly registrationType: "INDIVIDUAL" | "JURISTIC_PERSON"
+	/**
+	 * The Registration Payment slip path (#154, ADR-0033) — stored verbatim in
+	 * the membership_renewals ledger row (type REGISTRATION, born APPROVED) the
+	 * create transaction writes. An opaque R2 token trusted from the upload
+	 * endpoint; required and non-empty at the route's Valibot schema.
+	 */
+	readonly paymentSlip: string
 	readonly companyCertificate: string | null
 	readonly idCardImage: string | null
 	readonly profileAvatar: string | null

@@ -208,6 +208,7 @@ function mapListError(error: GetListMembersError): NextResponse<ResponseBodyErro
 function toServiceRequest(o: CreateMemberSchemaOutput): CreateMemberRequest {
 	return {
 		registrationType: o.registration_type,
+		paymentSlip: o.payment_slip,
 		companyCertificate: o.company_certificate,
 		idCardImage: o.id_card_image,
 		profileAvatar: o.profile_avatar,

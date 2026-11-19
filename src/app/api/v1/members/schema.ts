@@ -151,6 +151,11 @@ export function toBusinessIntent(o: MemberBusinessRequestOutput): MemberBusiness
 
 export const CreateMemberSchema = object({
 	registration_type: RegistrationTypeSchema,
+	// #154: the evidence contract — a Registration Payment slip path (stored
+	// verbatim in the membership_renewals ledger row the create tx writes).
+	// Required and non-empty; the path is an opaque R2 token trusted from the
+	// upload endpoint (no storage validation, same stance as the renewals flow).
+	payment_slip: pipe(string(), minLength(1, "payment_slip is required")),
 	company_certificate: nullableString,
 	id_card_image: nullableString,
 	profile_avatar: nullableString,

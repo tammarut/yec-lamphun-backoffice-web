@@ -10,6 +10,7 @@ import { MemberBusiness } from "../../domain/member-business"
 import { shouldPositionConflict } from "../../domain/position-conflict-policy"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
+import type { IMemberPaymentLedgerRepository } from "../../interfaces"
 import type { IMemberRepository } from "../../interfaces"
 import type { CreateMemberError, MemberConflictReason } from "./create-member.errors"
 import { MemberConflictError, MemberValidationError } from "./create-member.errors"
@@ -39,6 +40,11 @@ import type { CreateMemberRequest } from "./create-member.types"
  *      straight into the member insert
  *   2. member row with that link
  *   3. one document row per provided document
+ *   4. the Registration Payment ledger row (#154, ADR-0033): type REGISTRATION,
+ *      born APPROVED, server-stamped payment_date_at — the member's initial
+ *      payment evidence, committed atomically with the writes above. It never
+ *      touches the Renewal Cache Columns, the membership clock, or the renewal
+ *      count.
  * Any step throwing DatabaseError auto-rollbacks the whole transaction.
  *
  * Flow:
@@ -57,6 +63,7 @@ export class CreateNewMemberService {
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,
 		@inject(REGISTER_KEY.BUSINESSES_REPOSITORY) private readonly businessesRepository: IBusinessesRepository,
 		@inject(REGISTER_KEY.MEMBER_DOCUMENTS_REPOSITORY) private readonly documentsRepository: IMemberDocumentsRepository,
+		@inject(REGISTER_KEY.MEMBER_PAYMENT_LEDGER_REPOSITORY) private readonly paymentLedgerRepository: IMemberPaymentLedgerRepository,
 		@inject(REGISTER_KEY.ENCRYPTION_SERVICE) private readonly encryption: IEncryptionService,
 		@inject(REGISTER_KEY.BLIND_INDEX_SERVICE) private readonly blindIndex: IBlindIndexService
 	) {}
@@ -129,9 +136,10 @@ export class CreateNewMemberService {
 		}
 
 		// 6. Persist — the multi-table CREATE transaction (ADR-0024): create
-		//    branch: businesses → member (with the link) → documents; link
-		//    branch: re-check + lock the target business, then member (pointing
-		//    at the EXISTING id) → documents. Auto-commit on success,
+		//    branch: businesses → member (with the link) → documents → the
+		//    Registration Payment ledger row (#154); link branch: re-check +
+		//    lock the target business, then member (pointing at the EXISTING
+		//    id) → documents → the ledger row. Auto-commit on success,
 		//    auto-rollback on any throw.
 		try {
 			const memberId = await this.dbClient.transaction(async (tx) => {
@@ -155,6 +163,11 @@ export class CreateNewMemberService {
 				for (const doc of member.value.documents) {
 					await this.documentsRepository.insertDocument(sql, memberId, doc)
 				}
+				// 4th write (#154, ADR-0033): the Registration Payment ledger row —
+				// the slip path verbatim, the ledger id discarded (nothing links to
+				// it; the row is reachable through the member). Ledger-only write:
+				// no Renewal Cache Column, no expiry, no renewal count.
+				await this.paymentLedgerRepository.insertRegistrationPayment(sql, memberId, req.paymentSlip)
 
 				return memberId
 			})
