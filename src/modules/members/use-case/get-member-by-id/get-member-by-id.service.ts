@@ -1,28 +1,31 @@
-import { err, ok, type Result } from "neverthrow"
+import { err, ok, ResultAsync, type Result } from "neverthrow"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IEncryptionService } from "src/modules/shared/crypto"
+import type { StorageError } from "src/modules/shared/storage"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import { createLogger } from "src/shared/lib/logger/logger"
 import { inject, injectable } from "tsyringe"
 import { maskIdCard } from "../../domain/mask-id-card"
-import type { MemberBusinessReadModel, MemberDetailReadModel } from "../../domain/member-read-models"
-import type { IMemberRepository } from "../../interfaces"
+import type { MemberBusinessReadModel, MemberDetailReadModel, MemberPaymentHistoryEntry } from "../../domain/member-read-models"
+import type { IMemberPaymentLedgerRepository, IMemberRepository } from "../../interfaces"
 import { MemberFileUrlService } from "../../member-file-url.service"
 import type { MemberFileUrls } from "../../member-file-url.types"
 import { MemberNotFoundError, type GetMemberByIdError } from "./get-member-by-id.errors"
-import type { MemberBusinessResponse, MemberDetailResponse } from "./get-member-by-id.types"
+import type { MemberBusinessResponse, MemberDetailResponse, MemberPaymentHistoryEntryResponse } from "./get-member-by-id.types"
 
 const logger = createLogger(["members", "use-case", "get-member-by-id"])
 
 /**
  * Use case (query): get a member's detail by id for a detail/edit view.
  *
- * A read-only orchestrator over three collaborators:
+ * A read-only orchestrator over four collaborators:
  *   1. {@link IMemberRepository.getMemberDetailById} — two queries assemble the read model.
- *   2. {@link IEncryptionService.decrypt} → {@link maskIdCard} — the first plaintext
+ *   2. {@link IMemberPaymentLedgerRepository.getMemberPaymentHistoryByMemberId} — the
+ *      payment timeline (ADR-0033): every live ledger row, BOTH types, filing order.
+ *   3. {@link IEncryptionService.decrypt} → {@link maskIdCard} — the first plaintext
  *      read path; decrypt failure is non-fatal and degrades `id_card_no` to null
  *      (ADR-0008).
- *   3. {@link MemberFileUrlService} — resolves stored object keys to URLs.
+ *   4. {@link MemberFileUrlService} — resolves stored object keys to URLs.
  *
  * Returns AGENTS.md §2B `Promise<Result<MemberDetailResponse, GetMemberByIdError>>`.
  */
@@ -30,6 +33,7 @@ const logger = createLogger(["members", "use-case", "get-member-by-id"])
 export class GetMemberByIdService {
 	constructor(
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,
+		@inject(REGISTER_KEY.MEMBER_PAYMENT_LEDGER_REPOSITORY) private readonly paymentLedgerRepository: IMemberPaymentLedgerRepository,
 		@inject(REGISTER_KEY.ENCRYPTION_SERVICE) private readonly encryption: IEncryptionService,
 		@inject(REGISTER_KEY.MEMBER_FILE_URL_SERVICE) private readonly urlService: MemberFileUrlService
 	) {}
@@ -53,6 +57,14 @@ export class GetMemberByIdService {
 			return err(new DatabaseError(`Member ${id} has no live business row (expected 1:1)`))
 		}
 
+		// Payment timeline (ADR-0033): every live ledger row, BOTH types, in
+		// FILING ORDER (id ASC). A read failure is data-level systemic —
+		// propagate; DatabaseError is already in the error union (→ 500).
+		const historyResult = await this.paymentLedgerRepository.getMemberPaymentHistoryByMemberId(id)
+		if (historyResult.isErr()) {
+			return err(historyResult.error)
+		}
+
 		const idCardNo = this.decryptAndMask(member.idCardNo)
 
 		const urlsResult = await this.urlService.resolveMemberFileUrls({
@@ -71,7 +83,37 @@ export class GetMemberByIdService {
 			return err(urlsResult.error)
 		}
 
-		const memberDetailResponse = this.toResponse(member, member.business, idCardNo, urlsResult.value)
+		// Presign all ledger entries' slips in parallel — the same policy as the
+		// member files above: combine short-circuits on the first err (a presign
+		// failure is systemic, so failing fast is correct) and preserves input
+		// order, so the repository's filing order survives untouched. Each
+		// Promise<Result> is flattened with fromSafePromise + andThen — the
+		// promise never rejects (resolvePaymentSlipUrl Result-wraps every
+		// failure internally), so there is no second error mapping (neverthrow
+		// double-wrap ruling). Null slip paths pass through as null (absence is
+		// not failure); the current DDL keeps the column NOT NULL, so null only
+		// arises if the schema ever widens.
+		const slipAsyncs: Array<ResultAsync<string | null, StorageError>> = []
+		for (const entry of historyResult.value) {
+			slipAsyncs.push(ResultAsync.fromSafePromise(this.urlService.resolvePaymentSlipUrl(entry.paymentSlipFilePath)).andThen((slipResult) => slipResult))
+		}
+		const slipResults = await ResultAsync.combine(slipAsyncs)
+		if (slipResults.isErr()) {
+			return err(slipResults.error)
+		}
+
+		// combine preserves input order and slipAsyncs was pushed one per ledger
+		// entry — index i pairs with entry i. The `!` assertions are the house
+		// boundary-narrowing style (see GetLatestRenewalByMemberIdService.toResponse);
+		// the arrays share one source length by construction.
+		const paymentHistory: MemberPaymentHistoryEntryResponse[] = []
+		for (let index = 0; index < historyResult.value.length; index += 1) {
+			const entry = historyResult.value[index]!
+			const slipUrl = slipResults.value[index]!
+			paymentHistory.push(this.toPaymentHistoryEntry(entry, slipUrl))
+		}
+
+		const memberDetailResponse = this.toResponse(member, member.business, idCardNo, urlsResult.value, paymentHistory)
 		return ok(memberDetailResponse)
 	}
 
@@ -98,7 +140,27 @@ export class GetMemberByIdService {
 		return masked.value
 	}
 
-	private toResponse(m: MemberDetailReadModel, business: MemberBusinessReadModel, idCardNo: string | null, urls: MemberFileUrls): MemberDetailResponse {
+	/**
+	 * Map one ledger entry + its presigned slip URL to the snake_case timeline
+	 * entry. `payment_date_at` is the filed-at stamp (ADR-0033 corollary), not
+	 * a paid-at claim — serialized as a full ISO datetime.
+	 */
+	private toPaymentHistoryEntry(entry: MemberPaymentHistoryEntry, slipUrl: string | null): MemberPaymentHistoryEntryResponse {
+		return {
+			type: entry.type,
+			payment_date_at: entry.paymentDateAt.toISOString(),
+			payment_slip: slipUrl,
+			status: entry.status,
+		}
+	}
+
+	private toResponse(
+		m: MemberDetailReadModel,
+		business: MemberBusinessReadModel,
+		idCardNo: string | null,
+		urls: MemberFileUrls,
+		paymentHistory: ReadonlyArray<MemberPaymentHistoryEntryResponse>
+	): MemberDetailResponse {
 		// Location round-trip symmetry: the DB column stores [long, lat] (X,Y geo
 		// convention) but the API contract is [lat, long] both ways — the create
 		// flow swaps [lat,long]→[long,lat] in MemberBusiness.create on the way in
@@ -151,6 +213,7 @@ export class GetMemberByIdService {
 			created_at: m.createdAt.toISOString(),
 			updated_at: m.updatedAt.toISOString(),
 			business: businessResponse,
+			payment_history: paymentHistory,
 		}
 	}
 }

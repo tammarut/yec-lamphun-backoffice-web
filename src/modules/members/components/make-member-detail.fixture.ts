@@ -46,6 +46,24 @@ export function makeMemberDetail(overrides: Partial<MemberDetailResponse> = {}):
 			created_at: "2024-01-15T00:00:00.000Z",
 			updated_at: "2025-06-01T00:00:00.000Z",
 		},
+		// A representative timeline (REGISTRATION filed first, then a renewal) —
+		// presigned private-bucket slip URLs like the API ships. Override to []
+		// for the missing-registration-slip indicator cases (#153). Both entries
+		// APPROVED; override status for pending/rejected-badging cases.
+		payment_history: [
+			{
+				type: "REGISTRATION",
+				payment_date_at: "2024-01-15T00:00:00.000Z",
+				payment_slip: "https://private.r2.cloudflarestorage.com/slip-registration.jpg?X-Amz-Signature=ghi",
+				status: "APPROVED",
+			},
+			{
+				type: "RENEWAL",
+				payment_date_at: "2025-06-01T00:00:00.000Z",
+				payment_slip: "https://private.r2.cloudflarestorage.com/slip-renewal.jpg?X-Amz-Signature=jkl",
+				status: "APPROVED",
+			},
+		],
 		...overrides,
 	}
 }

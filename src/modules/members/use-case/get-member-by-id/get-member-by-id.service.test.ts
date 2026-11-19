@@ -5,8 +5,8 @@ import type { IEncryptionService } from "src/modules/shared/crypto"
 import { CryptoError } from "src/modules/shared/crypto"
 import { StorageError } from "src/modules/shared/storage"
 import { DatabaseError } from "src/shared/core/errors/app-error"
-import type { IMemberRepository } from "src/modules/members/interfaces"
-import type { MemberDetailReadModel } from "src/modules/members/domain/member-read-models"
+import type { IMemberPaymentLedgerRepository, IMemberRepository } from "src/modules/members/interfaces"
+import type { MemberDetailReadModel, MemberPaymentHistoryEntry } from "src/modules/members/domain/member-read-models"
 import type { MemberFileUrls } from "src/modules/members/member-file-url.types"
 import { MemberFileUrlService } from "src/modules/members/member-file-url.service"
 import { MemberNotFoundError } from "./get-member-by-id.errors"
@@ -73,22 +73,38 @@ const FULL_URLS: MemberFileUrls = {
 	product: null,
 }
 
+/** A representative live ledger row from the payment-ledger repository (ADR-0033). */
+function makeLedgerEntry(overrides: Partial<MemberPaymentHistoryEntry> = {}): MemberPaymentHistoryEntry {
+	return {
+		type: "RENEWAL",
+		paymentSlipFilePath: "members/documents/slip.jpg",
+		paymentDateAt: new Date("2025-06-01T09:00:00.000Z"),
+		status: "APPROVED",
+		...overrides,
+	}
+}
+
 describe("GetMemberByIdService", () => {
 	let service: GetMemberByIdService
 	let mockRepo: MockProxy<IMemberRepository>
+	let mockLedgerRepo: MockProxy<IMemberPaymentLedgerRepository>
 	let mockEncryption: MockProxy<IEncryptionService>
 	let mockUrlService: MockProxy<MemberFileUrlService>
 
 	beforeEach(() => {
 		mockRepo = mock<IMemberRepository>()
+		mockLedgerRepo = mock<IMemberPaymentLedgerRepository>()
 		mockEncryption = mock<IEncryptionService>()
 		mockUrlService = mock<MemberFileUrlService>()
 		// Defaults — individual tests override.
 		mockRepo.getMemberDetailById.mockResolvedValue(ok(makeReadModel()))
+		// Default ledger is empty: the timeline tests opt in explicitly.
+		mockLedgerRepo.getMemberPaymentHistoryByMemberId.mockResolvedValue(ok([]))
 		mockEncryption.decrypt.mockReturnValue(ok("6320000011483"))
 		// URL service returns Result<MemberFileUrls, StorageError> — happy path ok.
 		mockUrlService.resolveMemberFileUrls.mockResolvedValue(ok(FULL_URLS))
-		service = new GetMemberByIdService(mockRepo, mockEncryption, mockUrlService)
+		mockUrlService.resolvePaymentSlipUrl.mockResolvedValue(ok("https://presigned/slip.jpg"))
+		service = new GetMemberByIdService(mockRepo, mockLedgerRepo, mockEncryption, mockUrlService)
 	})
 
 	describe("Happy cases", () => {
@@ -127,6 +143,36 @@ describe("GetMemberByIdService", () => {
 				logo: "members/business/logo.png",
 				product: null,
 			})
+		})
+
+		test("returns the payment timeline oldest-first with each entry's slip presigned from its own path", async () => {
+			// Filing order (id ASC) is the repository's contract — a backfilled
+			// REGISTRATION can arrive after later RENEWALs; the service passes it
+			// through untouched (never re-sorts).
+			mockLedgerRepo.getMemberPaymentHistoryByMemberId.mockResolvedValue(
+				ok([
+					makeLedgerEntry({ type: "RENEWAL", paymentSlipFilePath: "members/documents/slip-1.jpg", paymentDateAt: new Date("2025-01-10T09:00:00.000Z") }),
+					makeLedgerEntry({ type: "REGISTRATION", paymentSlipFilePath: "members/documents/slip-reg.jpg", paymentDateAt: new Date("2025-06-01T09:00:00.000Z") }),
+				])
+			)
+			mockUrlService.resolvePaymentSlipUrl.mockResolvedValueOnce(ok("https://presigned/slip-1.jpg"))
+			mockUrlService.resolvePaymentSlipUrl.mockResolvedValueOnce(ok("https://presigned/slip-reg.jpg"))
+
+			const result = await service.execute(101)
+			expect(result.isOk()).toBe(true)
+			expect(result._unsafeUnwrap().payment_history).toEqual([
+				{ type: "RENEWAL", payment_date_at: "2025-01-10T09:00:00.000Z", payment_slip: "https://presigned/slip-1.jpg", status: "APPROVED" },
+				{ type: "REGISTRATION", payment_date_at: "2025-06-01T09:00:00.000Z", payment_slip: "https://presigned/slip-reg.jpg", status: "APPROVED" },
+			])
+			expect(mockUrlService.resolvePaymentSlipUrl).toHaveBeenCalledWith("members/documents/slip-1.jpg")
+			expect(mockUrlService.resolvePaymentSlipUrl).toHaveBeenCalledWith("members/documents/slip-reg.jpg")
+		})
+
+		test("returns an empty payment_history and presigns nothing when the member has no live ledger rows", async () => {
+			const result = await service.execute(101)
+			expect(result.isOk()).toBe(true)
+			expect(result._unsafeUnwrap().payment_history).toEqual([])
+			expect(mockUrlService.resolvePaymentSlipUrl).not.toHaveBeenCalled()
 		})
 	})
 
@@ -170,6 +216,25 @@ describe("GetMemberByIdService", () => {
 			// degrade to null + 200. Presign is infra-level/systemic → propagate → 500.
 			// A 200-with-null-URLs would silently lie that the member has no documents.
 			mockUrlService.resolveMemberFileUrls.mockResolvedValue(err(new StorageError("R2 unreachable")))
+			const result = await service.execute(101)
+			expect(result.isErr()).toBe(true)
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(StorageError)
+		})
+
+		test("propagates DatabaseError from the payment-ledger read (query failure → 500)", async () => {
+			mockLedgerRepo.getMemberPaymentHistoryByMemberId.mockResolvedValue(err(new DatabaseError("ledger query failed")))
+			const result = await service.execute(101)
+			expect(result.isErr()).toBe(true)
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+			// Failed before the presign stage — no slip URLs were attempted.
+			expect(mockUrlService.resolvePaymentSlipUrl).not.toHaveBeenCalled()
+		})
+
+		test("a payment-slip presign failure propagates as err (infra failure → 500, NOT degraded to null)", async () => {
+			// Same policy as the member-file presign test above, applied per
+			// ledger entry: storage being down must not read as "no slips".
+			mockLedgerRepo.getMemberPaymentHistoryByMemberId.mockResolvedValue(ok([makeLedgerEntry()]))
+			mockUrlService.resolvePaymentSlipUrl.mockResolvedValue(err(new StorageError("R2 unreachable")))
 			const result = await service.execute(101)
 			expect(result.isErr()).toBe(true)
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(StorageError)
