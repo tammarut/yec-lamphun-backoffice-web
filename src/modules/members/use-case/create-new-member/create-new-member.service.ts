@@ -1,4 +1,4 @@
-import { err, ok, type Result } from "neverthrow"
+import { err, ok, type Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import type { IBlindIndexService, IEncryptionService } from "src/modules/shared/crypto"
@@ -140,8 +140,11 @@ export class CreateNewMemberService {
 		//    lock the target business, then member (pointing at the EXISTING
 		//    id) → documents → the ledger row. Auto-commit on success,
 		//    auto-rollback on any throw.
-		try {
-			const memberId = await this.dbClient.transaction(async (tx) => {
+		// The transaction unit is the ONE wrapped await (AGENTS.md §B / SEC-5):
+		// steps INSIDE stay throw-based — the throw is what triggers bun:sql's
+		// auto-rollback (ADR-0024).
+		const txOutcome = await ResultAsync.fromPromise(
+			this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
 				let businessId: number
 				if (resolvedBusiness.value.kind === "link") {
@@ -169,15 +172,13 @@ export class CreateNewMemberService {
 				await this.paymentLedgerRepository.insertRegistrationPayment(sql, memberId, req.paymentSlip)
 
 				return memberId
-			})
-
-			return ok(memberId)
-		} catch (error) {
-			if (error instanceof DatabaseError) {
-				return err(error)
-			}
-			return err(new DatabaseError("Member creation transaction failed", error))
+			}),
+			(error) => (error instanceof DatabaseError ? error : new DatabaseError("Member creation transaction failed", error))
+		)
+		if (txOutcome.isErr()) {
+			return err(txOutcome.error)
 		}
+		return ok(txOutcome.value)
 	}
 
 	/**

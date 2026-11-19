@@ -1,4 +1,4 @@
-import { err, ok, type Result } from "neverthrow"
+import { err, ok, type Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
@@ -215,8 +215,11 @@ export class UpdateMemberService {
 		//    ADR-0023 lifecycle participation; no-op: nothing) → per replaced
 		//    type, soft-delete old docs + insert new. Auto-commit on success,
 		//    auto-rollback on any throw.
-		try {
-			await this.dbClient.transaction(async (tx) => {
+		// The transaction unit is the ONE wrapped await (AGENTS.md §B / SEC-5):
+		// steps INSIDE stay throw-based — the throw is what triggers bun:sql's
+		// auto-rollback (ADR-0024).
+		const txOutcome = await ResultAsync.fromPromise(
+			this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
 
 				await this.repository.updateMember(sql, id, updatedMember.value)
@@ -274,15 +277,13 @@ export class UpdateMemberService {
 						await this.documentsRepository.insertDocument(sql, id, doc)
 					}
 				}
-			})
-
-			return ok(undefined)
-		} catch (error) {
-			if (error instanceof DatabaseError) {
-				return err(error)
-			}
-			return err(new DatabaseError("Member update transaction failed", error))
+			}),
+			(error) => (error instanceof DatabaseError ? error : new DatabaseError("Member update transaction failed", error))
+		)
+		if (txOutcome.isErr()) {
+			return err(txOutcome.error)
 		}
+		return ok(undefined)
 	}
 
 	/**

@@ -1,4 +1,4 @@
-import { err, ok, type Result } from "neverthrow"
+import { err, ok, type Result, ResultAsync } from "neverthrow"
 import type { Sql } from "postgres"
 import { REGISTER_KEY } from "src/modules/di-tokens"
 import { DatabaseError } from "src/shared/core/errors/app-error"
@@ -42,8 +42,11 @@ export class DeleteMemberService {
 	) {}
 
 	async execute(id: number): Promise<Result<void, DeleteMemberError>> {
-		try {
-			await this.dbClient.transaction(async (tx) => {
+		// The transaction unit is the ONE wrapped await (AGENTS.md §B / SEC-5):
+		// steps INSIDE stay throw-based — the throw is what triggers bun:sql's
+		// auto-rollback (ADR-0013/0024).
+		const txOutcome = await ResultAsync.fromPromise(
+			this.dbClient.transaction(async (tx) => {
 				const sql = tx as unknown as Sql
 
 				// 1. Lock the linked live business (gate for the ADR-0023 cascade).
@@ -67,14 +70,12 @@ export class DeleteMemberService {
 						await this.businessesRepository.softDeleteBusinessById(sql, businessId)
 					}
 				}
-			})
-
-			return ok(undefined)
-		} catch (error) {
-			if (error instanceof DatabaseError) {
-				return err(error)
-			}
-			return err(new DatabaseError("Member deletion transaction failed", error))
+			}),
+			(error) => (error instanceof DatabaseError ? error : new DatabaseError("Member deletion transaction failed", error))
+		)
+		if (txOutcome.isErr()) {
+			return err(txOutcome.error)
 		}
+		return ok(undefined)
 	}
 }
