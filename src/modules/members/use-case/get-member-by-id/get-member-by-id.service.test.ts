@@ -161,8 +161,8 @@ describe("GetMemberByIdService", () => {
 			const result = await service.execute(101)
 			expect(result.isOk()).toBe(true)
 			expect(result._unsafeUnwrap().payment_history).toEqual([
-				{ type: "RENEWAL", payment_date_at: "2025-01-10T09:00:00.000Z", payment_slip: "https://presigned/slip-1.jpg" },
-				{ type: "REGISTRATION", payment_date_at: "2025-06-01T09:00:00.000Z", payment_slip: "https://presigned/slip-reg.jpg" },
+				{ type: "RENEWAL", payment_date_at: "2025-01-10T09:00:00.000Z", payment_slip: "https://presigned/slip-1.jpg", status: "APPROVED" },
+				{ type: "REGISTRATION", payment_date_at: "2025-06-01T09:00:00.000Z", payment_slip: "https://presigned/slip-reg.jpg", status: "APPROVED" },
 			])
 			expect(mockUrlService.resolvePaymentSlipUrl).toHaveBeenCalledWith("members/documents/slip-1.jpg")
 			expect(mockUrlService.resolvePaymentSlipUrl).toHaveBeenCalledWith("members/documents/slip-reg.jpg")

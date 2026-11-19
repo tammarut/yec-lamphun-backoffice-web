@@ -87,10 +87,14 @@ export interface MemberDetailResponse {
  * private-bucket URL. The nullable branch is RESERVED: the current DDL keeps
  * `payment_slip_file_path` NOT NULL, so it is never null today — absence of
  * evidence is an absent REGISTRATION entry (empty timeline, #153's indicator),
- * not a null slip.
+ * not a null slip. `status` is the ledger row's review standing (round-4
+ * scrutiny F1, Option B): a REGISTRATION row is born APPROVED; renewal rows
+ * carry PENDING_REVIEW / APPROVED / REJECTED and stay live either way, so
+ * the timeline UI must badge standing instead of inferring it from type.
  */
 export interface MemberPaymentHistoryEntryResponse {
 	readonly type: MembershipPaymentType
 	readonly payment_date_at: string
 	readonly payment_slip: string | null
+	readonly status: "PENDING_REVIEW" | "APPROVED" | "REJECTED"
 }

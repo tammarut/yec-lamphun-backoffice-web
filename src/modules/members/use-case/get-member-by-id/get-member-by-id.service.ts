@@ -150,6 +150,7 @@ export class GetMemberByIdService {
 			type: entry.type,
 			payment_date_at: entry.paymentDateAt.toISOString(),
 			payment_slip: slipUrl,
+			status: entry.status,
 		}
 	}
 

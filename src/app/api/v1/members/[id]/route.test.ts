@@ -84,8 +84,8 @@ const memberResponse: MemberDetailResponse = {
 		updated_at: "2025-05-06T00:00:00.000Z",
 	},
 	payment_history: [
-		{ type: "REGISTRATION", payment_date_at: "2025-01-10T09:00:00.000Z", payment_slip: "https://presigned/slip-reg.jpg" },
-		{ type: "RENEWAL", payment_date_at: "2025-06-01T09:00:00.000Z", payment_slip: "https://presigned/slip-renewal.jpg" },
+		{ type: "REGISTRATION", payment_date_at: "2025-01-10T09:00:00.000Z", payment_slip: "https://presigned/slip-reg.jpg", status: "APPROVED" },
+		{ type: "RENEWAL", payment_date_at: "2025-06-01T09:00:00.000Z", payment_slip: "https://presigned/slip-renewal.jpg", status: "APPROVED" },
 	],
 }
 
