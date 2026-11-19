@@ -79,20 +79,23 @@ src/
 * Extend `AppError` (from `src/shared/core/errors/app-error`) for domain-specific errors (e.g. `DatabaseError`, `InvalidCredentialsError`).
 * **`async` functions MUST return `Promise<Result<T, E>>`** (using `ok()` / `err()`), **NOT `Promise<ResultAsync<T, E>>`**. The latter double-wraps — `ResultAsync` is itself an async wrapper, so `Promise<ResultAsync>` requires two awaits and forces callers into `as unknown` casts. `ResultAsync` is still the correct type for *non-`async`* functions or for wrapping a `Promise` internally via `ResultAsync.fromPromise(...)`.
 * **NO `try { await … } catch` in service code — wrap each fallible `await` in `ResultAsync.fromPromise(promise, (error) => new SomeAppError(…))`** (ruling, SEC-5 review): the mapping from raw rejection to domain error happens at the call site, once per await. Branch on the named `Result` intermediates in a FLAT one-level `if / else if / else` (e.g. `fetchOutcome.isErr()` → propagate; `!response.ok` → HTTP error; else parse), and extract multi-branch verdict mapping into a pure `Result`-returning classifier function with early returns (small named for-loop predicates, no `.map`/`.filter` pipelines). **Gotcha:** do NOT mix a sync `err(...)` return and a `ResultAsync` return inside one `andThen` callback — neverthrow's overloads reject the `Err | ResultAsync` union (TS2769); `await` the intermediate `Result` and branch flat instead. Reference implementation: `src/modules/shared/turnstile/turnstile.service.ts`.
+* **Multi-table transactions: wrap the TRANSACTION UNIT, not its steps.** `dbClient.transaction(...)` is the one fallible `await` (its callback auto-rolls back on any throw — ADR-0024), so the owning service wraps it in `ResultAsync.fromPromise(...)` with an `instanceof DatabaseError ? error : new DatabaseError("<unit> failed", error)` classifier. The repository step methods INSIDE the callback KEEP the throw dialect: a thrown error is what triggers the rollback — a step that returned `err(...)` instead would NOT roll back, and a swallowed `err` lets the tx auto-COMMIT a partial write. Reference: `create-new-member.service.ts` / `update-member.service.ts` / `delete-member.service.ts`.
 * **Example Pattern:**
 
     ```typescript
-    import { ok, err, Result } from "neverthrow"
+    import { ok, err, Result, ResultAsync } from "neverthrow"
     import { DatabaseError } from "src/shared/core/errors/app-error"
 
     async getDatabaseTime(): Promise<Result<Date, DatabaseError>> {
-        try {
-            const result = await this.dbClient.getRwConnection()`SELECT NOW() as now`
-            const date = result[0]?.["now"] as Date
-            return ok(date)
-        } catch (error) {
-            return err(new DatabaseError("Failed to get database time", error))
+        const queryOutcome = await ResultAsync.fromPromise(
+            this.dbClient.getRwConnection()`SELECT NOW() as now`,
+            (error) => new DatabaseError("Failed to get database time", error)
+        )
+        if (queryOutcome.isErr()) {
+            return err(queryOutcome.error)
         }
+        const date = queryOutcome.value[0]?.["now"] as Date
+        return ok(date)
     }
     ```
 
