@@ -129,16 +129,33 @@ jobs:
             #
             # DOKPLOY_ORIGIN_IP is a SECRET, not a variable: it reveals how to
             # bypass the edge for this domain.
+            #
+            # BASIC AUTH LAYER (added 2026-11-19): the panel's router now also
+            # requires HTTP Basic auth (Traefik basicAuth middleware) IN FRONT
+            # of Dokploy — a request needs BOTH the `Authorization: Basic`
+            # header (consumed by Traefik) AND the `x-api-key` (consumed by
+            # Dokploy) to reach the API. The credentials ride as two repo
+            # secrets and are handed to curl via `--user`, which builds the
+            # base64 header internally: the derived (non-maskable) base64
+            # value never exists in the shell or the logs, and a password
+            # containing colons stays safe. A missing secret fails fast, the
+            # same way as DOKPLOY_ORIGIN_IP.
             - name: Trigger Dokploy dev deploy
               env:
                   DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
                   DOKPLOY_APP_ID: ${{ vars.DOKPLOY_APP_ID }}
                   DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
                   DOKPLOY_ORIGIN_IP: ${{ secrets.DOKPLOY_ORIGIN_IP }}
+                  DOKPLOY_BASIC_AUTH_USERNAME: ${{ secrets.DOKPLOY_BASIC_AUTH_USERNAME }}
+                  DOKPLOY_BASIC_AUTH_PASSWORD: ${{ secrets.DOKPLOY_BASIC_AUTH_PASSWORD }}
               run: |
                   set -euo pipefail
                   if [ -z "$DOKPLOY_ORIGIN_IP" ]; then
                     echo "::error::DOKPLOY_ORIGIN_IP is unset — set it to the VPS IP (repo secret) so the deploy trigger can bypass Cloudflare Bot Fight Mode"
+                    exit 1
+                  fi
+                  if [ -z "$DOKPLOY_BASIC_AUTH_USERNAME" ] || [ -z "$DOKPLOY_BASIC_AUTH_PASSWORD" ]; then
+                    echo "::error::DOKPLOY_BASIC_AUTH_USERNAME / DOKPLOY_BASIC_AUTH_PASSWORD unset — the panel requires HTTP Basic auth (Traefik) in front of the Dokploy API; set both repo secrets"
                     exit 1
                   fi
                   url="$DOKPLOY_URL/api/application.deploy"
@@ -146,6 +163,7 @@ jobs:
                   http_code=$(curl -sS -o /tmp/dokploy-body -w '%{http_code}' \
                     --resolve "${host}:443:${DOKPLOY_ORIGIN_IP}" \
                     --location --request POST "$url" \
+                    --user "$DOKPLOY_BASIC_AUTH_USERNAME:$DOKPLOY_BASIC_AUTH_PASSWORD" \
                     --header "x-api-key: $DOKPLOY_API_KEY" \
                     --header "Content-Type: application/json" \
                     --data-raw "{\"applicationId\":\"$DOKPLOY_APP_ID\"}")
