@@ -1,4 +1,6 @@
-import { array, check, integer, minLength, maxLength, minValue, number, object, pipe, string, type InferOutput } from "valibot"
+import { array, check, integer, minLength, maxLength, minValue, number, object, pipe, type InferOutput } from "valibot"
+
+import { PaymentSlipSchema } from "src/app/api/shared/schemas"
 
 /**
  * Structural request schema for POST /api/v1/membership/renewals.
@@ -13,9 +15,11 @@ import { array, check, integer, minLength, maxLength, minValue, number, object, 
  *   is GONE (breaking change): an old-shape body fails with "member_ids is
  *   required"-class validation errors. Uniqueness is a cross-item rule the item
  *   schema can't express, so it rides a `check` on the array.
- * - `payment_slip`: a non-empty string. It is an opaque R2 file-path token
- *   returned by POST /api/v1/members/file/upload — trusted as-is, same stance
- *   as `id_card_image` / `company_certificate` in create-member (grilling Q6).
+ * - `payment_slip`: a non-empty string (the shared {@link PaymentSlipSchema} —
+ *   trimmed before the non-empty check, scrutiny #154 F6). It is an opaque R2
+ *   file-path token returned by POST /api/v1/members/file/upload — trusted
+ *   as-is, same stance as `id_card_image` / `company_certificate` in
+ *   create-member (grilling Q6).
  *
  * The SEC-5 human-verification token is deliberately NOT a body field: it is
  * a credential, not request data, and travels in the `Yec-Turnstile-Token`
@@ -28,7 +32,7 @@ export const CreateRenewalSchema = object({
 		maxLength(6, "member_ids must contain at most 6 members"),
 		check((ids) => new Set(ids).size === ids.length, "member_ids must be unique")
 	),
-	payment_slip: pipe(string(), minLength(1, "payment_slip is required")),
+	payment_slip: PaymentSlipSchema,
 })
 
 export type CreateRenewalSchemaOutput = InferOutput<typeof CreateRenewalSchema>

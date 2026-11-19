@@ -4,7 +4,10 @@ import * as v from "valibot"
  * Client-side valibot mirror of the server's `CreateMemberSchema` /
  * `PatchMemberSchema` (`src/app/api/v1/members/schema.ts`) for the member
  * wizard — built mode-aware via `buildMemberWizardSchema` (3b-edit): create
- * enforces the POST contract; edit mirrors PATCH's null-sticky divergence
+ * enforces the POST contract MINUS `payment_slip` — the wizard's payment step
+ * is #155's scope, so until it lands a wizard submit 400s against the #154
+ * server (the sequencing window the #154 merge directive pairs with #155);
+ * edit mirrors PATCH's null-sticky divergence
  * (blank `id_card_no` = keep the stored card) and accepts a stored
  * `company_certificate` (`existingUrl`) for juristic members.
  *

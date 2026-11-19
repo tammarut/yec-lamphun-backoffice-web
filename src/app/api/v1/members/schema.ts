@@ -1,5 +1,6 @@
 import { array, check, integer, isoDate, minLength, null_, number, object, optional, picklist, pipe, string, transform, union, type InferOutput } from "valibot"
 
+import { PaymentSlipSchema } from "src/app/api/shared/schemas"
 import type { MemberBusinessIntent } from "src/modules/members/use-case/create-new-member/create-member.types"
 
 /**
@@ -155,7 +156,7 @@ export const CreateMemberSchema = object({
 	// verbatim in the membership_renewals ledger row the create tx writes).
 	// Required and non-empty; the path is an opaque R2 token trusted from the
 	// upload endpoint (no storage validation, same stance as the renewals flow).
-	payment_slip: pipe(string(), minLength(1, "payment_slip is required")),
+	payment_slip: PaymentSlipSchema,
 	company_certificate: nullableString,
 	id_card_image: nullableString,
 	profile_avatar: nullableString,
@@ -184,18 +185,20 @@ export type CreateMemberSchemaOutput = InferOutput<typeof CreateMemberSchema>
 /**
  * Structural request schema for PATCH /api/v1/members/:id.
  *
- * Structurally identical to {@link CreateMemberSchema} today — same required
- * fields, types, enums, formats — composed from the SAME exported primitives
- * (grilling Q9) so the two cannot drift on enum literals or date/location
- * transforms. The two schemas are kept distinct so PATCH can loosen a required
- * field later without touching POST.
+ * Structurally identical to {@link CreateMemberSchema} except for TWO
+ * divergences (both composed from the SAME exported primitives, grilling Q9,
+ * so the two cannot drift on enum literals or date/location transforms). The
+ * two schemas are kept distinct so PATCH can loosen a required field later
+ * without touching POST.
  *
  * The PATCH-specific semantics (the five file-path fields treat JSON null as
  * "leave existing value unchanged", ADR-0012) are NOT expressed here — they are
  * a service-layer concern, not a structural one. The schema's job ends at
  * types/enums/formats/required-ness, same as POST.
  *
- * One structural divergence from POST: `id_card_no` is nullable and optional —
+ * Two structural divergences from POST. (1) `payment_slip` is ABSENT — POST
+ * requires it since #154; PATCH regains it in #156 as the attach-or-replace
+ * ledger upsert's input. (2) `id_card_no` is nullable and optional —
  * null (or an absent key) means "keep the stored value" (README §8 item 9).
  * GET /:id returns only the Masked ID Card, so without this divergence every
  * edit would force re-typing the full 13-digit number. A non-empty string is

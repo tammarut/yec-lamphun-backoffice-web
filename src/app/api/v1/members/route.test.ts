@@ -210,6 +210,13 @@ describe("POST /api/v1/members", () => {
 			expect(json.error_message).toBe("payment_slip is required")
 		})
 
+		it("returns 400 with the same message when payment_slip is whitespace-only (F6 — trim before minLength)", async () => {
+			const response = await POST(makeRequest({ ...validBody, payment_slip: "   " }), undefined)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("payment_slip is required")
+		})
+
 		it("returns 400 when position is not a known enum value", async () => {
 			const response = await POST(makeRequest({ ...validBody, position: "CHANCELLOR" }), undefined)
 			expect(response.status).toBe(400)

@@ -97,6 +97,16 @@ describe("CreateNewMemberService", () => {
 			expect(mockLedgerRepo.insertRegistrationPayment).toHaveBeenCalledTimes(1)
 			expect(mockLedgerRepo.insertRegistrationPayment).toHaveBeenCalledWith(fakeTx, 102, "members/documents/payment_slip.jpg")
 			expect(mockRepo.updateMember).not.toHaveBeenCalled()
+
+			// F5 (scrutiny): pin the "last write" invariant — the ledger insert
+			// runs strictly AFTER the member row and every document row, so a
+			// ledger failure rolls back real prior writes (not just the ledger).
+			const memberOrder = mockRepo.insertMember.mock.invocationCallOrder[0]!
+			const docOrders = mockDocsRepo.insertDocument.mock.invocationCallOrder
+			const lastDocOrder = docOrders[docOrders.length - 1]!
+			const ledgerOrder = mockLedgerRepo.insertRegistrationPayment.mock.invocationCallOrder[0]!
+			expect(ledgerOrder).toBeGreaterThan(memberOrder)
+			expect(ledgerOrder).toBeGreaterThan(lastDocOrder)
 		})
 
 		test("allows MULTIPLE position even when holders already exist", async () => {
