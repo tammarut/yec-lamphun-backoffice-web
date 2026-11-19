@@ -940,6 +940,7 @@
 								"1": {
 									"value": {
 										"registration_type": "JURISTIC_PERSON",
+										"payment_slip": "members/documents/payment_slip_01KXJEVSCS5CXZKKJXA99WT65H.jpg",
 										"company_certificate": "members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp",
 										"id_card_image": "members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp",
 										"profile_avatar": "members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
@@ -978,6 +979,7 @@
 								"2": {
 									"value": {
 										"registration_type": "JURISTIC_PERSON",
+										"payment_slip": "members/documents/payment_slip_01KXJEVSCS5CXZKKJXA99WT65H.jpg",
 										"company_certificate": "members/documents/company_cert_01KXJEVSCS5CXZKKJXA99WT65H.webp",
 										"id_card_image": "members/documents/id_card_image_01KXJEVRD2VWTVX1W7CDDSZ3R4.webp",
 										"profile_avatar": "members/profile_avatars/profile_avatar_01KXJEVST792P7TGJMWSECW2DH.webp",
