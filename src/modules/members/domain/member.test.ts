@@ -32,6 +32,7 @@ function makeBusinessVo(overrides: Partial<CreateMemberBusinessRequest> = {}): M
 function makeRequest(overrides: Partial<CreateMemberRequest> = {}): CreateMemberRequest {
 	return {
 		registrationType: "INDIVIDUAL",
+		paymentSlip: "members/documents/payment_slip.jpg",
 		companyCertificate: null,
 		idCardImage: null,
 		profileAvatar: null,

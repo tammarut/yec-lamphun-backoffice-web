@@ -30,6 +30,7 @@ import { GET, POST } from "./route"
 // A valid request body matching CreateMemberSchema (snake_case, as the client sends).
 const validBody = {
 	registration_type: "INDIVIDUAL",
+	payment_slip: "members/documents/payment_slip.jpg",
 	company_certificate: "members/documents/cert.jpg",
 	id_card_image: "members/documents/idcard.jpg",
 	profile_avatar: "members/avatars/a.jpg",
@@ -155,6 +156,16 @@ describe("POST /api/v1/members", () => {
 			const req = mockService.execute.mock.calls[0]![0]
 			expect(req.business.kind).toBe("create")
 		})
+
+		it("passes payment_slip through to the service verbatim (#154)", async () => {
+			mockService.execute.mockResolvedValue(ok(102))
+
+			const response = await POST(makeRequest(validBody), undefined)
+
+			expect(response.status).toBe(201)
+			const req = mockService.execute.mock.calls[0]![0]
+			expect(req.paymentSlip).toBe("members/documents/payment_slip.jpg")
+		})
 	})
 
 	describe("Unhappy cases", () => {
@@ -181,6 +192,22 @@ describe("POST /api/v1/members", () => {
 			void first_name_th
 			const response = await POST(makeRequest(missing), undefined)
 			expect(response.status).toBe(400)
+		})
+
+		it("returns 400 with the exact Valibot message when payment_slip is missing (#154)", async () => {
+			const { payment_slip, ...missing } = validBody
+			void payment_slip
+			const response = await POST(makeRequest(missing), undefined)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe('Invalid key: Expected "payment_slip" but received undefined')
+		})
+
+		it("returns 400 with the exact minLength message when payment_slip is an empty string (#154)", async () => {
+			const response = await POST(makeRequest({ ...validBody, payment_slip: "" }), undefined)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("payment_slip is required")
 		})
 
 		it("returns 400 when position is not a known enum value", async () => {
