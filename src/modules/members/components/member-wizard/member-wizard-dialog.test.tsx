@@ -49,7 +49,7 @@ const uploadPaths = (overrides: Record<string, string> = {}) => ({
 	profile_avatar_file_path: null,
 	business_logo_file_path: null,
 	business_product_file_path: null,
-	payment_slip_file_path: null,
+	payment_slip_file_path: "members/documents/payment_slip_X.jpg",
 	...overrides,
 })
 
@@ -109,6 +109,15 @@ const EDIT_DETAIL = {
 		created_at: "2024-01-18T16:00:00.000Z",
 		updated_at: "2024-01-18T16:00:00.000Z",
 	},
+	// The stored Registration Payment slip (#155) — the edit step ④ preview + presign-retry seam.
+	payment_history: [
+		{
+			type: "REGISTRATION",
+			payment_date_at: "2024-01-18T16:00:00.000Z",
+			payment_slip: "https://acct.r2.cloudflarestorage.com/private/members/documents/payment_slip_reg.jpg?X-Amz-Signature=abc",
+			status: "APPROVED",
+		},
+	],
 }
 
 function renderWizard(options: { mobile?: boolean; edit?: boolean; route?: ResponseRouter; onOpenChange?: (open: boolean) => void } = {}) {
@@ -206,13 +215,23 @@ async function fillStep3() {
 	fireEvent.click(option)
 }
 
-/** Fill every required field of steps 2 and 3, ending on the review step. */
+/** Stage the payment slip on step ④ — its file input is the only one mounted there (#155). */
+async function stageSlipOnStep4(name = "slip.jpg") {
+	await screen.findByText(/คลิกเพื่อแนบไฟล์รูปภาพ/)
+	const slipInput = document.querySelector('input[type="file"]') as Element
+	fireEvent.change(slipInput, { target: { files: [new File(["slip"], name, { type: "image/jpeg" })] } })
+	await screen.findByText(name)
+}
+
+/** Fill every required field of steps 2–4, ending on the review step (⑤). */
 async function fillValidForm() {
 	await goToStep2()
 	await fillStep2()
 	fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 	await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
 	await fillStep3()
+	fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+	await stageSlipOnStep4()
 	fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 	await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 }
@@ -311,13 +330,14 @@ describe("MemberWizardDialog", () => {
 			// Locked-forward: until step 1 validates via ถัดไป, every later rail step is locked.
 			expect(within(rail).getByText("ข้อมูลส่วนตัว").closest("button")?.disabled).toBe(true)
 			expect(within(rail).getByText("ข้อมูลธุรกิจ").closest("button")?.disabled).toBe(true)
+			expect(within(rail).getByText("การชำระเงิน").closest("button")?.disabled).toBe(true)
 			expect(within(rail).getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
 		})
 
-		it("mobile: shows ขั้นตอน X/4 progress instead of the rail", async () => {
+		it("mobile: shows ขั้นตอน X/5 progress instead of the rail", async () => {
 			renderWizard({ mobile: true })
 
-			expect(await screen.findByText("ขั้นตอน 1/4 · ข้อมูลการสมัคร")).toBeTruthy()
+			expect(await screen.findByText("ขั้นตอน 1/5 · ข้อมูลการสมัคร")).toBeTruthy()
 			expect(screen.getByRole("progressbar")).toBeTruthy()
 		})
 
@@ -330,7 +350,7 @@ describe("MemberWizardDialog", () => {
 			expect(await screen.findByText("พบข้อผิดพลาด 7 รายการ กรุณาตรวจสอบข้อมูล")).toBeTruthy()
 			const firstName = screen.getByPlaceholderText("ชื่อจริง")
 			expect(firstName.getAttribute("aria-invalid")).toBe("true")
-			expect(screen.getByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")).toBeTruthy()
+			expect(screen.getByText("ขั้นตอน 2/5 · ข้อมูลส่วนตัว")).toBeTruthy()
 			// The review step is still unreachable from the rail.
 			expect(screen.getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
 		})
@@ -415,6 +435,8 @@ describe("MemberWizardDialog", () => {
 			expect(screen.queryByText("1234567890123")).toBeNull()
 			expect(screen.getByText("อุตสาหกรรมการผลิต")).toBeTruthy()
 			expect(screen.getByText("avatar.png")).toBeTruthy()
+			// The payment section shows the staged slip's filename (#155 AC4).
+			expect(screen.getByText("slip.jpg")).toBeTruthy()
 			// The review's file rows render live data:-URL thumbnails.
 			await waitFor(() => expect(document.querySelectorAll('img[src^="data:"]').length).toBeGreaterThan(0))
 			expect(screen.getByText("ระบบจะคำนวณอัตโนมัติ")).toBeTruthy()
@@ -432,38 +454,45 @@ describe("MemberWizardDialog", () => {
 
 			// Rail jump back: step 1 current, everything ahead locked.
 			fireEvent.click(rail().getByText("ข้อมูลการสมัคร"))
-			await screen.findByText("ขั้นตอน 1/4 · ข้อมูลการสมัคร")
+			await screen.findByText("ขั้นตอน 1/5 · ข้อมูลการสมัคร")
 			expect(rail().getByText("ข้อมูลส่วนตัว").closest("button")?.disabled).toBe(true)
 			expect(rail().getByText("ข้อมูลธุรกิจ").closest("button")?.disabled).toBe(true)
+			expect(rail().getByText("การชำระเงิน").closest("button")?.disabled).toBe(true)
 			expect(rail().getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
 
 			// Walk forward to review again.
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
-			await screen.findByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")
+			await screen.findByText("ขั้นตอน 2/5 · ข้อมูลส่วนตัว")
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
-			await screen.findByText("ขั้นตอน 3/4 · ข้อมูลธุรกิจ")
+			await screen.findByText("ขั้นตอน 3/5 · ข้อมูลธุรกิจ")
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			// The staged slip persists in form state across rail jumps — step ④ passes as-is.
+			await screen.findByText("slip.jpg")
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 
-			// แก้ไข back to step 2: step 1 stays ✓ clickable, 3/4 re-lock.
+			// แก้ไข back to step 2: step 1 stays ✓ clickable, 3/5 re-lock.
 			const personalSection = document.querySelector('[data-slot="wizard-review-section"][data-step="2"]') as HTMLElement
 			fireEvent.click(within(personalSection).getByRole("button", { name: "แก้ไข" }))
-			await screen.findByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")
+			await screen.findByText("ขั้นตอน 2/5 · ข้อมูลส่วนตัว")
 			expect(rail().getByText("ข้อมูลการสมัคร").closest("button")?.disabled).toBe(false)
 			expect(rail().getByText("ข้อมูลธุรกิจ").closest("button")?.disabled).toBe(true)
+			expect(rail().getByText("การชำระเงิน").closest("button")?.disabled).toBe(true)
 			expect(rail().getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
 
 			// ย้อนกลับ re-locks the same way.
 			fireEvent.click(screen.getByRole("button", { name: "ย้อนกลับ" }))
-			await screen.findByText("ขั้นตอน 1/4 · ข้อมูลการสมัคร")
+			await screen.findByText("ขั้นตอน 1/5 · ข้อมูลการสมัคร")
 			expect(rail().getByText("ข้อมูลส่วนตัว").closest("button")?.disabled).toBe(true)
 			expect(rail().getByText("ตรวจสอบข้อมูล").closest("button")?.disabled).toBe(true)
 
-			// ถัดไป is the only way ahead — walk 1→4 and the flow still completes.
+			// ถัดไป is the only way ahead — walk 1→5 and the flow still completes.
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
-			await screen.findByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")
+			await screen.findByText("ขั้นตอน 2/5 · ข้อมูลส่วนตัว")
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
-			await screen.findByText("ขั้นตอน 3/4 · ข้อมูลธุรกิจ")
+			await screen.findByText("ขั้นตอน 3/5 · ข้อมูลธุรกิจ")
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText("slip.jpg")
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 			await submitFromReview()
@@ -480,12 +509,14 @@ describe("MemberWizardDialog", () => {
 			expect(uploadCall).toBeDefined()
 			const uploadBody = uploadCall?.[1]?.body as FormData
 			expect(uploadBody.get("profile_avatar")).toBeInstanceOf(File)
+			expect(uploadBody.get("payment_slip")).toBeInstanceOf(File)
 
 			const createCall = fetchMock.mock.calls.find(([url, init]) => String(url) === "/api/v1/members" && init?.method === "POST")
 			expect(createCall).toBeDefined()
 			const payload = JSON.parse(String(createCall?.[1]?.body)) as Record<string, unknown>
 			expect(payload["first_name_th"]).toBe("สมชาย")
 			expect(payload["profile_avatar"]).toBe("members/profile_avatars/profile_avatar_X.png")
+			expect(payload["payment_slip"]).toBe("members/documents/payment_slip_X.jpg")
 			expect(payload["business.category_id"]).toBeUndefined()
 			expect((payload["business"] as Record<string, unknown>)["category_id"]).toBe(1)
 			expect(payload["shirt_size"]).toBeUndefined()
@@ -494,7 +525,7 @@ describe("MemberWizardDialog", () => {
 			expect(localStorage.getItem("yec-member-form-draft")).toBeNull()
 
 			fireEvent.click(screen.getByRole("button", { name: "เพิ่มสมาชิกอีกคน" }))
-			expect(await screen.findByText("ขั้นตอน 1/4 · ข้อมูลการสมัคร")).toBeTruthy()
+			expect(await screen.findByText("ขั้นตอน 1/5 · ข้อมูลการสมัคร")).toBeTruthy()
 			expect(screen.queryByPlaceholderText("ชื่อจริง")).toBeNull()
 			expect(screen.queryByText("กู้คืนฉบับร่างที่บันทึกไว้ล่าสุดแล้ว")).toBeNull()
 		})
@@ -527,16 +558,33 @@ describe("MemberWizardDialog", () => {
 			expect((screen.getByPlaceholderText("ชื่อจริง") as HTMLInputElement).value).toBe("")
 			expect(localStorage.getItem("yec-member-form-draft")).toBeNull()
 		})
+
+		it("the staged slip never enters the draft — autosave strips it like every other file (#155)", async () => {
+			renderWizard()
+			await goToStep2()
+			await fillStep2()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+			await fillStep3()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await stageSlipOnStep4()
+
+			const draft = JSON.parse(localStorage.getItem("yec-member-form-draft") ?? "{}") as { payment_slip?: { file: unknown } }
+			expect(draft.payment_slip?.file).toBeNull()
+			expect(localStorage.getItem("yec-member-form-draft")).not.toContain("slip.jpg")
+		})
 	})
 
 	describe("Unhappy cases", () => {
-		it("repro: a rapid second click at the 3→4 transition must not submit (ถัดไป swaps to ยืนยัน at the same spot)", async () => {
+		it("repro: a rapid second click at the 4→5 transition must not submit (ถัดไป swaps to ยืนยัน at the same spot)", async () => {
 			const { fetchMock } = renderWizard()
 			await goToStep2()
 			await fillStep2()
 			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
 			await fillStep3()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await stageSlipOnStep4()
 
 			// Click #1 advances to review; the footer's bottom-right button then
 			// becomes ยืนยันบันทึกข้อมูล at the SAME coordinates. Click #2 (double
@@ -748,6 +796,27 @@ describe("MemberWizardDialog", () => {
 
 			expect(await screen.findByText("โหลดหมวดธุรกิจไม่สำเร็จ")).toBeTruthy()
 		})
+
+		it("create mode blocks ถัดไป on step ④ without a staged slip (#155)", async () => {
+			const { fetchMock } = renderWizard()
+			await goToStep2()
+			await fillStep2()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+			await fillStep3()
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+			await screen.findByText(/คลิกเพื่อแนบไฟล์รูปภาพ/)
+
+			fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+
+			expect(await screen.findByText("พบข้อผิดพลาด 1 รายการ กรุณาตรวจสอบข้อมูล")).toBeTruthy()
+			expect(screen.getByText("กรุณาแนบหลักฐานการชำระเงิน")).toBeTruthy()
+			expect(screen.getByText("ขั้นตอน 4/5 · การชำระเงิน")).toBeTruthy()
+			expect(screen.getByText(/คลิกเพื่อแนบไฟล์รูปภาพ/)).toBeTruthy()
+			// Neither the upload nor the create POST ever fires.
+			expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/v1/members/file/upload")).toBe(false)
+			expect(fetchMock.mock.calls.some(([url, init]) => String(url) === "/api/v1/members" && init?.method === "POST")).toBe(false)
+		})
 	})
 
 	describe("Business picker (step 3, #70)", () => {
@@ -848,6 +917,8 @@ describe("MemberWizardDialog", () => {
 				await goToStep3LinkMode()
 				await pickBusiness()
 				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				await stageSlipOnStep4()
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 
 				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
@@ -899,7 +970,7 @@ describe("MemberWizardDialog", () => {
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(1)
 			// Free rail: every step clickable straight from step 1.
 			const rail = screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" })
-			for (const title of ["ข้อมูลส่วนตัว", "ข้อมูลธุรกิจ", "ตรวจสอบข้อมูล"]) {
+			for (const title of ["ข้อมูลส่วนตัว", "ข้อมูลธุรกิจ", "การชำระเงิน", "ตรวจสอบข้อมูล"]) {
 				expect(within(rail).getByText(title).closest("button")?.disabled).toBe(false)
 			}
 			// Edit mode never reads or writes the draft.
@@ -1004,6 +1075,8 @@ describe("MemberWizardDialog", () => {
 			expect(body["company_certificate"]).toBeNull()
 			expect(body["id_card_image"]).toBeNull()
 			expect(body["profile_avatar"]).toBeNull()
+			// The read-only slip never rides the PATCH (no payment_slip key until #156).
+			expect("payment_slip" in body).toBe(false)
 			expect(body["business"]).toMatchObject({ logo: null, product: null })
 			// No upload POST — nothing changed.
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")).toHaveLength(0)
@@ -1034,13 +1107,45 @@ describe("MemberWizardDialog", () => {
 			expect(body["company_certificate"]).toBeNull()
 		})
 
-		it("repro: a rapid second click at the 3→4 transition must not submit in edit mode either", async () => {
+		it("step ④ shows the stored slip read-only — preview + filename, no staging controls (#155)", async () => {
+			renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			fireEvent.click(screen.getByText("การชำระเงิน").closest("button") as Element)
+
+			expect(await screen.findByText("payment_slip_reg.jpg")).toBeTruthy()
+			const thumb = document.querySelector('[data-slot="wizard-step-payment"] [data-slot="member-existing-thumb"]') as Element
+			expect(thumb.getAttribute("src")).toContain("payment_slip_reg.jpg")
+			// Read-only: no file input, no เปลี่ยนไฟล์/ลบไฟล์ on the payment step.
+			expect(screen.queryByRole("button", { name: "เปลี่ยนไฟล์" })).toBeNull()
+			expect(screen.queryByRole("button", { name: "ลบไฟล์" })).toBeNull()
+			expect(document.querySelector('input[type="file"]')).toBeNull()
+		})
+
+		it("an expired slip presign recovers through the same per-field retry (#155)", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			fireEvent.click(screen.getByText("การชำระเงิน").closest("button") as Element)
+			const thumb = document.querySelector('[data-slot="wizard-step-payment"] [data-slot="member-existing-thumb"]') as Element
+			expect(await screen.findByText("payment_slip_reg.jpg")).toBeTruthy()
+
+			// The stored slip preview fails to load (expired presign) → one refetch…
+			fireEvent.error(thumb)
+			await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(2))
+			// …and the failure does not loop: a second error refetches nothing.
+			fireEvent.error(thumb)
+			await new Promise((resolve) => setTimeout(resolve, 25))
+			expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(2)
+		})
+
+		it("repro: a rapid second click at the 4→5 transition must not submit in edit mode either", async () => {
 			const { fetchMock } = renderWizard({ edit: true })
 			await screen.findByText("แก้ไขข้อมูลสมาชิก")
 
-			// Free rail to step 3, then a rapid double-click on ถัดไป.
-			fireEvent.click(screen.getByText("ข้อมูลธุรกิจ").closest("button") as Element)
-			await screen.findByPlaceholderText("ชื่อกิจการ/ร้านค้า")
+			// Free rail to step ④ (การชำระเงิน), then a rapid double-click on ถัดไป.
+			fireEvent.click(screen.getByText("การชำระเงิน").closest("button") as Element)
+			await screen.findByText("หลักฐานการชำระเงิน")
 			const nextButton = screen.getByRole("button", { name: "ถัดไป" })
 			fireEvent.click(nextButton)
 			fireEvent.click(nextButton)
@@ -1074,7 +1179,7 @@ describe("MemberWizardDialog", () => {
 				expect(fetchMock.mock.calls.filter(([url, init]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH")).toHaveLength(1)
 			)
 			expect(await screen.findByText("เบอร์โทรศัพท์นี้ถูกใช้โดยสมาชิกคนอื่นแล้ว")).toBeTruthy()
-			expect(screen.getByText("ขั้นตอน 2/4 · ข้อมูลส่วนตัว")).toBeTruthy()
+			expect(screen.getByText("ขั้นตอน 2/5 · ข้อมูลส่วนตัว")).toBeTruthy()
 			expect(screen.queryByText("บันทึกการแก้ไขเรียบร้อย")).toBeNull()
 		})
 
@@ -1168,6 +1273,9 @@ describe("MemberWizardDialog", () => {
 				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await pickEditBusiness("ไก่ย่าง", /ร้านไก่ย่างเจ้าเด็ม/)
 				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				// Edit mode's step ④ needs no slip — ถัดไป straight through to review.
+				await screen.findByText("payment_slip_reg.jpg")
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 				expect(screen.getByText("ร้านไก่ย่างเจ้าเด็ม")).toBeTruthy()
 
@@ -1194,6 +1302,8 @@ describe("MemberWizardDialog", () => {
 
 				fireEvent.click(screen.getByRole("radio", { name: /ย้ายกิจการ/ }))
 				await pickEditBusiness("V Foods", /V Foods/)
+				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
+				await screen.findByText("payment_slip_reg.jpg")
 				fireEvent.click(screen.getByRole("button", { name: "ถัดไป" }))
 				await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
 

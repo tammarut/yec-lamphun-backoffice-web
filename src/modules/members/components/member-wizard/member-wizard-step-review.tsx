@@ -42,7 +42,7 @@ function FileValue({ value, name }: { value: { file: File | null; existingUrl: s
 	)
 }
 
-function ReviewSection({ title, step, onEdit, children }: { title: string; step: 1 | 2 | 3; onEdit: (step: 1 | 2 | 3) => void; children: React.ReactNode }) {
+function ReviewSection({ title, step, onEdit, children }: { title: string; step: 1 | 2 | 3 | 4; onEdit: (step: 1 | 2 | 3 | 4) => void; children: React.ReactNode }) {
 	return (
 		<Card data-slot="wizard-review-section" data-step={step}>
 			<CardHeader>
@@ -61,8 +61,8 @@ function ReviewSection({ title, step, onEdit, children }: { title: string; step:
 	)
 }
 
-/** Wizard step 4 — ตรวจสอบข้อมูล: three review sections with แก้ไข jump-backs. */
-export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) => void }) {
+/** Wizard step 5 — ตรวจสอบข้อมูล: four review sections with แก้ไข jump-backs. */
+export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3 | 4) => void }) {
 	const { getValues } = useFormContext<MemberWizardFormValues>()
 	const values = getValues()
 	const edit = useMemberWizardEdit()
@@ -187,6 +187,13 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3) =
 						/>
 					</>
 				)}
+			</ReviewSection>
+
+			<ReviewSection title="การชำระเงิน" step={4} onEdit={onEdit}>
+				<ReviewRow
+					label="หลักฐานการชำระเงิน"
+					value={values.payment_slip.file === null && values.payment_slip.existingUrl === null ? "" : <FileValue value={values.payment_slip} name="payment_slip" />}
+				/>
 			</ReviewSection>
 		</div>
 	)
