@@ -37,6 +37,7 @@ function filledValues() {
 	values.phone_no = "081-234-5678"
 	values.id_card_no = "1234567890123"
 	values.company_certificate = { file: new File(["cert"], "cert.png", { type: "image/png" }), existingUrl: null }
+	values.payment_slip = { file: new File(["slip"], "slip.jpg", { type: "image/jpeg" }), existingUrl: null }
 	values.business.name = "สมชาย คอนสตรัคชั่น"
 	values.business.category_id = "2"
 	return values
@@ -55,6 +56,8 @@ describe("Member Form Draft storage", () => {
 			// Files are not serializable — the draft must not carry them (CONTEXT.md term).
 			expect(draft?.company_certificate.file).toBeNull()
 			expect(draft?.company_certificate.existingUrl).toBeNull()
+			expect(draft?.payment_slip.file).toBeNull()
+			expect(draft?.payment_slip.existingUrl).toBeNull()
 			expect(JSON.stringify(draft)).not.toContain("cert.png")
 		})
 
@@ -68,6 +71,8 @@ describe("Member Form Draft storage", () => {
 			expect(restored?.business.category_id).toBe("")
 			expect(restored?.nationality).toBe("ไทย")
 			expect(restored?.position).toBe("GENERAL_MEMBER")
+			// Every file pair — including the #155 payment slip — re-blanks on restore.
+			expect(restored?.payment_slip).toEqual({ file: null, existingUrl: null })
 		})
 
 		test("clear removes the draft so subsequent reads return null", () => {

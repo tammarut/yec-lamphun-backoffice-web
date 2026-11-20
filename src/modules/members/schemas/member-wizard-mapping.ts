@@ -224,6 +224,22 @@ export function membershipDurationLabel(memberSinceIso: string, now: Date = new 
 }
 
 /**
+ * The stored Registration Payment slip's presigned URL from the detail
+ * response's `payment_history` — the one live REGISTRATION ledger row (the
+ * partial index guarantees at most one). Null when the member predates the
+ * ledger (the #153 missing-slip indicator case): edit mode then shows the
+ * slip as ไม่ได้แนบ, read-only, until #156 adds the attach path.
+ */
+export function registrationSlipUrl(detail: MemberDetailResponse): string | null {
+	for (const entry of detail.payment_history) {
+		if (entry.type === "REGISTRATION") {
+			return entry.payment_slip
+		}
+	}
+	return null
+}
+
+/**
  * The edit-mode pre-fill (GET /:id → form values), the inverse of the payload
  * builders above:
  * - `id_card_no` maps to "" — the Masked ID Card NEVER enters form state; a
@@ -248,6 +264,10 @@ export function memberDetailToFormValues(detail: MemberDetailResponse): MemberWi
 		company_certificate: existingFile(detail.company_certificate),
 		id_card_image: existingFile(detail.id_card_image),
 		profile_avatar: existingFile(detail.profile_avatar),
+		// The stored slip prefills read-only (#155 edit mode): the pair exists so
+		// the review label and the read-only preview render, while PATCH never
+		// sends the field back (see buildUpdatePayload — #156 replaces).
+		payment_slip: existingFile(registrationSlipUrl(detail)),
 		title_name_th: detail.title_name_th as MemberWizardFormValues["title_name_th"],
 		first_name_th: detail.first_name_th,
 		last_name_th: detail.last_name_th,

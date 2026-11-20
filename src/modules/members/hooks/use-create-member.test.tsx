@@ -22,6 +22,7 @@ function makeValues(): MemberWizardFormValues {
 		company_certificate: { file: new File(["cert"], "cert.png", { type: "image/png" }), existingUrl: null },
 		id_card_image: { file: null, existingUrl: null },
 		profile_avatar: { file: new File(["av"], "avatar.webp", { type: "image/webp" }), existingUrl: null },
+		payment_slip: { file: null, existingUrl: null },
 		title_name_th: "นาย",
 		first_name_th: "สมชาย",
 		last_name_th: "ใจดี",
@@ -108,6 +109,42 @@ describe("useCreateMember", () => {
 			// Assert
 			await waitFor(() => expect(result.current.data).toEqual({ id: 42 }))
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")).toHaveLength(1)
+		})
+
+		test("stages the payment slip into the upload and threads its path into the create payload (#155)", async () => {
+			// Arrange
+			const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input)
+				if (url === "/api/v1/members/file/upload") {
+					const form = init?.body as FormData
+					expect(form.get("payment_slip")).toBeInstanceOf(File)
+					return jsonResponse(200, {
+						id_card_image_file_path: null,
+						company_certificate_file_path: "members/documents/company_cert_X.png",
+						profile_avatar_file_path: "members/profile_avatars/profile_avatar_X.webp",
+						business_logo_file_path: null,
+						business_product_file_path: null,
+						payment_slip_file_path: "members/documents/payment_slip_X.jpg",
+					})
+				}
+				if (url === "/api/v1/members") {
+					const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+					expect(body["payment_slip"]).toBe("members/documents/payment_slip_X.jpg")
+					return jsonResponse(201, { id: 42 })
+				}
+				return jsonResponse(404, { error_message: `unexpected url ${url}` })
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const values = makeValues()
+			values.payment_slip = { file: new File(["slip"], "slip.jpg", { type: "image/jpeg" }), existingUrl: null }
+
+			// Act
+			const { result } = renderCreateHook()
+			result.current.mutate(values)
+
+			// Assert
+			await waitFor(() => expect(result.current.data).toEqual({ id: 42 }))
 		})
 
 		test("skips the upload request entirely when no file is selected", async () => {

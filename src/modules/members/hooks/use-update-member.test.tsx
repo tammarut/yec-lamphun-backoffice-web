@@ -23,6 +23,7 @@ function makeValues(): MemberWizardFormValues {
 		company_certificate: { file: null, existingUrl: "https://presigned/cert.jpg" },
 		id_card_image: { file: new File(["id"], "id.png", { type: "image/png" }), existingUrl: null },
 		profile_avatar: { file: null, existingUrl: "https://public/av.png" },
+		payment_slip: { file: null, existingUrl: "https://presigned/payment_slip.jpg" },
 		title_name_th: "นาย",
 		first_name_th: "สมชาย",
 		last_name_th: "ใจดี",

@@ -40,7 +40,7 @@ import { MemberWizardStepReview } from "src/modules/members/components/member-wi
 import { useCreateMember } from "src/modules/members/hooks/use-create-member"
 import { useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useUpdateMember } from "src/modules/members/hooks/use-update-member"
-import { memberDetailToFormValues } from "src/modules/members/schemas/member-wizard-mapping"
+import { memberDetailToFormValues, registrationSlipUrl } from "src/modules/members/schemas/member-wizard-mapping"
 import {
 	MEMBER_WIZARD_DEFAULT_VALUES,
 	MemberWizardSchema,
@@ -236,6 +236,10 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 				profile_avatar: detail.profile_avatar,
 				"business.logo": detail.business.logo,
 				"business.product": detail.business.product,
+				// The stored Registration Payment slip (presigned, from the detail's
+				// payment_history) — the edit-mode slip preview rides the same
+				// expiry-retry refetch as every other stored file.
+				payment_slip: registrationSlipUrl(detail),
 			} satisfies Record<MemberWizardFileFieldName, string | null>,
 			onExistingImageError: handleExistingImageError,
 			businessMemberCount: detail.business.member_count,

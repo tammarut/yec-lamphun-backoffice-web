@@ -4,11 +4,11 @@ import * as v from "valibot"
  * Client-side valibot mirror of the server's `CreateMemberSchema` /
  * `PatchMemberSchema` (`src/app/api/v1/members/schema.ts`) for the member
  * wizard — built mode-aware via `buildMemberWizardSchema` (3b-edit): create
- * enforces the POST contract MINUS `payment_slip` — the wizard's payment step
- * is #155's scope, so until it lands a wizard submit 400s against the #154
- * server (the sequencing window the #154 merge directive pairs with #155);
- * edit mirrors PATCH's null-sticky divergence
- * (blank `id_card_no` = keep the stored card) and accepts a stored
+ * enforces the FULL POST contract including the #154/#155 `payment_slip`
+ * evidence (required staged file on การชำระเงิน step ④); edit mirrors PATCH's
+ * divergences — `payment_slip` stays absent from the PATCH wire until #156
+ * (the wizard's edit-mode slip is a read-only prefill) and blank
+ * `id_card_no` = keep the stored card — and accepts a stored
  * `company_certificate` (`existingUrl`) for juristic members.
  *
  * Required-ness follows the API, not the mockup's markers (README §8 item 10):
@@ -286,6 +286,17 @@ function wizardFields(mode: MemberWizardMode) {
 		line_id: optionalText(DB_MAX_LENGTHS.lineId),
 		shirt_size: v.union([v.picklist(SHIRT_SIZES, "ไซส์เสื้อไม่ถูกต้อง"), v.literal("")]),
 		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
+		// การชำระเงิน step ④ (#155): the Registration Payment evidence. Create
+		// requires a staged slip (POST rejects without it since #154); edit is
+		// optional — the prefill carries the stored slip read-only (PATCH has no
+		// payment_slip key until #156).
+		payment_slip:
+			mode === "create"
+				? v.pipe(
+						memberFileValue,
+						v.check((value) => value.file !== null, "กรุณาแนบหลักฐานการชำระเงิน")
+					)
+				: memberFileValue,
 		business: buildBusinessSchema(mode),
 	}
 }
@@ -327,10 +338,10 @@ export type MemberWizardFormValues = v.InferInput<typeof MemberWizardSchema>
 
 export type MemberFileValue = { file: File | null; existingUrl: string | null }
 
-/** The five Member File field paths in `MemberWizardFormValues`. */
-export type MemberWizardFileFieldName = "company_certificate" | "id_card_image" | "profile_avatar" | "business.logo" | "business.product"
+/** The six Member File field paths in `MemberWizardFormValues`. */
+export type MemberWizardFileFieldName = "company_certificate" | "id_card_image" | "profile_avatar" | "business.logo" | "business.product" | "payment_slip"
 
-/** Per-step field paths (RHF `trigger` names) — step 4 is review-only. */
+/** Per-step field paths (RHF `trigger` names) — step 5 is review-only. */
 export const STEP_FIELDS = {
 	1: ["registration_type", "company_certificate", "id_card_image"],
 	2: [
@@ -368,7 +379,8 @@ export const STEP_FIELDS = {
 		"business.logo",
 		"business.product",
 	],
-	4: [],
+	4: ["payment_slip"],
+	5: [],
 } as const
 
 /** Mockup-v2 defaults: บุคคลธรรมดา / นาย / ชาย / ไทย / สมาชิกทั่วไป, no files. */
@@ -377,6 +389,7 @@ export const MEMBER_WIZARD_DEFAULT_VALUES = (): MemberWizardFormValues => ({
 	company_certificate: emptyMemberFileValue(),
 	id_card_image: emptyMemberFileValue(),
 	profile_avatar: emptyMemberFileValue(),
+	payment_slip: emptyMemberFileValue(),
 	title_name_th: "นาย",
 	first_name_th: "",
 	last_name_th: "",

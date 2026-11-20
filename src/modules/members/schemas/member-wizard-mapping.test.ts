@@ -10,6 +10,7 @@ import {
 	formatPhoneNumber,
 	memberDetailToFormValues,
 	membershipDurationLabel,
+	registrationSlipUrl,
 	type CreateMemberApiPayload,
 	type CreateMemberBusinessCreatePayload,
 	type UploadedFilePaths,
@@ -40,6 +41,7 @@ function makeFormValues(): MemberWizardFormValues {
 		company_certificate: { file: new File(["cert"], "cert.png", { type: "image/png" }), existingUrl: null },
 		id_card_image: { file: new File(["id"], "id.jpg", { type: "image/jpeg" }), existingUrl: null },
 		profile_avatar: { file: new File(["av"], "av.png", { type: "image/png" }), existingUrl: null },
+		payment_slip: { file: new File(["slip"], "slip.jpg", { type: "image/jpeg" }), existingUrl: null },
 		title_name_th: "นางสาว",
 		first_name_th: "มินตรา",
 		last_name_th: "น่ารัก",
@@ -313,7 +315,8 @@ function makeDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetail
 			created_at: "2024-01-18T16:00:00.000Z",
 			updated_at: "2024-01-18T16:00:00.000Z",
 		},
-		// The edit-form mapping under test never reads the payment timeline.
+		// Empty ledger by default (the pre-ledger backfill case); the slip-prefill
+		// tests override with REGISTRATION/RENEWAL entries (#155).
 		payment_history: [],
 		...overrides,
 	}
@@ -372,6 +375,17 @@ describe("memberDetailToFormValues", () => {
 			expect(values.business.linked_business).toBeNull()
 		})
 
+		test("payment_slip prefills from the REGISTRATION ledger entry's presigned slip (#155)", () => {
+			const detail = makeDetail({
+				payment_history: [
+					{ type: "RENEWAL", payment_date_at: "2026-06-01T00:00:00Z", payment_slip: "https://presigned/renewal.jpg", status: "APPROVED" },
+					{ type: "REGISTRATION", payment_date_at: "2025-01-15T00:00:00Z", payment_slip: "https://presigned/registration.jpg", status: "APPROVED" },
+				],
+			})
+			const values = memberDetailToFormValues(detail)
+			expect(values.payment_slip).toEqual({ file: null, existingUrl: "https://presigned/registration.jpg" })
+		})
+
 		test("round-trips: pre-fill → buildUpdatePayload keeps the stored phone dashes and category", () => {
 			const values = memberDetailToFormValues(makeDetail())
 			const payload = buildUpdatePayload(values, null)
@@ -380,6 +394,22 @@ describe("memberDetailToFormValues", () => {
 			expect(business.category_id).toBe(73)
 			expect(business.location).toEqual([13.72, 100.55])
 			expect(payload.id_card_no).toBeNull()
+		})
+
+		test("registrationSlipUrl picks the REGISTRATION entry out of a mixed ledger", () => {
+			const detail = makeDetail({
+				payment_history: [
+					{ type: "RENEWAL", payment_date_at: "2026-06-01T00:00:00Z", payment_slip: "https://presigned/renewal.jpg", status: "APPROVED" },
+					{ type: "REGISTRATION", payment_date_at: "2025-01-15T00:00:00Z", payment_slip: "https://presigned/registration.jpg", status: "APPROVED" },
+				],
+			})
+			expect(registrationSlipUrl(detail)).toBe("https://presigned/registration.jpg")
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		test("registrationSlipUrl returns null with no REGISTRATION entry (pre-ledger backfill case)", () => {
+			expect(registrationSlipUrl(makeDetail({ payment_history: [] }))).toBeNull()
 		})
 	})
 })
