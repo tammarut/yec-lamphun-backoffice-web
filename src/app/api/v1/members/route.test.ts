@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import "reflect-metadata"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { mock } from "vitest-mock-extended"
+import { safeParse } from "valibot"
 
 import { ResponseBodyError } from "src/app/api/shared/types"
 import { AuthService } from "src/modules/auth"
@@ -24,8 +25,12 @@ vi.mock("src/modules/container", () => ({
 	},
 }))
 
+import { buildCreatePayload, type UploadedFilePaths } from "src/modules/members/schemas/member-wizard-mapping"
+import { MEMBER_WIZARD_DEFAULT_VALUES, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+
 // Import route AFTER mocks
 import { GET, POST } from "./route"
+import { CreateMemberSchema } from "./schema"
 
 // A valid request body matching CreateMemberSchema (snake_case, as the client sends).
 const validBody = {
@@ -550,6 +555,66 @@ describe("GET /api/v1/members", () => {
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("Internal Server Error")
 			consoleSpy.mockRestore()
+		})
+	})
+})
+
+// ============================================================================
+// Wizard payload parity (#155) — the #154 scrutiny F2b CI guard
+// ============================================================================
+
+/** Create-mode defaults plus the fields the defaults leave blank but POST requires — the minimal fill. */
+function makeWizardValues(): MemberWizardFormValues {
+	const defaults = MEMBER_WIZARD_DEFAULT_VALUES()
+	return {
+		...defaults,
+		first_name_th: "สมชาย",
+		last_name_th: "ใจดี",
+		nickname: "ชาย",
+		date_of_birth: "1990-06-15",
+		id_card_no: "1234567890123",
+		id_card_expiry_date: "2035-01-01",
+		phone_no: "0812345678",
+		business: {
+			...defaults.business,
+			name: "ร้านสมชาย",
+			juristic_registration_no: "0505561000123",
+			category_id: "1",
+			description: "รับเหมาก่อสร้าง",
+		},
+	}
+}
+
+describe("Wizard payload parity (#155)", () => {
+	// The wizard's client mapping and the POST contract must not drift:
+	// buildCreatePayload's output has to parse green against the very
+	// CreateMemberSchema the route enforces above. A failing test here means
+	// a wire field changed on one side only (the #154 scrutiny F2 scenario).
+
+	describe("Happy cases", () => {
+		it("buildCreatePayload output satisfies CreateMemberSchema with the slip path threaded", () => {
+			const uploads: UploadedFilePaths = {
+				id_card_image_file_path: null,
+				company_certificate_file_path: null,
+				profile_avatar_file_path: null,
+				business_logo_file_path: null,
+				business_product_file_path: null,
+				payment_slip_file_path: "members/documents/payment_slip_01ULID.jpg",
+			}
+			const payload = buildCreatePayload(makeWizardValues(), uploads)
+			const parsed = safeParse(CreateMemberSchema, payload)
+			expect(parsed.success).toBe(true)
+			if (parsed.success) {
+				expect(parsed.output.payment_slip).toBe("members/documents/payment_slip_01ULID.jpg")
+			}
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		it("fails the POST contract when no slip was uploaded — the wizard's required-slip gate is load-bearing", () => {
+			const payload = buildCreatePayload(makeWizardValues(), null)
+			const parsed = safeParse(CreateMemberSchema, payload)
+			expect(parsed.success).toBe(false)
 		})
 	})
 })

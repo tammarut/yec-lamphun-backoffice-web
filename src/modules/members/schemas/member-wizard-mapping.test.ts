@@ -23,6 +23,7 @@ const uploads: UploadedFilePaths = {
 	profile_avatar_file_path: "members/profile_avatars/profile_avatar_03ULID.png",
 	business_logo_file_path: "members/business/logo_04ULID.png",
 	business_product_file_path: null,
+	payment_slip_file_path: "members/documents/payment_slip_05ULID.jpg",
 }
 
 /** Narrow the payload's business to the create-path union member, asserting the link branch didn't leak. */
@@ -108,6 +109,7 @@ describe("buildCreatePayload", () => {
 		test("attaches uploaded file paths at the exact wire keys", () => {
 			const payload = buildCreatePayload(makeFormValues(), uploads)
 			const business = createdBusiness(payload)
+			expect(payload.payment_slip).toBe("members/documents/payment_slip_05ULID.jpg")
 			expect(payload.company_certificate).toBe("members/documents/company_cert_02ULID.png")
 			expect(payload.id_card_image).toBe("members/documents/id_card_image_01ULID.jpg")
 			expect(payload.profile_avatar).toBe("members/profile_avatars/profile_avatar_03ULID.png")
@@ -119,6 +121,7 @@ describe("buildCreatePayload", () => {
 			const values = makeFormValues()
 			const payload = buildCreatePayload(values, null)
 			const business = createdBusiness(payload)
+			expect(payload.payment_slip).toBeNull()
 			expect(payload.company_certificate).toBeNull()
 			expect(payload.id_card_image).toBeNull()
 			expect(payload.profile_avatar).toBeNull()
@@ -252,6 +255,14 @@ describe("buildUpdatePayload", () => {
 			const payload = buildUpdatePayload(makeLinkFormValues(), null)
 			expect("business_id" in payload.business).toBe(true)
 			expect(payload.business).toEqual({ business_id: 7 })
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		test("payment_slip never reaches the PATCH wire — absent until #156's ledger upsert", () => {
+			const payload = buildUpdatePayload(makeFormValues(), uploads)
+			expect("payment_slip" in payload).toBe(false)
+			expect(JSON.stringify(payload)).not.toContain("payment_slip")
 		})
 	})
 })

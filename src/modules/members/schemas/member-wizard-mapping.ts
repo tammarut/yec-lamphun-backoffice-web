@@ -12,13 +12,14 @@ import type { MemberDetailResponse } from "src/modules/members/use-case/get-memb
  * (GET /:id → form values) lives in `memberDetailToFormValues` below.
  */
 
-/** The five `*_file_path` keys of POST /api/v1/members/file/upload's response that member creation consumes. */
+/** The six `*_file_path` keys of POST /api/v1/members/file/upload's response that member creation consumes. */
 export type UploadedFilePaths = {
 	readonly id_card_image_file_path: string | null
 	readonly company_certificate_file_path: string | null
 	readonly profile_avatar_file_path: string | null
 	readonly business_logo_file_path: string | null
 	readonly business_product_file_path: string | null
+	readonly payment_slip_file_path: string | null
 }
 
 /**
@@ -47,6 +48,8 @@ export type CreateMemberBusinessCreatePayload = {
 /** The POST /api/v1/members request body (snake_case wire contract). */
 export type CreateMemberApiPayload = {
 	registration_type: MemberWizardFormValues["registration_type"]
+	/** The Registration Payment slip path — required by POST since #154 (the ledger row's evidence). */
+	payment_slip: string | null
 	company_certificate: string | null
 	id_card_image: string | null
 	profile_avatar: string | null
@@ -110,14 +113,15 @@ function businessPayload(business: MemberWizardFormValues["business"], uploads: 
 	return { business_id: business.linked_business.id }
 }
 
-/** The PATCH /api/v1/members/{id} request body — the create payload with the null-sticky id_card_no. */
-export type UpdateMemberApiPayload = Omit<CreateMemberApiPayload, "id_card_no"> & {
+/** The PATCH /api/v1/members/{id} request body — the create payload minus the two fields PATCH diverges on: the null-sticky id_card_no and payment_slip (absent from PATCH until #156 restores it as the ledger upsert's input). */
+export type UpdateMemberApiPayload = Omit<CreateMemberApiPayload, "id_card_no" | "payment_slip"> & {
 	id_card_no: string | null
 }
 
 export function buildCreatePayload(values: MemberWizardFormValues, uploads: UploadedFilePaths | null): CreateMemberApiPayload {
 	return {
 		registration_type: values.registration_type,
+		payment_slip: pathOrNull(uploads, "payment_slip_file_path"),
 		company_certificate: pathOrNull(uploads, "company_certificate_file_path"),
 		id_card_image: pathOrNull(uploads, "id_card_image_file_path"),
 		profile_avatar: pathOrNull(uploads, "profile_avatar_file_path"),
@@ -146,14 +150,17 @@ export function buildCreatePayload(values: MemberWizardFormValues, uploads: Uplo
  * The edit-mode payload (PATCH): identical to the create payload except
  * `id_card_no` — blank submits null, which the API's null-sticky rule
  * resolves to "keep the stored card" (GET /:id exposes only the masked
- * value, so the form can never echo the plaintext back).
+ * value, so the form can never echo the plaintext back) — and `payment_slip`,
+ * dropped from the wire until #156 gives PATCH the attach-or-replace upsert.
  *
  * File paths reuse the create helper unchanged: a changed file rides the
  * upload response's path, an unchanged/absent file sends null (sticky keep).
  */
 export function buildUpdatePayload(values: MemberWizardFormValues, uploads: UploadedFilePaths | null): UpdateMemberApiPayload {
+	const { payment_slip, ...createWithoutSlip } = buildCreatePayload(values, uploads)
+	void payment_slip
 	return {
-		...buildCreatePayload(values, uploads),
+		...createWithoutSlip,
 		id_card_no: values.id_card_no.trim() === "" ? null : values.id_card_no.trim(),
 	}
 }
