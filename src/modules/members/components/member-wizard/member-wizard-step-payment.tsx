@@ -21,10 +21,8 @@ export function MemberWizardStepPayment({ disabled = false }: { disabled?: boole
 	return (
 		<FieldSet data-slot="wizard-step-payment" className="gap-4">
 			<FieldSet>
-				<FieldLegend variant="label">
-					หลักฐานการชำระเงิน
-					{edit === null && <span className="text-destructive"> *</span>}
-				</FieldLegend>
+				{/* Section title distinct from the field label below (scrutiny F1 — the label repeats หลักฐานการชำระเงิน). */}
+				<FieldLegend variant="label">การชำระเงิน</FieldLegend>
 				{edit !== null ? (
 					slipUrl !== null ? (
 						<>

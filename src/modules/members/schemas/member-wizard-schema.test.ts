@@ -118,7 +118,6 @@ describe("MemberWizardSchema", () => {
 			values.company_certificate = { file: null, existingUrl: null }
 			values.id_card_image = { file: null, existingUrl: null }
 			values.profile_avatar = { file: null, existingUrl: null }
-			values.payment_slip = fileValue("payment-slip.jpg")
 			values.title_name_en = ""
 			values.first_name_en = ""
 			values.last_name_en = ""

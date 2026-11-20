@@ -167,6 +167,11 @@ function renderWizard(options: { mobile?: boolean; edit?: boolean; route?: Respo
 					}}
 					{...(options.edit === true ? { editMember: { id: EDIT_MEMBER_ID } } : {})}
 				/>
+				{/* Test-only: the production parent keeps the dialog instance mounted and
+				    reopens it, which is the lifecycle the per-open retry cap depends on. */}
+				<button type="button" onClick={() => setOpen(true)}>
+					harness-reopen
+				</button>
 			</QueryClientProvider>
 		)
 	}
@@ -435,8 +440,11 @@ describe("MemberWizardDialog", () => {
 			expect(screen.queryByText("1234567890123")).toBeNull()
 			expect(screen.getByText("อุตสาหกรรมการผลิต")).toBeTruthy()
 			expect(screen.getByText("avatar.png")).toBeTruthy()
-			// The payment section shows the staged slip's filename (#155 AC4).
+			// The payment section shows the staged slip's filename (#155 AC4)…
 			expect(screen.getByText("slip.jpg")).toBeTruthy()
+			// …and keeps its แก้ไข in create mode — ④ stages the slip there (scrutiny F2).
+			const paymentSection = document.querySelector('[data-slot="wizard-review-section"][data-step="4"]') as HTMLElement
+			expect(within(paymentSection).getByRole("button", { name: "แก้ไข" })).toBeTruthy()
 			// The review's file rows render live data:-URL thumbnails.
 			await waitFor(() => expect(document.querySelectorAll('img[src^="data:"]').length).toBeGreaterThan(0))
 			expect(screen.getByText("ระบบจะคำนวณอัตโนมัติ")).toBeTruthy()
@@ -1053,6 +1061,11 @@ describe("MemberWizardDialog", () => {
 			expect(screen.queryByText("ระบบจะคำนวณอัตโนมัติ")).toBeNull()
 			expect(screen.queryByText("ระบบจะระบุอัตโนมัติ")).toBeNull()
 			expect(screen.getAllByText("ปกติ").length).toBeGreaterThanOrEqual(1)
+
+			// The slip section renders NO แก้ไข in edit mode — ④ is a read-only
+			// prefill there, so the button would be a dead-end (scrutiny F2).
+			const paymentSection = document.querySelector('[data-slot="wizard-review-section"][data-step="4"]') as HTMLElement
+			expect(within(paymentSection).queryByRole("button", { name: "แก้ไข" })).toBeNull()
 		})
 
 		it("submits the PATCH with null id_card_no and null unchanged file paths; success dialog บันทึกการแก้ไขเรียบร้อย", async () => {
@@ -1145,7 +1158,7 @@ describe("MemberWizardDialog", () => {
 
 			// Free rail to step ④ (การชำระเงิน), then a rapid double-click on ถัดไป.
 			fireEvent.click(screen.getByText("การชำระเงิน").closest("button") as Element)
-			await screen.findByText("หลักฐานการชำระเงิน")
+			await screen.findByText("payment_slip_reg.jpg")
 			const nextButton = screen.getByRole("button", { name: "ถัดไป" })
 			fireEvent.click(nextButton)
 			fireEvent.click(nextButton)
@@ -1215,6 +1228,29 @@ describe("MemberWizardDialog", () => {
 			fireEvent.error(thumb)
 			await new Promise((resolve) => setTimeout(resolve, 25))
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(2)
+		})
+
+		it("reopening the wizard re-arms the presign retry — the cap is per OPEN, not per component (scrutiny F3)", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+			const thumb = await screen.findByAltText("")
+			fireEvent.error(thumb)
+			await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(2))
+
+			// Close (clean form) and reopen the SAME dialog instance — the
+			// production parent keeps it mounted, so a component-lifetime cap
+			// would strand this second open.
+			fireEvent.click(screen.getByRole("button", { name: "ปิดหน้าต่าง" }))
+			await waitFor(() => expect(screen.queryByText("แก้ไขข้อมูลสมาชิก")).toBeNull())
+			fireEvent.click(screen.getByText("harness-reopen"))
+			await screen.findByText("แก้ไขข้อมูลสมาชิก")
+
+			// The reopen itself refetches the detail (remount fetch)…
+			await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(3))
+			// …and an expired presign retries AGAIN on the fresh open.
+			const reopenedThumb = await screen.findByAltText("")
+			fireEvent.error(reopenedThumb)
+			await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}`)).toHaveLength(4))
 		})
 
 		it("detail load failure shows an inline retry alert instead of a half-prefilled form", async () => {

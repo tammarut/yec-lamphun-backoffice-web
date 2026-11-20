@@ -181,6 +181,14 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 		return () => subscription.unsubscribe()
 	}, [watch, editMode])
 
+	// Expired-presign recovery: a stored preview that fails to load refetches
+	// the detail (fresh URLs). Capped at one attempt per field per open — the
+	// set resets every time the dialog opens, so a reopened wizard (same or
+	// another member) re-arms the retry while a genuinely missing object
+	// cannot loop within one open (scrutiny F3: the cap used to live for the
+	// component's whole lifetime, stranding later opens).
+	const urlRetryRef = useRef<Set<MemberWizardFileFieldName>>(new Set())
+
 	// Opening the wizard. Create: restore the draft (if any) over pristine
 	// defaults. Edit: reset the shell only — the pre-fill waits for GET /:id.
 	useLayoutEffect(() => {
@@ -195,6 +203,7 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 			})
 			setDraftRestored(restored !== null)
 		}
+		urlRetryRef.current = new Set()
 		setStep(1)
 		setShowSummary(false)
 		setSubmitError(null)
@@ -212,10 +221,6 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 		reset(memberDetailToFormValues(detail))
 	}, [editMode, open, detail, reset])
 
-	// Expired-presign recovery: a stored preview that fails to load refetches
-	// the detail (fresh URLs). Capped at one attempt per field per open, so a
-	// genuinely missing object cannot loop.
-	const urlRetryRef = useRef<Set<MemberWizardFileFieldName>>(new Set())
 	const handleExistingImageError = useCallback(
 		(field: MemberWizardFileFieldName) => {
 			if (editMember === null || urlRetryRef.current.has(field)) {
