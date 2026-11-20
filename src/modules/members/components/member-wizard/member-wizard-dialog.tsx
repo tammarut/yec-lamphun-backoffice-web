@@ -407,11 +407,12 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 					<DialogContent
 						data-slot="member-wizard-dialog"
 						showCloseButton={false}
-						onEscapeKeyDown={(event) => {
-							event.preventDefault()
-							requestClose()
-						}}
-						onInteractOutside={(event) => {
+						// Pointer-down only, NOT onInteractOutside: Radix fires the latter for
+						// focus-outside too, and the success dialog's autofocus (focus leaving
+						// this layer while it is still animating out) then stacked the dirty
+						// guard on top of the success dialog after every create (requestClose
+						// ran with the form still dirty). Escape keeps its own handler.
+						onPointerDownOutside={(event) => {
 							event.preventDefault()
 							requestClose()
 						}}

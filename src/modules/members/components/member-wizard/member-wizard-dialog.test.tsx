@@ -548,6 +548,31 @@ describe("MemberWizardDialog", () => {
 			expect(onOpenChange).toHaveBeenCalledWith(false)
 		})
 
+		it("a focus landing outside the wizard never opens the dirty guard (focus-outside is not a close request)", async () => {
+			// The real-browser bug this pins: Radix fires onInteractOutside for
+			// FOCUS-outside too, so a focusin landing outside the wizard layer
+			// (e.g. the success dialog's autofocus right after a create, while the
+			// wizard is still animating out) ran requestClose() with the form
+			// still dirty and stacked มีข้อมูลที่ยังไม่ได้บันทึก on the success
+			// dialog. The guard reacts to pointer-downs and Escape only.
+			renderWizard()
+			await goToStep2()
+			setInput("สมชาย", "ชื่อจริง")
+			// Radix tracks inside-focus via onFocusCapture; the blur from setInput
+			// clears it, so this outside focusin (target outside the layer, like
+			// the success dialog's autofocus button) is the exact trigger shape.
+			fireEvent.focusIn(document.body)
+			expect(screen.queryByText("มีข้อมูลที่ยังไม่ได้บันทึก")).toBeNull()
+		})
+
+		it("pointer-down outside the wizard still opens the dirty guard (real dismissals keep working)", async () => {
+			renderWizard()
+			await goToStep2()
+			setInput("สมชาย", "ชื่อจริง")
+			fireEvent.pointerDown(document.body)
+			expect(await screen.findByText("มีข้อมูลที่ยังไม่ได้บันทึก")).toBeTruthy()
+		})
+
 		it("restores a stored draft with the banner; เริ่มกรอกใหม่ clears it", async () => {
 			renderWizard()
 			await goToStep2()
