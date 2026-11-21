@@ -101,6 +101,9 @@ describe("useUpdateMember", () => {
 					expect(body["id_card_image"]).toBe("members/documents/id_card_image_X.png")
 					expect(body["company_certificate"]).toBeNull()
 					expect(body["profile_avatar"]).toBeNull()
+					// Untouched slip → null (sticky keep, #156): nothing staged, the
+					// upload response carried no slip path.
+					expect(body["payment_slip"]).toBeNull()
 					expect(body["business"]).toMatchObject({ logo: null, product: null })
 					return new Response(null, { status: 204 })
 				}
@@ -124,6 +127,8 @@ describe("useUpdateMember", () => {
 				if (String(input) === "/api/v1/members/42") {
 					const body = JSON.parse(String(init?.body)) as Record<string, unknown>
 					expect(body["id_card_image"]).toBeNull()
+					// Untouched slip → null (sticky keep, #156).
+					expect(body["payment_slip"]).toBeNull()
 					return new Response(null, { status: 204 })
 				}
 				return jsonResponse(500, { error_message: `unexpected url ${String(input)}` })

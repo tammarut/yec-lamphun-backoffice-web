@@ -258,13 +258,20 @@ describe("buildUpdatePayload", () => {
 			expect("business_id" in payload.business).toBe(true)
 			expect(payload.business).toEqual({ business_id: 7 })
 		})
-	})
 
-	describe("Unhappy cases", () => {
-		test("payment_slip never reaches the PATCH wire — absent until #156's ledger upsert", () => {
+		test("a staged replacement slip submits the uploaded path (attach-or-replace, #156)", () => {
+			// makeFormValues stages a slip File; uploads carries its upload path.
 			const payload = buildUpdatePayload(makeFormValues(), uploads)
-			expect("payment_slip" in payload).toBe(false)
-			expect(JSON.stringify(payload)).not.toContain("payment_slip")
+			expect(payload.payment_slip).toBe("members/documents/payment_slip_05ULID.jpg")
+		})
+
+		test("an untouched slip submits JSON null — sticky keep of the stored evidence (#156)", () => {
+			// Edit pre-fill shape: the stored slip URL, nothing staged → no upload
+			// → null → the API keeps the stored ledger row (no re-stamp).
+			const values = makeFormValues()
+			values.payment_slip = { file: null, existingUrl: "https://presigned/registration.jpg" }
+			const payload = buildUpdatePayload(values, null)
+			expect(payload.payment_slip).toBeNull()
 		})
 	})
 })

@@ -49,7 +49,7 @@ const uploadPaths = (overrides: Record<string, string> = {}) => ({
 	profile_avatar_file_path: null,
 	business_logo_file_path: null,
 	business_product_file_path: null,
-	payment_slip_file_path: "members/documents/payment_slip_X.jpg",
+	payment_slip_file_path: null,
 	...overrides,
 })
 
@@ -134,7 +134,18 @@ function renderWizard(options: { mobile?: boolean; edit?: boolean; route?: Respo
 			return jsonResponse(200, { businesses: BUSINESS_SEARCH_ROWS })
 		}
 		if (url === "/api/v1/members/file/upload") {
-			return jsonResponse(200, uploadPaths({ profile_avatar_file_path: "members/profile_avatars/profile_avatar_X.png" }))
+			// Field-truthful: a path comes back ONLY for the multipart fields the
+			// request actually staged — the real endpoint returns null elsewhere
+			// (an untouched slip in edit mode must not leak a phantom path into
+			// the PATCH's sticky payment_slip key).
+			const form = init?.body as FormData
+			return jsonResponse(
+				200,
+				uploadPaths({
+					profile_avatar_file_path: "members/profile_avatars/profile_avatar_X.png",
+					...(form.has("payment_slip") ? { payment_slip_file_path: "members/documents/payment_slip_X.jpg" } : {}),
+				})
+			)
 		}
 		if (url === "/api/v1/members" && init?.method === "POST") {
 			return jsonResponse(201, { id: 42 })
@@ -1087,10 +1098,10 @@ describe("MemberWizardDialog", () => {
 			expect(screen.queryByText("ระบบจะระบุอัตโนมัติ")).toBeNull()
 			expect(screen.getAllByText("ปกติ").length).toBeGreaterThanOrEqual(1)
 
-			// The slip section renders NO แก้ไข in edit mode — ④ is a read-only
-			// prefill there, so the button would be a dead-end (scrutiny F2).
+			// The slip section has a แก้ไข in edit mode too (#156) — ④ is the
+			// attach-or-replace surface now, so the button is no longer a dead-end.
 			const paymentSection = document.querySelector('[data-slot="wizard-review-section"][data-step="4"]') as HTMLElement
-			expect(within(paymentSection).queryByRole("button", { name: "แก้ไข" })).toBeNull()
+			expect(within(paymentSection).getByRole("button", { name: "แก้ไข" })).toBeTruthy()
 		})
 
 		it("submits the PATCH with null id_card_no and null unchanged file paths; success dialog บันทึกการแก้ไขเรียบร้อย", async () => {
@@ -1113,8 +1124,10 @@ describe("MemberWizardDialog", () => {
 			expect(body["company_certificate"]).toBeNull()
 			expect(body["id_card_image"]).toBeNull()
 			expect(body["profile_avatar"]).toBeNull()
-			// The read-only slip never rides the PATCH (no payment_slip key until #156).
-			expect("payment_slip" in body).toBe(false)
+			// The untouched slip rides the PATCH as null — sticky keep of the
+			// stored evidence (#156); no upload happened, so nothing else could
+			// reach the key.
+			expect(body["payment_slip"]).toBeNull()
 			expect(body["business"]).toMatchObject({ logo: null, product: null })
 			// No upload POST — nothing changed.
 			expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")).toHaveLength(0)
@@ -1145,7 +1158,7 @@ describe("MemberWizardDialog", () => {
 			expect(body["company_certificate"]).toBeNull()
 		})
 
-		it("step ④ shows the stored slip read-only — preview + filename, no staging controls (#155)", async () => {
+		it("step ④ is the attach-or-replace surface — stored preview + เปลี่ยนไฟล์, replace-only (#156)", async () => {
 			renderWizard({ edit: true })
 			await openEditAndWaitForPrefill()
 
@@ -1154,10 +1167,37 @@ describe("MemberWizardDialog", () => {
 			expect(await screen.findByText("payment_slip_reg.jpg")).toBeTruthy()
 			const thumb = document.querySelector('[data-slot="wizard-step-payment"] [data-slot="member-existing-thumb"]') as Element
 			expect(thumb.getAttribute("src")).toContain("payment_slip_reg.jpg")
-			// Read-only: no file input, no เปลี่ยนไฟล์/ลบไฟล์ on the payment step.
-			expect(screen.queryByRole("button", { name: "เปลี่ยนไฟล์" })).toBeNull()
+			// Staging controls are live: file input + เปลี่ยนไฟล์. Replace-only —
+			// PATCH cannot clear a slip (null = keep), so no ลบไฟล์ while the
+			// stored slip shows.
+			expect(document.querySelector('[data-slot="wizard-step-payment"] input[type="file"]')).not.toBeNull()
+			expect(screen.queryByRole("button", { name: "เปลี่ยนไฟล์" })).not.toBeNull()
 			expect(screen.queryByRole("button", { name: "ลบไฟล์" })).toBeNull()
-			expect(document.querySelector('input[type="file"]')).toBeNull()
+		})
+
+		it("a REPLACEMENT slip uploads at submit and its returned path rides the PATCH (#156)", async () => {
+			const { fetchMock } = renderWizard({ edit: true })
+			await openEditAndWaitForPrefill()
+
+			// Step ④: stage a new slip over the stored one.
+			fireEvent.click(screen.getByText("การชำระเงิน").closest("button") as Element)
+			await screen.findByText("payment_slip_reg.jpg")
+			const slipInput = document.querySelector('[data-slot="wizard-step-payment"] input[type="file"]') as Element
+			fireEvent.change(slipInput, { target: { files: [new File(["slip2"], "slip2.png", { type: "image/png" })] } })
+			await screen.findByText("slip2.png")
+
+			fireEvent.click(screen.getByText("ตรวจสอบข้อมูล").closest("button") as Element)
+			await screen.findByText(/ตรวจสอบข้อมูลทั้งหมดก่อนบันทึก/)
+			await armAndSubmit()
+			await screen.findByText("บันทึกการแก้ไขเรียบร้อย")
+
+			const uploadCalls = fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/members/file/upload")
+			expect(uploadCalls).toHaveLength(1)
+			const uploadBody = uploadCalls[0]?.[1]?.body as FormData
+			expect(uploadBody.get("payment_slip")).toBeInstanceOf(File)
+			const patchCall = fetchMock.mock.calls.find(([url, init]) => String(url) === `/api/v1/members/${EDIT_MEMBER_ID}` && init?.method === "PATCH")
+			const body = JSON.parse(String(patchCall?.[1]?.body)) as Record<string, unknown>
+			expect(body["payment_slip"]).toBe("members/documents/payment_slip_X.jpg")
 		})
 
 		it("an expired slip presign recovers through the same per-field retry (#155)", async () => {

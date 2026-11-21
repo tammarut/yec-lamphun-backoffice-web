@@ -113,8 +113,8 @@ function businessPayload(business: MemberWizardFormValues["business"], uploads: 
 	return { business_id: business.linked_business.id }
 }
 
-/** The PATCH /api/v1/members/{id} request body — the create payload minus the two fields PATCH diverges on: the null-sticky id_card_no and payment_slip (absent from PATCH until #156 restores it as the ledger upsert's input). */
-export type UpdateMemberApiPayload = Omit<CreateMemberApiPayload, "id_card_no" | "payment_slip"> & {
+/** The PATCH /api/v1/members/{id} request body — the create payload with the one field PATCH diverges on: the null-sticky id_card_no (payment_slip rides the PATCH since #156 — null = keep the stored evidence, a path = attach-or-replace). */
+export type UpdateMemberApiPayload = Omit<CreateMemberApiPayload, "id_card_no"> & {
 	id_card_no: string | null
 }
 
@@ -150,17 +150,18 @@ export function buildCreatePayload(values: MemberWizardFormValues, uploads: Uplo
  * The edit-mode payload (PATCH): identical to the create payload except
  * `id_card_no` — blank submits null, which the API's null-sticky rule
  * resolves to "keep the stored card" (GET /:id exposes only the masked
- * value, so the form can never echo the plaintext back) — and `payment_slip`,
- * dropped from the wire until #156 gives PATCH the attach-or-replace upsert.
+ * value, so the form can never echo the plaintext back).
  *
- * File paths reuse the create helper unchanged: a changed file rides the
- * upload response's path, an unchanged/absent file sends null (sticky keep).
+ * `payment_slip` rides the PATCH since #156 (ADR-0033): an untouched slip
+ * submits null — the API's sticky keep, the stored ledger row survives
+ * untouched — while a staged replacement rides the upload response's path and
+ * the server's ledger upsert re-stamps the payment date. File paths reuse the
+ * create helper unchanged: a changed file rides the upload response's path,
+ * an unchanged/absent file sends null (sticky keep).
  */
 export function buildUpdatePayload(values: MemberWizardFormValues, uploads: UploadedFilePaths | null): UpdateMemberApiPayload {
-	const { payment_slip, ...createWithoutSlip } = buildCreatePayload(values, uploads)
-	void payment_slip
 	return {
-		...createWithoutSlip,
+		...buildCreatePayload(values, uploads),
 		id_card_no: values.id_card_no.trim() === "" ? null : values.id_card_no.trim(),
 	}
 }
@@ -228,7 +229,7 @@ export function membershipDurationLabel(memberSinceIso: string, now: Date = new 
  * response's `payment_history` — the one live REGISTRATION ledger row (the
  * partial index guarantees at most one). Null when the member predates the
  * ledger (the #153 missing-slip indicator case): edit mode then shows the
- * slip as ไม่ได้แนบ, read-only, until #156 adds the attach path.
+ * slip field empty, ready for the staff backfill attach (#156).
  */
 export function registrationSlipUrl(detail: MemberDetailResponse): string | null {
 	for (const entry of detail.payment_history) {
@@ -264,9 +265,9 @@ export function memberDetailToFormValues(detail: MemberDetailResponse): MemberWi
 		company_certificate: existingFile(detail.company_certificate),
 		id_card_image: existingFile(detail.id_card_image),
 		profile_avatar: existingFile(detail.profile_avatar),
-		// The stored slip prefills read-only (#155 edit mode): the pair exists so
-		// the review label and the read-only preview render, while PATCH never
-		// sends the field back (see buildUpdatePayload — #156 replaces).
+		// The stored slip prefills the field's existing URL (live preview via the
+		// edit context); an untouched field submits null (sticky keep), a staged
+		// replacement rides PATCH's payment_slip key (#156).
 		payment_slip: existingFile(registrationSlipUrl(detail)),
 		title_name_th: detail.title_name_th as MemberWizardFormValues["title_name_th"],
 		first_name_th: detail.first_name_th,

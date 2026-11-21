@@ -52,7 +52,7 @@ function ReviewSection({
 	title: string
 	step: 1 | 2 | 3 | 4
 	onEdit: (step: 1 | 2 | 3 | 4) => void
-	/** False renders no แก้ไข — the target step has nothing the user can change (the edit-mode slip is a read-only prefill). */
+	/** False renders no แก้ไข — the target step has nothing the user can change in the current mode. */
 	editable?: boolean
 	children: React.ReactNode
 }) {
@@ -204,8 +204,8 @@ export function MemberWizardStepReview({ onEdit }: { onEdit: (step: 1 | 2 | 3 | 
 				)}
 			</ReviewSection>
 
-			{/* Edit mode's ④ is a read-only prefill (PATCH has no payment_slip key until #156) — no แก้ไข dead-end. */}
-			<ReviewSection title="การชำระเงิน" step={4} onEdit={onEdit} editable={edit === null}>
+			{/* ④ is the attach-or-replace surface in both modes (#156) — แก้ไข jumps back to it in edit too. */}
+			<ReviewSection title="การชำระเงิน" step={4} onEdit={onEdit}>
 				<ReviewRow
 					label="หลักฐานการชำระเงิน"
 					value={values.payment_slip.file === null && values.payment_slip.existingUrl === null ? "" : <FileValue value={values.payment_slip} name="payment_slip" />}

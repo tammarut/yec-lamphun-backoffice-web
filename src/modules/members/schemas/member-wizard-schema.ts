@@ -6,8 +6,9 @@ import * as v from "valibot"
  * wizard — built mode-aware via `buildMemberWizardSchema` (3b-edit): create
  * enforces the FULL POST contract including the #154/#155 `payment_slip`
  * evidence (required staged file on การชำระเงิน step ④); edit mirrors PATCH's
- * divergences — `payment_slip` stays absent from the PATCH wire until #156
- * (the wizard's edit-mode slip is a read-only prefill) and blank
+ * divergences — `payment_slip` is optional (an untouched slip submits null =
+ * keep the stored evidence; a staged replacement rides PATCH's #156
+ * attach-or-replace ledger upsert), blank
  * `id_card_no` = keep the stored card — and accepts a stored
  * `company_certificate` (`existingUrl`) for juristic members.
  *
@@ -288,8 +289,8 @@ function wizardFields(mode: MemberWizardMode) {
 		position: v.picklist(POSITIONS, "กรุณาเลือกตำแหน่งใน YEC Lamphun"),
 		// การชำระเงิน step ④ (#155): the Registration Payment evidence. Create
 		// requires a staged slip (POST rejects without it since #154); edit is
-		// optional — the prefill carries the stored slip read-only (PATCH has no
-		// payment_slip key until #156).
+		// optional — an untouched slip submits null (sticky keep) and a staged
+		// replacement rides PATCH's payment_slip key (#156 ledger upsert).
 		payment_slip:
 			mode === "create"
 				? v.pipe(
