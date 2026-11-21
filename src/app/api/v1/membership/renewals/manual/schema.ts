@@ -1,4 +1,6 @@
-import { array, check, integer, minLength, maxLength, minValue, number, object, pipe, string, type InferOutput } from "valibot"
+import { array, check, integer, minLength, maxLength, minValue, number, object, pipe, type InferOutput } from "valibot"
+
+import { PaymentSlipSchema } from "src/app/api/shared/schemas"
 
 /**
  * Structural request schema for POST /api/v1/membership/renewals/manual.
@@ -17,7 +19,10 @@ import { array, check, integer, minLength, maxLength, minValue, number, object, 
  *   required"-class validation errors. Uniqueness is a cross-item rule the item
  *   schema can't express, so it rides a `check` on the array.
  * - `payment_slip`: a non-empty opaque R2 file-path token from
- *   POST /api/v1/members/file/upload, trusted as-is.
+ *   POST /api/v1/members/file/upload, trusted as-is — the shared
+ *   {@link PaymentSlipSchema} primitive (trimmed before the non-empty check,
+ *   scrutiny #154 F6); the SCHEMA itself stays local so the two routes
+ *   evolve independently.
  */
 export const CreateManualRenewalSchema = object({
 	member_ids: pipe(
@@ -26,7 +31,7 @@ export const CreateManualRenewalSchema = object({
 		maxLength(6, "member_ids must contain at most 6 members"),
 		check((ids) => new Set(ids).size === ids.length, "member_ids must be unique")
 	),
-	payment_slip: pipe(string(), minLength(1, "payment_slip is required")),
+	payment_slip: PaymentSlipSchema,
 })
 
 export type CreateManualRenewalSchemaOutput = InferOutput<typeof CreateManualRenewalSchema>

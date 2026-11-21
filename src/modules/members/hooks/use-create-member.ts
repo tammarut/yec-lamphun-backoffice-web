@@ -25,6 +25,7 @@ function wizardFileFields(values: MemberWizardFormValues): readonly { value: Mem
 		{ value: values.profile_avatar, multipartName: "profile_avatar" },
 		{ value: values.business.logo, multipartName: "business_logo" },
 		{ value: values.business.product, multipartName: "business_product" },
+		{ value: values.payment_slip, multipartName: "payment_slip" },
 	]
 }
 

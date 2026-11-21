@@ -10,6 +10,7 @@ import {
 	formatPhoneNumber,
 	memberDetailToFormValues,
 	membershipDurationLabel,
+	registrationSlipUrl,
 	type CreateMemberApiPayload,
 	type CreateMemberBusinessCreatePayload,
 	type UploadedFilePaths,
@@ -23,6 +24,7 @@ const uploads: UploadedFilePaths = {
 	profile_avatar_file_path: "members/profile_avatars/profile_avatar_03ULID.png",
 	business_logo_file_path: "members/business/logo_04ULID.png",
 	business_product_file_path: null,
+	payment_slip_file_path: "members/documents/payment_slip_05ULID.jpg",
 }
 
 /** Narrow the payload's business to the create-path union member, asserting the link branch didn't leak. */
@@ -39,6 +41,7 @@ function makeFormValues(): MemberWizardFormValues {
 		company_certificate: { file: new File(["cert"], "cert.png", { type: "image/png" }), existingUrl: null },
 		id_card_image: { file: new File(["id"], "id.jpg", { type: "image/jpeg" }), existingUrl: null },
 		profile_avatar: { file: new File(["av"], "av.png", { type: "image/png" }), existingUrl: null },
+		payment_slip: { file: new File(["slip"], "slip.jpg", { type: "image/jpeg" }), existingUrl: null },
 		title_name_th: "นางสาว",
 		first_name_th: "มินตรา",
 		last_name_th: "น่ารัก",
@@ -108,6 +111,7 @@ describe("buildCreatePayload", () => {
 		test("attaches uploaded file paths at the exact wire keys", () => {
 			const payload = buildCreatePayload(makeFormValues(), uploads)
 			const business = createdBusiness(payload)
+			expect(payload.payment_slip).toBe("members/documents/payment_slip_05ULID.jpg")
 			expect(payload.company_certificate).toBe("members/documents/company_cert_02ULID.png")
 			expect(payload.id_card_image).toBe("members/documents/id_card_image_01ULID.jpg")
 			expect(payload.profile_avatar).toBe("members/profile_avatars/profile_avatar_03ULID.png")
@@ -119,6 +123,7 @@ describe("buildCreatePayload", () => {
 			const values = makeFormValues()
 			const payload = buildCreatePayload(values, null)
 			const business = createdBusiness(payload)
+			expect(payload.payment_slip).toBeNull()
 			expect(payload.company_certificate).toBeNull()
 			expect(payload.id_card_image).toBeNull()
 			expect(payload.profile_avatar).toBeNull()
@@ -254,6 +259,14 @@ describe("buildUpdatePayload", () => {
 			expect(payload.business).toEqual({ business_id: 7 })
 		})
 	})
+
+	describe("Unhappy cases", () => {
+		test("payment_slip never reaches the PATCH wire — absent until #156's ledger upsert", () => {
+			const payload = buildUpdatePayload(makeFormValues(), uploads)
+			expect("payment_slip" in payload).toBe(false)
+			expect(JSON.stringify(payload)).not.toContain("payment_slip")
+		})
+	})
 })
 
 function makeDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetailResponse {
@@ -302,7 +315,8 @@ function makeDetail(overrides: Partial<MemberDetailResponse> = {}): MemberDetail
 			created_at: "2024-01-18T16:00:00.000Z",
 			updated_at: "2024-01-18T16:00:00.000Z",
 		},
-		// The edit-form mapping under test never reads the payment timeline.
+		// Empty ledger by default (the pre-ledger backfill case); the slip-prefill
+		// tests override with REGISTRATION/RENEWAL entries (#155).
 		payment_history: [],
 		...overrides,
 	}
@@ -361,6 +375,17 @@ describe("memberDetailToFormValues", () => {
 			expect(values.business.linked_business).toBeNull()
 		})
 
+		test("payment_slip prefills from the REGISTRATION ledger entry's presigned slip (#155)", () => {
+			const detail = makeDetail({
+				payment_history: [
+					{ type: "RENEWAL", payment_date_at: "2026-06-01T00:00:00Z", payment_slip: "https://presigned/renewal.jpg", status: "APPROVED" },
+					{ type: "REGISTRATION", payment_date_at: "2025-01-15T00:00:00Z", payment_slip: "https://presigned/registration.jpg", status: "APPROVED" },
+				],
+			})
+			const values = memberDetailToFormValues(detail)
+			expect(values.payment_slip).toEqual({ file: null, existingUrl: "https://presigned/registration.jpg" })
+		})
+
 		test("round-trips: pre-fill → buildUpdatePayload keeps the stored phone dashes and category", () => {
 			const values = memberDetailToFormValues(makeDetail())
 			const payload = buildUpdatePayload(values, null)
@@ -369,6 +394,22 @@ describe("memberDetailToFormValues", () => {
 			expect(business.category_id).toBe(73)
 			expect(business.location).toEqual([13.72, 100.55])
 			expect(payload.id_card_no).toBeNull()
+		})
+
+		test("registrationSlipUrl picks the REGISTRATION entry out of a mixed ledger", () => {
+			const detail = makeDetail({
+				payment_history: [
+					{ type: "RENEWAL", payment_date_at: "2026-06-01T00:00:00Z", payment_slip: "https://presigned/renewal.jpg", status: "APPROVED" },
+					{ type: "REGISTRATION", payment_date_at: "2025-01-15T00:00:00Z", payment_slip: "https://presigned/registration.jpg", status: "APPROVED" },
+				],
+			})
+			expect(registrationSlipUrl(detail)).toBe("https://presigned/registration.jpg")
+		})
+	})
+
+	describe("Unhappy cases", () => {
+		test("registrationSlipUrl returns null with no REGISTRATION entry (pre-ledger backfill case)", () => {
+			expect(registrationSlipUrl(makeDetail({ payment_history: [] }))).toBeNull()
 		})
 	})
 })

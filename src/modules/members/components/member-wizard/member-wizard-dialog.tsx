@@ -35,12 +35,13 @@ import { clearMemberFormDraft, restoreMemberFormDraft, saveMemberFormDraft } fro
 import { MemberWizardEditContext } from "src/modules/members/components/member-wizard/member-wizard-edit-context"
 import { MemberWizardStepApplication } from "src/modules/members/components/member-wizard/member-wizard-step-application"
 import { MemberWizardStepBusiness } from "src/modules/members/components/member-wizard/member-wizard-step-business"
+import { MemberWizardStepPayment } from "src/modules/members/components/member-wizard/member-wizard-step-payment"
 import { MemberWizardStepPersonal } from "src/modules/members/components/member-wizard/member-wizard-step-personal"
 import { MemberWizardStepReview } from "src/modules/members/components/member-wizard/member-wizard-step-review"
 import { useCreateMember } from "src/modules/members/hooks/use-create-member"
 import { useMemberDetail } from "src/modules/members/hooks/use-member-detail"
 import { useUpdateMember } from "src/modules/members/hooks/use-update-member"
-import { memberDetailToFormValues } from "src/modules/members/schemas/member-wizard-mapping"
+import { memberDetailToFormValues, registrationSlipUrl } from "src/modules/members/schemas/member-wizard-mapping"
 import {
 	MEMBER_WIZARD_DEFAULT_VALUES,
 	MemberWizardSchema,
@@ -52,13 +53,14 @@ import {
 import { ApiError } from "src/shared/lib/api/fetch-json"
 import { cn } from "src/shared/lib/utils/utils"
 
-type WizardStep = 1 | 2 | 3 | 4
+type WizardStep = 1 | 2 | 3 | 4 | 5
 
 const STEP_TITLES: Record<WizardStep, string> = {
 	1: "ข้อมูลการสมัคร",
 	2: "ข้อมูลส่วนตัว",
 	3: "ข้อมูลธุรกิจ",
-	4: "ตรวจสอบข้อมูล",
+	4: "การชำระเงิน",
+	5: "ตรวจสอบข้อมูล",
 }
 
 /** How long the review step's submit button stays disabled after arrival (ms). */
@@ -72,7 +74,7 @@ const CONTACT_CONFLICTS: readonly { match: string; field: "phone_no" | "email" |
 ]
 
 function stepFields(step: WizardStep): FieldPath<MemberWizardFormValues>[] {
-	if (step === 4) {
+	if (step === 5) {
 		return []
 	}
 	return [...STEP_FIELDS[step]] as FieldPath<MemberWizardFormValues>[]
@@ -107,9 +109,11 @@ type MemberWizardDialogProps = {
 /**
  * The v2 member wizard (card 03): a near-fullscreen sheet-style Dialog with a
  * desktop step rail (locked-forward in create, free in edit), a mobile
- * ขั้นตอน X/4 progress bar, per-field blur + per-step validation with a top
+ * ขั้นตอน X/5 progress bar, per-field blur + per-step validation with a top
  * error summary, a dirty-guard close confirm intercepting X/Escape/
- * outside-click, and a success dialog.
+ * outside-click, and a success dialog. #155 added the การชำระเงิน payment
+ * step ④ (required slip in create, read-only stored slip in edit) ahead of
+ * the ตรวจสอบข้อมูล review step ⑤.
  *
  * Create mode adds Member Form Draft autosave/restore and เพิ่มสมาชิกอีกคน;
  * edit mode (3b-edit) never touches the draft, pre-fills from GET /:id
@@ -177,6 +181,14 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 		return () => subscription.unsubscribe()
 	}, [watch, editMode])
 
+	// Expired-presign recovery: a stored preview that fails to load refetches
+	// the detail (fresh URLs). Capped at one attempt per field per open — the
+	// set resets every time the dialog opens, so a reopened wizard (same or
+	// another member) re-arms the retry while a genuinely missing object
+	// cannot loop within one open (scrutiny F3: the cap used to live for the
+	// component's whole lifetime, stranding later opens).
+	const urlRetryRef = useRef<Set<MemberWizardFileFieldName>>(new Set())
+
 	// Opening the wizard. Create: restore the draft (if any) over pristine
 	// defaults. Edit: reset the shell only — the pre-fill waits for GET /:id.
 	useLayoutEffect(() => {
@@ -191,6 +203,7 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 			})
 			setDraftRestored(restored !== null)
 		}
+		urlRetryRef.current = new Set()
 		setStep(1)
 		setShowSummary(false)
 		setSubmitError(null)
@@ -208,10 +221,6 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 		reset(memberDetailToFormValues(detail))
 	}, [editMode, open, detail, reset])
 
-	// Expired-presign recovery: a stored preview that fails to load refetches
-	// the detail (fresh URLs). Capped at one attempt per field per open, so a
-	// genuinely missing object cannot loop.
-	const urlRetryRef = useRef<Set<MemberWizardFileFieldName>>(new Set())
 	const handleExistingImageError = useCallback(
 		(field: MemberWizardFileFieldName) => {
 			if (editMember === null || urlRetryRef.current.has(field)) {
@@ -236,6 +245,10 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 				profile_avatar: detail.profile_avatar,
 				"business.logo": detail.business.logo,
 				"business.product": detail.business.product,
+				// The stored Registration Payment slip (presigned, from the detail's
+				// payment_history) — the edit-mode slip preview rides the same
+				// expiry-retry refetch as every other stored file.
+				payment_slip: registrationSlipUrl(detail),
 			} satisfies Record<MemberWizardFileFieldName, string | null>,
 			onExistingImageError: handleExistingImageError,
 			businessMemberCount: detail.business.member_count,
@@ -283,7 +296,7 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 			setShowSummary(true)
 			return
 		}
-		const target = Math.min(step + 1, 4) as WizardStep
+		const target = Math.min(step + 1, 5) as WizardStep
 		goDirect(target)
 	}
 
@@ -292,9 +305,9 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 	// coordinates — a double click or impatient re-click would land on the
 	// armed submit and fire the upload+create without the user ever reading
 	// the review. The submit button stays disabled for a short arming window
-	// after the step becomes 4. Applies in BOTH modes.
+	// after the step becomes 5. Applies in BOTH modes.
 	useEffect(() => {
-		if (step !== 4) {
+		if (step !== 5) {
 			return
 		}
 		setSubmitArming(true)
@@ -394,11 +407,12 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 					<DialogContent
 						data-slot="member-wizard-dialog"
 						showCloseButton={false}
-						onEscapeKeyDown={(event) => {
-							event.preventDefault()
-							requestClose()
-						}}
-						onInteractOutside={(event) => {
+						// Pointer-down only, NOT onInteractOutside: Radix fires the latter for
+						// focus-outside too, and the success dialog's autofocus (focus leaving
+						// this layer while it is still animating out) then stacked the dirty
+						// guard on top of the success dialog after every create (requestClose
+						// ran with the form still dirty). Escape keeps its own handler.
+						onPointerDownOutside={(event) => {
 							event.preventDefault()
 							requestClose()
 						}}
@@ -430,16 +444,16 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 							<div className="border-b px-4 py-3 lg:hidden" data-slot="wizard-mobile-progress">
 								<div className="mb-2 flex items-baseline justify-between">
 									<span className="text-sm font-medium">
-										ขั้นตอน {step}/4 · {STEP_TITLES[step]}
+										ขั้นตอน {step}/5 · {STEP_TITLES[step]}
 									</span>
-									<span className="text-muted-foreground text-xs">{Math.round((step / 4) * 100)}%</span>
+									<span className="text-muted-foreground text-xs">{Math.round((step / 5) * 100)}%</span>
 								</div>
-								<Progress value={(step / 4) * 100} aria-label={`ขั้นตอนที่ ${step} จาก 4`} />
+								<Progress value={(step / 5) * 100} aria-label={`ขั้นตอนที่ ${step} จาก 5`} />
 							</div>
 
 							<div className="flex min-h-0 flex-1">
 								<nav aria-label="ขั้นตอนการกรอกข้อมูล" data-slot="wizard-step-rail" className="hidden w-64 shrink-0 flex-col gap-1 border-r p-4 lg:flex">
-									{([1, 2, 3, 4] as const).map((target) => {
+									{([1, 2, 3, 4, 5] as const).map((target) => {
 										// Create mode: purely position-derived — ✓ clickable behind
 										// the current step, locked ahead. Edit mode: nothing locked.
 										const isCurrent = step === target
@@ -523,7 +537,8 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 											{step === 1 && <MemberWizardStepApplication disabled={submitting} />}
 											{step === 2 && <MemberWizardStepPersonal disabled={submitting} />}
 											{step === 3 && <MemberWizardStepBusiness disabled={submitting} />}
-											{step === 4 && <MemberWizardStepReview onEdit={goDirect} />}{" "}
+											{step === 4 && <MemberWizardStepPayment disabled={submitting} />}
+											{step === 5 && <MemberWizardStepReview onEdit={goDirect} />}{" "}
 										</>
 									)}
 								</div>
@@ -534,7 +549,7 @@ export function MemberWizardDialog({ open, onOpenChange, editMember = null }: Me
 									<HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
 									ย้อนกลับ
 								</Button>
-								{step < 4 ? (
+								{step < 5 ? (
 									<Button type="button" disabled={submitting || !detailReady} onClick={() => void handleNext()}>
 										ถัดไป
 										<HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />

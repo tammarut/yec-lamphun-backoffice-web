@@ -8,7 +8,7 @@ import { DatabaseClient } from "src/shared/lib/db/database-client"
 import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
-import type { IMemberRepository } from "../../interfaces"
+import type { IMemberPaymentLedgerRepository, IMemberRepository } from "src/modules/members/interfaces"
 import { MemberConflictError, MemberValidationError } from "./create-member.errors"
 import type { CreateMemberRequest } from "./create-member.types"
 import { CreateNewMemberService } from "./create-new-member.service"
@@ -18,6 +18,7 @@ describe("CreateNewMemberService", () => {
 	let mockRepo: MockProxy<IMemberRepository>
 	let mockBusinessRepo: MockProxy<IBusinessesRepository>
 	let mockDocsRepo: MockProxy<IMemberDocumentsRepository>
+	let mockLedgerRepo: MockProxy<IMemberPaymentLedgerRepository>
 	let mockDbClient: MockProxy<DatabaseClient>
 	let mockEncryption: MockProxy<IEncryptionService>
 	let mockBlindIndex: MockProxy<IBlindIndexService>
@@ -29,6 +30,7 @@ describe("CreateNewMemberService", () => {
 		mockRepo = mock<IMemberRepository>()
 		mockBusinessRepo = mock<IBusinessesRepository>()
 		mockDocsRepo = mock<IMemberDocumentsRepository>()
+		mockLedgerRepo = mock<IMemberPaymentLedgerRepository>()
 		mockDbClient = mock<DatabaseClient>()
 		mockEncryption = mock<IEncryptionService>()
 		mockBlindIndex = mock<IBlindIndexService>()
@@ -57,8 +59,9 @@ describe("CreateNewMemberService", () => {
 		mockBusinessRepo.findLiveJuristicConflict.mockResolvedValue(ok(null))
 		mockBusinessRepo.insertBusiness.mockResolvedValue(7)
 		mockRepo.insertMember.mockResolvedValue(102)
+		mockLedgerRepo.insertRegistrationPayment.mockResolvedValue(303)
 
-		service = new CreateNewMemberService(mockDbClient, mockRepo, mockBusinessRepo, mockDocsRepo, mockEncryption, mockBlindIndex)
+		service = new CreateNewMemberService(mockDbClient, mockRepo, mockBusinessRepo, mockDocsRepo, mockLedgerRepo, mockEncryption, mockBlindIndex)
 	})
 
 	describe("Happy cases", () => {
@@ -81,6 +84,29 @@ describe("CreateNewMemberService", () => {
 			expect(mockRepo.insertMember).toHaveBeenCalledWith(fakeTx, expect.objectContaining({}), 7)
 			// makeRequest provides id_card_image + company_certificate → 2 docs.
 			expect(mockDocsRepo.insertDocument).toHaveBeenCalledTimes(2)
+		})
+
+		test("files the Registration Payment ledger row inside the same transaction (#154)", async () => {
+			// Act
+			await service.execute(makeRequest())
+
+			// Assert — the 4th write (ADR-0033): after the member-row step, the
+			// slip path travels verbatim. Ledger-only: no member UPDATE rides
+			// along (the create flow's only member write is insertMember), so no
+			// Renewal Cache Column / expiry / renewal count is touched.
+			expect(mockLedgerRepo.insertRegistrationPayment).toHaveBeenCalledTimes(1)
+			expect(mockLedgerRepo.insertRegistrationPayment).toHaveBeenCalledWith(fakeTx, 102, "members/documents/payment_slip.jpg")
+			expect(mockRepo.updateMember).not.toHaveBeenCalled()
+
+			// F5 (scrutiny): pin the "last write" invariant — the ledger insert
+			// runs strictly AFTER the member row and every document row, so a
+			// ledger failure rolls back real prior writes (not just the ledger).
+			const memberOrder = mockRepo.insertMember.mock.invocationCallOrder[0]!
+			const docOrders = mockDocsRepo.insertDocument.mock.invocationCallOrder
+			const lastDocOrder = docOrders[docOrders.length - 1]!
+			const ledgerOrder = mockLedgerRepo.insertRegistrationPayment.mock.invocationCallOrder[0]!
+			expect(ledgerOrder).toBeGreaterThan(memberOrder)
+			expect(ledgerOrder).toBeGreaterThan(lastDocOrder)
 		})
 
 		test("allows MULTIPLE position even when holders already exist", async () => {
@@ -293,12 +319,27 @@ describe("CreateNewMemberService", () => {
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
 			expect(mockRepo.insertMember).not.toHaveBeenCalled()
 		})
+
+		test("rolls back the whole transaction when the Registration Payment insert fails (#154)", async () => {
+			// Arrange — the 4th write rejects AFTER member + documents succeeded:
+			// bun:sql's auto-rollback discards every write in the tx, so no member
+			// row survives to hold an orphan-less ledger (atomicity proof).
+			mockLedgerRepo.insertRegistrationPayment.mockRejectedValue(new DatabaseError("ledger insert failed"))
+
+			// Act
+			const result = await service.execute(makeRequest())
+
+			// Assert
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+			expect(mockLedgerRepo.insertRegistrationPayment).toHaveBeenCalledTimes(1)
+		})
 	})
 })
 
 function makeRequest(overrides: Partial<CreateMemberRequest> = {}): CreateMemberRequest {
 	return {
 		registrationType: "INDIVIDUAL",
+		paymentSlip: "members/documents/payment_slip.jpg",
 		companyCertificate: "members/documents/cert.jpg",
 		idCardImage: "members/documents/idcard.jpg",
 		profileAvatar: "members/avatars/a.jpg",

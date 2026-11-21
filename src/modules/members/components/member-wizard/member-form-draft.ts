@@ -22,6 +22,7 @@ function stripFiles(values: MemberWizardFormValues): MemberFormDraftSnapshot {
 		company_certificate: emptyFile(),
 		id_card_image: emptyFile(),
 		profile_avatar: emptyFile(),
+		payment_slip: emptyFile(),
 		business: {
 			...values.business,
 			logo: emptyFile(),
@@ -79,6 +80,7 @@ export function restoreMemberFormDraft(): MemberWizardFormValues | null {
 		company_certificate: { file: null, existingUrl: null },
 		id_card_image: { file: null, existingUrl: null },
 		profile_avatar: { file: null, existingUrl: null },
+		payment_slip: { file: null, existingUrl: null },
 		business: {
 			...defaults.business,
 			...draft.business,

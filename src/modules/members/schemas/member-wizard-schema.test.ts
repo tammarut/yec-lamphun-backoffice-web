@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest"
 import { safeParse, type SafeParseResult } from "valibot"
 
-import { MemberWizardSchema, buildMemberWizardSchema, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
+import { MemberWizardSchema, STEP_FIELDS, buildMemberWizardSchema, type MemberWizardFormValues } from "src/modules/members/schemas/member-wizard-schema"
 
 /** Local-calendar ISO date (YYYY-MM-DD) — matches how the schema computes "today". */
 function localIsoDate(date: Date): string {
@@ -22,6 +22,7 @@ function makeValidFormValues(): MemberWizardFormValues {
 		company_certificate: { file: null, existingUrl: null },
 		id_card_image: fileValue("id-card.jpg"),
 		profile_avatar: fileValue("avatar.png"),
+		payment_slip: fileValue("payment-slip.jpg"),
 		title_name_th: "นาย",
 		first_name_th: "สมชาย",
 		last_name_th: "ใจดี",
@@ -112,7 +113,7 @@ describe("MemberWizardSchema", () => {
 			expect(result.success).toBe(true)
 		})
 
-		test("accepts a minimal form — every API-optional field empty, no files at all", () => {
+		test("accepts a minimal form — every API-optional field empty (the required payment slip stays staged)", () => {
 			const values = makeValidFormValues()
 			values.company_certificate = { file: null, existingUrl: null }
 			values.id_card_image = { file: null, existingUrl: null }
@@ -157,6 +158,17 @@ describe("MemberWizardSchema", () => {
 			values.business.longitude = "99"
 			values.business.category_id = "14"
 			expect(safeParse(MemberWizardSchema, values).success).toBe(true)
+		})
+
+		test("edit mode: an unstaged payment_slip passes — the stored slip is a read-only prefill (#155)", () => {
+			const values = makeValidFormValues()
+			values.payment_slip = { file: null, existingUrl: "https://presigned/payment_slip.jpg" }
+			expect(safeParse(buildMemberWizardSchema("edit"), values).success).toBe(true)
+		})
+
+		test("STEP_FIELDS gates the payment slip behind step ④ and keeps the review step fieldless (#155)", () => {
+			expect(STEP_FIELDS[4]).toEqual(["payment_slip"])
+			expect(STEP_FIELDS[5]).toEqual([])
 		})
 	})
 
@@ -220,6 +232,21 @@ describe("MemberWizardSchema", () => {
 			const result = safeParse(MemberWizardSchema, values)
 			expect(issuePaths(result)).toContainEqual(["company_certificate"])
 			expect(issueMessages(result)).toContain("นิติบุคคลต้องแนบหนังสือรับรองบริษัท")
+		})
+
+		test("requires a staged payment slip in create mode, in BOTH registration-type branches (#155)", () => {
+			const individual = makeValidFormValues()
+			individual.payment_slip = { file: null, existingUrl: null }
+			const individualResult = safeParse(MemberWizardSchema, individual)
+			expect(issuePaths(individualResult)).toContainEqual(["payment_slip"])
+			expect(issueMessages(individualResult)).toContain("กรุณาแนบหลักฐานการชำระเงิน")
+
+			const juristic = makeValidFormValues()
+			juristic.registration_type = "JURISTIC_PERSON"
+			juristic.payment_slip = { file: null, existingUrl: null }
+			const juristicResult = safeParse(MemberWizardSchema, juristic)
+			expect(issuePaths(juristicResult)).toContainEqual(["payment_slip"])
+			expect(issueMessages(juristicResult)).toContain("กรุณาแนบหลักฐานการชำระเงิน")
 		})
 
 		test("accepts a missing company certificate for INDIVIDUAL", () => {
