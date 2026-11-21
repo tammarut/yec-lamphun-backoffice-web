@@ -9,7 +9,7 @@ import { DatabaseError } from "src/shared/core/errors/app-error"
 import type { MemberDetailReadModel } from "src/modules/members/domain/member-read-models"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
-import type { IMemberRepository } from "../../interfaces"
+import type { IMemberPaymentLedgerRepository, IMemberRepository } from "../../interfaces"
 import { MemberConflictError, MemberValidationError } from "../create-new-member/create-member.errors"
 import { MemberNotFoundError } from "../get-member-by-id/get-member-by-id.errors"
 import { UpdateMemberService } from "./update-member.service"
@@ -20,6 +20,7 @@ describe("UpdateMemberService", () => {
 	let mockRepo: MockProxy<IMemberRepository>
 	let mockBusinessRepo: MockProxy<IBusinessesRepository>
 	let mockDocsRepo: MockProxy<IMemberDocumentsRepository>
+	let mockLedgerRepo: MockProxy<IMemberPaymentLedgerRepository>
 	let mockDbClient: MockProxy<DatabaseClient>
 	let mockEncryption: MockProxy<IEncryptionService>
 	let mockBlindIndex: MockProxy<IBlindIndexService>
@@ -31,6 +32,7 @@ describe("UpdateMemberService", () => {
 		mockRepo = mock<IMemberRepository>()
 		mockBusinessRepo = mock<IBusinessesRepository>()
 		mockDocsRepo = mock<IMemberDocumentsRepository>()
+		mockLedgerRepo = mock<IMemberPaymentLedgerRepository>()
 		mockDbClient = mock<DatabaseClient>()
 		mockEncryption = mock<IEncryptionService>()
 		mockBlindIndex = mock<IBlindIndexService>()
@@ -63,11 +65,12 @@ describe("UpdateMemberService", () => {
 		mockBusinessRepo.lockLiveBusinessIdByMemberId.mockResolvedValue(14)
 		mockBusinessRepo.lockLiveBusinessById.mockResolvedValue(55)
 		mockBusinessRepo.countLiveMembersByBusinessId.mockResolvedValue(1)
+		mockLedgerRepo.upsertRegistrationPayment.mockResolvedValue(303)
 		// Same hash as stored → conditional dup check is skipped on happy path.
 		mockBlindIndex.hash.mockReturnValue(ok("stored-hmac-hash"))
 		mockEncryption.encrypt.mockReturnValue(ok("enc-base64"))
 
-		service = new UpdateMemberService(mockDbClient, mockRepo, mockBusinessRepo, mockDocsRepo, mockEncryption, mockBlindIndex)
+		service = new UpdateMemberService(mockDbClient, mockRepo, mockBusinessRepo, mockDocsRepo, mockLedgerRepo, mockEncryption, mockBlindIndex)
 	})
 
 	describe("Happy cases", () => {
@@ -181,6 +184,41 @@ describe("UpdateMemberService", () => {
 			expect(result.isOk()).toBe(true)
 			expect(mockDocsRepo.softDeleteByTypes).not.toHaveBeenCalled()
 			expect(mockDocsRepo.insertDocument).not.toHaveBeenCalled()
+		})
+
+		test("null payment_slip keeps the ledger untouched (sticky, #156)", async () => {
+			// Arrange — request sends null: "keep the stored Registration Payment
+			// evidence" (null and absent coalesce to null at the route).
+			const req = makeRequest({ paymentSlip: null })
+
+			// Act
+			const result = await service.execute(101, req)
+
+			// Assert — ok, and NO ledger write: the stored slip is untouched, no
+			// payment-date re-stamp, no upsert churn on the evidence row.
+			expect(result.isOk()).toBe(true)
+			expect(mockLedgerRepo.upsertRegistrationPayment).not.toHaveBeenCalled()
+		})
+
+		test("a new payment_slip path upserts the ledger row inside the transaction (#156)", async () => {
+			// Arrange — a NEW slip path (the upload endpoint's returned R2 token).
+			// The same code path serves the attach case (member with no live
+			// REGISTRATION row — pre-#154 backfill): the DB's ON CONFLICT on
+			// idx_one_registration_payment_per_member resolves insert-vs-replace.
+			const req = makeRequest({ paymentSlip: "members/payments/new-slip.jpg" })
+
+			// Act
+			const result = await service.execute(101, req)
+
+			// Assert — the upsert rides the update tx (same tx handle as the
+			// member write) and runs AFTER it, mirroring the create flow's
+			// ledger-last order (ADR-0033).
+			expect(result.isOk()).toBe(true)
+			expect(mockLedgerRepo.upsertRegistrationPayment).toHaveBeenCalledTimes(1)
+			expect(mockLedgerRepo.upsertRegistrationPayment).toHaveBeenCalledWith(fakeTx, 101, "members/payments/new-slip.jpg")
+			const memberOrder = mockRepo.updateMember.mock.invocationCallOrder[0]!
+			const ledgerOrder = mockLedgerRepo.upsertRegistrationPayment.mock.invocationCallOrder[0]!
+			expect(ledgerOrder).toBeGreaterThan(memberOrder)
 		})
 	})
 
@@ -477,6 +515,22 @@ describe("UpdateMemberService", () => {
 			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
 			expect(mockBusinessRepo.updateBusinessById).not.toHaveBeenCalled()
 		})
+
+		test("returns DatabaseError and rolls back when the ledger upsert fails (#156)", async () => {
+			// Arrange — the ledger step throws inside the tx (throw dialect keeps
+			// the bun:sql auto-rollback, ADR-0024): the member edit and the ledger
+			// write commit together or not at all.
+			mockLedgerRepo.upsertRegistrationPayment.mockRejectedValue(new DatabaseError("ledger upsert failed"))
+			const req = makeRequest({ paymentSlip: "members/payments/new-slip.jpg" })
+
+			// Act
+			const result = await service.execute(101, req)
+
+			// Assert
+			expect(result._unsafeUnwrapErr()).toBeInstanceOf(DatabaseError)
+			expect(mockLedgerRepo.upsertRegistrationPayment).toHaveBeenCalledTimes(1)
+			expect(mockRepo.updateMember).toHaveBeenCalledTimes(1)
+		})
 	})
 })
 
@@ -551,6 +605,7 @@ function makeCreateBusiness() {
 function makeRequest(overrides: Partial<UpdateMemberRequest> = {}): UpdateMemberRequest {
 	return {
 		registrationType: "INDIVIDUAL",
+		paymentSlip: null,
 		companyCertificate: "members/documents/cert-stored.jpg",
 		idCardImage: "members/documents/idcard-stored.jpg",
 		profileAvatar: "members/profile_avatars/a.png",

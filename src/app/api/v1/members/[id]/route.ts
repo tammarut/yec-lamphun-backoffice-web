@@ -72,6 +72,10 @@ export const GET = withAuth<MemberDetailResponse | ResponseBodyError>(async func
 // id_card_no follows the same null-sticky rule (README §8 item 9): null (or an
 // absent key) keeps the stored id card — GET /:id returns only the masked
 // value, so a non-sticky PATCH would force re-typing the 13-digit number.
+// payment_slip follows the same sticky rule into the payment ledger (#156,
+// ADR-0033): null (or absent) keeps the stored Registration Payment evidence;
+// a non-empty string attaches or replaces it via the ledger upsert inside the
+// update transaction.
 //
 // Success → 204 No Content (empty body), per spec. Errors → { error_message }.
 // ============================================================================
@@ -195,6 +199,10 @@ function mapDeleteError(error: DeleteMemberError): NextResponse<ResponseBodyErro
 function toServiceRequest(o: PatchMemberSchemaOutput): UpdateMemberRequest {
 	return {
 		registrationType: o.registration_type,
+		// Null-sticky (#156, ADR-0033): an absent key coalesces to null = keep
+		// the stored Registration Payment evidence; a string is the new slip
+		// path for the ledger upsert.
+		paymentSlip: o.payment_slip ?? null,
 		companyCertificate: o.company_certificate,
 		idCardImage: o.id_card_image,
 		profileAvatar: o.profile_avatar,

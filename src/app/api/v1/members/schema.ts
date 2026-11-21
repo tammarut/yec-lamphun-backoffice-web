@@ -196,9 +196,11 @@ export type CreateMemberSchemaOutput = InferOutput<typeof CreateMemberSchema>
  * a service-layer concern, not a structural one. The schema's job ends at
  * types/enums/formats/required-ness, same as POST.
  *
- * Two structural divergences from POST. (1) `payment_slip` is ABSENT — POST
- * requires it since #154; PATCH regains it in #156 as the attach-or-replace
- * ledger upsert's input. (2) `id_card_no` is nullable and optional —
+ * Two structural divergences from POST. (1) `payment_slip` is optional and
+ * nullable (#156, ADR-0033): null (or an absent key) means "keep the stored
+ * Registration Payment evidence" — no ledger write; a non-empty string (after
+ * the shared PaymentSlipSchema's trim) is the attach-or-replace ledger
+ * upsert's input, stored verbatim. (2) `id_card_no` is nullable and optional —
  * null (or an absent key) means "keep the stored value" (README §8 item 9).
  * GET /:id returns only the Masked ID Card, so without this divergence every
  * edit would force re-typing the full 13-digit number. A non-empty string is
@@ -206,6 +208,9 @@ export type CreateMemberSchemaOutput = InferOutput<typeof CreateMemberSchema>
  */
 export const PatchMemberSchema = object({
 	registration_type: RegistrationTypeSchema,
+	// #156: optional + nullable — absent/null = sticky keep, a string (trimmed,
+	// non-empty, shared with POST) = attach-or-replace via the ledger upsert.
+	payment_slip: optional(union([PaymentSlipSchema, null_()])),
 	company_certificate: nullableString,
 	id_card_image: nullableString,
 	profile_avatar: nullableString,

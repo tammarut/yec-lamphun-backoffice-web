@@ -11,7 +11,7 @@ import { shouldPositionConflict } from "../../domain/position-conflict-policy"
 import type { MemberBusinessReadModel, MemberDocumentType } from "../../domain/member-read-models"
 import type { IBusinessesRepository } from "../../repository/businesses/interfaces"
 import type { IMemberDocumentsRepository } from "../../repository/member-document/interfaces"
-import type { IMemberRepository } from "../../interfaces"
+import type { IMemberPaymentLedgerRepository, IMemberRepository } from "../../interfaces"
 import { MemberConflictError, MemberValidationError, type MemberConflictReason } from "../create-new-member/create-member.errors"
 import { MemberNotFoundError } from "../get-member-by-id/get-member-by-id.errors"
 import type { UpdateMemberError } from "./update-member.errors"
@@ -45,6 +45,13 @@ import type { UpdateMemberRequest } from "./update-member.types"
  * cannot be substituted into the request; Member.update carries it over via
  * the preserved cipher instead.
  *
+ * payment_slip (#156, ADR-0033) is sticky into the PAYMENT LEDGER, not the
+ * member row: null/absent keeps the stored Registration Payment evidence; a
+ * non-null string runs IMemberPaymentLedgerRepository.upsertRegistrationPayment
+ * as the transaction's final step — attach-or-replace on the
+ * one-live-REGISTRATION partial unique index, payment_date_at re-stamped by
+ * the DB's NOW() (renewal semantics).
+ *
  * The re-link runs INSIDE the update transaction with ADR-0023 lifecycle
  * participation: lock the member's current (old) business row first
  * (member→business lock order), re-check + lock the TARGET business, re-point
@@ -72,6 +79,7 @@ export class UpdateMemberService {
 		@inject(REGISTER_KEY.MEMBERS_REPOSITORY) private readonly repository: IMemberRepository,
 		@inject(REGISTER_KEY.BUSINESSES_REPOSITORY) private readonly businessesRepository: IBusinessesRepository,
 		@inject(REGISTER_KEY.MEMBER_DOCUMENTS_REPOSITORY) private readonly documentsRepository: IMemberDocumentsRepository,
+		@inject(REGISTER_KEY.MEMBER_PAYMENT_LEDGER_REPOSITORY) private readonly paymentLedgerRepository: IMemberPaymentLedgerRepository,
 		@inject(REGISTER_KEY.ENCRYPTION_SERVICE) private readonly encryption: IEncryptionService,
 		@inject(REGISTER_KEY.BLIND_INDEX_SERVICE) private readonly blindIndex: IBlindIndexService
 	) {}
@@ -213,8 +221,9 @@ export class UpdateMemberService {
 		//    business write (edit: wholesale overwrite of the shared row;
 		//    re-link: lock old business → re-point → release when last live link,
 		//    ADR-0023 lifecycle participation; no-op: nothing) → per replaced
-		//    type, soft-delete old docs + insert new. Auto-commit on success,
-		//    auto-rollback on any throw.
+		//    type, soft-delete old docs + insert new → the Registration Payment
+		//    ledger upsert when the request carries a new slip (#156, ADR-0033).
+		//    Auto-commit on success, auto-rollback on any throw.
 		// The transaction unit is the ONE wrapped await (AGENTS.md §B / SEC-5):
 		// steps INSIDE stay throw-based — the throw is what triggers bun:sql's
 		// auto-rollback (ADR-0024).
@@ -276,6 +285,17 @@ export class UpdateMemberService {
 					for (const doc of newDocsToInsert) {
 						await this.documentsRepository.insertDocument(sql, id, doc)
 					}
+				}
+
+				// Final ledger step (#156, ADR-0033): a non-null paymentSlip attaches
+				// or replaces the member's Registration Payment in place — the upsert
+				// rides idx_one_registration_payment_per_member (exactly one live
+				// REGISTRATION row) and the DB's NOW() re-stamps payment_date_at,
+				// matching the renewal semantics. null/absent (coalesced at the
+				// route) = sticky keep: no ledger write, no re-stamp, no churn on
+				// the stored evidence.
+				if (resolvedReq.paymentSlip !== null) {
+					await this.paymentLedgerRepository.upsertRegistrationPayment(sql, id, resolvedReq.paymentSlip)
 				}
 			}),
 			(error) => (error instanceof DatabaseError ? error : new DatabaseError("Member update transaction failed", error))

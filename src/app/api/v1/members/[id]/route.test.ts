@@ -285,6 +285,32 @@ describe("PATCH /api/v1/members/:id", () => {
 			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ idCardNo: null }))
 		})
 
+		it("maps a JSON-null payment_slip to paymentSlip: null (sticky keep, #156)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, payment_slip: null })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ paymentSlip: null }))
+		})
+
+		it("maps an ABSENT payment_slip key to paymentSlip: null (sticky keep, #156)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const bodyWithoutSlip: Record<string, unknown> = { ...validPatchBody }
+			delete bodyWithoutSlip["payment_slip"]
+			const { req, ctx } = makePatchRequest("101", bodyWithoutSlip)
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ paymentSlip: null }))
+		})
+
+		it("maps a new payment_slip path through to the service DTO verbatim (#156)", async () => {
+			mockUpdateService.execute.mockResolvedValue(ok(undefined))
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, payment_slip: "members/payments/replaced-slip.jpg" })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(204)
+			expect(mockUpdateService.execute).toHaveBeenCalledWith(101, expect.objectContaining({ paymentSlip: "members/payments/replaced-slip.jpg" }))
+		})
+
 		it("resolves the RE-LINK branch: { business_id } alone reaches the service as a link intent (#69)", async () => {
 			mockUpdateService.execute.mockResolvedValue(ok(undefined))
 			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, business: { business_id: 42 } })
@@ -359,6 +385,30 @@ describe("PATCH /api/v1/members/:id", () => {
 			expect(response.status).toBe(400)
 			const json = (await response.json()) as ResponseBodyError
 			expect(json.error_message).toBe("id_card_no is required")
+		})
+
+		it("returns 400 when payment_slip is an empty string (sticky accepts null, not blank, #156)", async () => {
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, payment_slip: "" })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("payment_slip is required")
+		})
+
+		it("returns 400 when payment_slip is whitespace-only (trim runs before the required check, #156)", async () => {
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, payment_slip: "   " })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
+			const json = (await response.json()) as ResponseBodyError
+			expect(json.error_message).toBe("payment_slip is required")
+		})
+
+		it("returns 400 when payment_slip is a non-string (#156)", async () => {
+			// The route pins the CONTRACT (400) only — the union's exact issue
+			// message is pinned by the live-server TC (TC-26), never guessed here.
+			const { req, ctx } = makePatchRequest("101", { ...validPatchBody, payment_slip: 123 })
+			const response = await PATCH(req, ctx)
+			expect(response.status).toBe(400)
 		})
 
 		it("returns 404 when the member is not found", async () => {

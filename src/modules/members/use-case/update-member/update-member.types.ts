@@ -13,12 +13,15 @@ import type { CreateMemberRequest } from "../create-new-member/create-member.typ
  * A non-null string still carries a NEW plaintext: it is validated (13 digits)
  * and re-encrypted by the domain, same as create.
  *
- * `paymentSlip` is omitted (#154): the create flow's required slip has no
- * PATCH counterpart yet — the edit flow's attach-or-replace ledger write is
- * #156's scope, which restores the field (fed by the edit wizard's optional
- * การชำระเงิน step) and wires
- * {@link IMemberPaymentLedgerRepository.upsertRegistrationPayment}.
+ * `paymentSlip` is nullable (#156): null (or an absent key, coalesced to null
+ * by the route) means "keep the stored Registration Payment evidence" — no
+ * ledger write, no payment-date re-stamp. A non-null string is the upload
+ * endpoint's returned R2 token, stored verbatim by
+ * {@link IMemberPaymentLedgerRepository.upsertRegistrationPayment} inside the
+ * update transaction (attach-or-replace on the one-live-REGISTRATION index,
+ * ADR-0033; fed by the edit wizard's การชำระเงิน step).
  */
 export type UpdateMemberRequest = Omit<CreateMemberRequest, "idCardNo" | "paymentSlip"> & {
 	readonly idCardNo: string | null
+	readonly paymentSlip: string | null
 }
